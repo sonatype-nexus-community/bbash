@@ -109,33 +109,22 @@ func getParticipantDetail(c echo.Context) (err error) {
 
 	sqlQuery := `SELECT * FROM participants WHERE GitHubName = $1`
 
-	rows, err := db.Query(sqlQuery, gitHubName)
+	row := db.QueryRow(sqlQuery, gitHubName)
+
+	participant := new(participant)
+	err = row.Scan(&participant.ID,
+		&participant.GitHubName,
+		&participant.email,
+		&participant.DisplayName,
+		&participant.Score,
+		&participant.fkTeam,
+		&participant.JoinedAt)
+
 	if err != nil {
 		return
 	}
 
-	var participants []participant
-
-	for rows.Next() {
-		participant := new(participant)
-
-		err = rows.Scan(
-			&participant.ID,
-			&participant.GitHubName,
-			&participant.email,
-			&participant.DisplayName,
-			&participant.Score,
-			&participant.fkTeam,
-			&participant.JoinedAt,
-		)
-		if err != nil {
-			return
-		}
-
-		participants = append(participants, *participant)
-	}
-
-	return c.JSON(http.StatusOK, participants)
+	return c.JSON(http.StatusOK, participant)
 }
 
 func getParticipantsList(c echo.Context) (err error) {
