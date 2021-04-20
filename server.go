@@ -1,10 +1,31 @@
 package main
 
 import (
+	"database/sql"
+	"fmt"
 	"net/http"
+	"os"
+	"strconv"
+	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 )
+
+var db *sql.DB
+
+type participant struct {
+	ID          string         `json:"guid"`
+	GitHubName  string         `json:"gitHubName"`
+	email       string         `json:"email"`
+	DisplayName string         `json:"displayName"`
+	Score       string         `json:"score"`
+	fkTeam      sql.NullString `json:"team"`
+	JoinedAt    time.Time      `json:"joinedAt"`
+}
 
 func main() {
 
@@ -23,11 +44,43 @@ func main() {
 	e := echo.New()
 	e.Debug = true
 
-	e.GET("/", handleRoot)
+	err := godotenv.Load(".env")
+	if err != nil {
+		e.Logger.Error(err)
+	}
+
+	host := os.Getenv("PG_HOST")
+	port, _ := strconv.Atoi(os.Getenv("PG_PORT"))
+	user := os.Getenv("PG_USERNAME")
+	password := os.Getenv("PG_PASSWORD")
+	dbname := os.Getenv("PG_DB_NAME")
+	sslMode := os.Getenv("SSL_MODE")
+
+	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=%s",
+		host, port, user, password, dbname, sslMode)
+	db, err = sql.Open("postgres", psqlInfo)
+	if err != nil {
+		e.Logger.Error(err)
+	}
+	defer db.Close()
+
+	err = db.Ping()
+	if err != nil {
+		e.Logger.Error(err)
+	}
+
+	err = migrateDB(db)
+	if err != nil {
+		e.Logger.Error(err)
+	}
 
 	participantGroup := e.Group(PARTICIPANT)
 
-	participantGroup.GET(DETAIL, getParticipantDetail)
+	participantGroup.GET(
+		fmt.Sprintf("%s/:id", DETAIL),
+		getParticipantDetail)
+
 	participantGroup.GET(LIST, getParticipantsList)
 	participantGroup.POST(UPDATE, updateParticipant)
 	participantGroup.PUT(ADD, addParticipant)
@@ -51,7 +104,38 @@ func main() {
 }
 
 func getParticipantDetail(c echo.Context) (err error) {
-	return
+	gitHubName := c.Param("id")
+	c.Logger().Debug("Getting detail for ", gitHubName)
+
+	sqlQuery := `SELECT * FROM participants WHERE GitHubName = $1`
+
+	rows, err := db.Query(sqlQuery, gitHubName)
+	if err != nil {
+		return
+	}
+
+	var participants []participant
+
+	for rows.Next() {
+		participant := new(participant)
+
+		err = rows.Scan(
+			&participant.ID,
+			&participant.GitHubName,
+			&participant.email,
+			&participant.DisplayName,
+			&participant.Score,
+			&participant.fkTeam,
+			&participant.JoinedAt,
+		)
+		if err != nil {
+			return
+		}
+
+		participants = append(participants, *participant)
+	}
+
+	return c.JSON(http.StatusOK, participants)
 }
 
 func getParticipantsList(c echo.Context) (err error) {
@@ -92,4 +176,25 @@ func putBugs(c echo.Context) (err error) {
 
 func handleRoot(c echo.Context) (err error) {
 	return c.String(http.StatusOK, "I'm Fine")
+}
+
+func migrateDB(db *sql.DB) (err error) {
+	driver, err := postgres.WithInstance(db, &postgres.Config{})
+	if err != nil {
+		return
+	}
+
+	m, err := migrate.NewWithDatabaseInstance(
+		"file://db/migrations",
+		"postgres", driver)
+
+	if err != nil {
+		return
+	}
+
+	if err = m.Up(); err != nil {
+		return
+	}
+
+	return
 }

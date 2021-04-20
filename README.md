@@ -10,6 +10,21 @@ Tooling to enable a Bug Bash
 To get started with this project you will need:
 
 - Golang (project started using Go 1.16.2, but likely anything above 1.14 is fine)
+- Air
+
+To install air:
+
+- https://github.com/cosmtrek/air
+
+You can run:
+
+- `go get -u github.com/cosmtrek/air` in a folder outside this project (so it is not added as a dependency)
+
+### Running/Developing
+
+Thanks to Air, there is some amount of "live-reload". To run the project, you can run `air -c .air.toml` in the project root. Once it is built, you should be able to access the site at `http://localhost:7777/`
+
+Any code changes to golang files will cause a rebuild and restart, and will be accessible via the browser with a refresh!
 
 ### Helpful Links:
 
