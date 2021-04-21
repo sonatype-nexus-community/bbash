@@ -12,3 +12,9 @@ require (
 
 // fix: CVE-2021-3121 in pkg:golang/github.com/gogo/protobuf@1.3.1
 replace github.com/dhui/dktest => github.com/dhui/dktest v0.3.4
+
+// // fix: CVE-2021-20329 in pkg:golang/go.mongodb.org/mongo-driver@v1.1.0
+replace go.mongodb.org/mongo-driver => go.mongodb.org/mongo-driver v1.5.1
+
+// // fix: CVE-2021-21334 in pkg:golang/github.com/containerd/containerd@v1.4.3
+replace github.com/containerd/containerd => github.com/containerd/containerd v1.4.4
