@@ -18,6 +18,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -34,13 +35,13 @@ import (
 var db *sql.DB
 
 type participant struct {
-	ID          string         `json:"guid"`
-	GitHubName  string         `json:"gitHubName"`
-	email       string         `json:"email"`
-	DisplayName string         `json:"displayName"`
-	Score       string         `json:"score"`
-	fkTeam      sql.NullString `json:"team"`
-	JoinedAt    time.Time      `json:"joinedAt"`
+	ID          string `json:"guid"`
+	GitHubName  string `json:"gitHubName"`
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	Score       string `json:"score"`
+	fkTeam      sql.NullString
+	JoinedAt    time.Time `json:"joinedAt"`
 }
 
 func main() {
@@ -134,7 +135,7 @@ func getParticipantDetail(c echo.Context) (err error) {
 	participant := new(participant)
 	err = row.Scan(&participant.ID,
 		&participant.GitHubName,
-		&participant.email,
+		&participant.Email,
 		&participant.DisplayName,
 		&participant.Score,
 		&participant.fkTeam,
@@ -148,7 +149,33 @@ func getParticipantDetail(c echo.Context) (err error) {
 }
 
 func getParticipantsList(c echo.Context) (err error) {
-	return
+	sqlQuery := `SELECT * FROM participants`
+	rows, err := db.Query(sqlQuery)
+	defer rows.Close()
+	if err != nil {
+		c.Logger().Error(err)
+		return
+	}
+
+	participants := []participant{}
+	for rows.Next() {
+		participant := new(participant)
+		err = rows.Scan(
+			&participant.ID,
+			&participant.GitHubName,
+			&participant.Email,
+			&participant.DisplayName,
+			&participant.Score,
+			&participant.fkTeam,
+			&participant.JoinedAt,
+		)
+		if err != nil {
+			return
+		}
+		participants = append(participants, *participant)
+	}
+
+	return c.JSON(http.StatusOK, participants)
 }
 
 func updateParticipant(c echo.Context) (err error) {
@@ -156,7 +183,20 @@ func updateParticipant(c echo.Context) (err error) {
 }
 
 func addParticipant(c echo.Context) (err error) {
-	return
+	participant := new(participant)
+
+	err = json.NewDecoder(c.Request().Body).Decode(&participant)
+	if err != nil {
+		return
+	}
+
+	sqlInsert := `INSERT INTO participants (GithubName, Email, DisplayName, Score) VALUES ($1, $2, $3, $4);`
+	_, err = db.Exec(sqlInsert, participant.GitHubName, participant.Email, participant.DisplayName, 0)
+	if err != nil {
+		return
+	}
+
+	return c.NoContent(http.StatusOK)
 }
 
 func addTeam(c echo.Context) (err error) {

@@ -23,3 +23,6 @@ terraform.tfvars
 
 # docker
 docker.sh
+
+# air / build
+tmp/
