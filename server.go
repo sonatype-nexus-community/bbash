@@ -35,13 +35,14 @@ import (
 var db *sql.DB
 
 type participant struct {
-	ID          string `json:"guid"`
-	GitHubName  string `json:"gitHubName"`
-	Email       string `json:"email"`
-	DisplayName string `json:"displayName"`
-	Score       string `json:"score"`
-	fkTeam      sql.NullString
-	JoinedAt    time.Time `json:"joinedAt"`
+	ID           string `json:"guid"`
+	GitHubName   string `json:"gitHubName"`
+	Email        string `json:"email"`
+	DisplayName  string `json:"displayName"`
+	Score        string `json:"score"`
+	fkTeam       sql.NullString
+	JoinedAt     time.Time `json:"joinedAt"`
+	CampaignName string    `json:"campaignName"`
 }
 
 func main() {
@@ -96,25 +97,36 @@ func main() {
 		return c.String(http.StatusOK, "I am ALIVE")
 	})
 
+	// Participant related endpoints and group
+
 	participantGroup := e.Group(PARTICIPANT)
 
 	participantGroup.GET(
 		fmt.Sprintf("%s/:id", DETAIL),
 		getParticipantDetail)
 
-	participantGroup.GET(LIST, getParticipantsList)
+	participantGroup.GET(
+		fmt.Sprintf("%s/:campaign", LIST),
+		getParticipantsList)
+
 	participantGroup.POST(UPDATE, updateParticipant)
 	participantGroup.PUT(ADD, addParticipant)
+
+	// Team related endpoints and group
 
 	teamGroup := e.Group(TEAM)
 
 	teamGroup.PUT(ADD, addTeam)
 	teamGroup.PUT(PERSON, addPersonToTeam)
 
+	// Bug related endpoints and group
+
 	bugGroup := e.Group(BUG)
 
 	bugGroup.PUT(ADD, addBug)
 	bugGroup.POST(UPDATE, updateBug)
+
+	// Bugs related endpoints and group
 
 	bugsGroup := e.Group(BUGS)
 
@@ -128,7 +140,8 @@ func getParticipantDetail(c echo.Context) (err error) {
 	gitHubName := c.Param("id")
 	c.Logger().Debug("Getting detail for ", gitHubName)
 
-	sqlQuery := `SELECT * FROM participants WHERE GitHubName = $1`
+	sqlQuery := `SELECT * FROM participants 
+		WHERE GitHubName = $1`
 
 	row := db.QueryRow(sqlQuery, gitHubName)
 
@@ -139,7 +152,9 @@ func getParticipantDetail(c echo.Context) (err error) {
 		&participant.DisplayName,
 		&participant.Score,
 		&participant.fkTeam,
-		&participant.JoinedAt)
+		&participant.JoinedAt,
+		&participant.CampaignName,
+	)
 
 	if err != nil {
 		return
@@ -149,11 +164,14 @@ func getParticipantDetail(c echo.Context) (err error) {
 }
 
 func getParticipantsList(c echo.Context) (err error) {
-	sqlQuery := `SELECT * FROM participants`
-	rows, err := db.Query(sqlQuery)
-	defer rows.Close()
+	campaignName := c.Param("campaign")
+	c.Logger().Debug("Getting list for ", campaignName)
+
+	sqlQuery := `SELECT * FROM participants 
+		WHERE CampaignName = $1`
+
+	rows, err := db.Query(sqlQuery, campaignName)
 	if err != nil {
-		c.Logger().Error(err)
 		return
 	}
 
@@ -168,6 +186,7 @@ func getParticipantsList(c echo.Context) (err error) {
 			&participant.Score,
 			&participant.fkTeam,
 			&participant.JoinedAt,
+			&participant.CampaignName,
 		)
 		if err != nil {
 			return
@@ -183,15 +202,18 @@ func updateParticipant(c echo.Context) (err error) {
 }
 
 func addParticipant(c echo.Context) (err error) {
-	participant := new(participant)
+	participant := participant{}
 
 	err = json.NewDecoder(c.Request().Body).Decode(&participant)
 	if err != nil {
 		return
 	}
 
-	sqlInsert := `INSERT INTO participants (GithubName, Email, DisplayName, Score) VALUES ($1, $2, $3, $4);`
-	_, err = db.Exec(sqlInsert, participant.GitHubName, participant.Email, participant.DisplayName, 0)
+	sqlInsert := `INSERT INTO participants 
+		(GithubName, Email, DisplayName, Score) 
+		VALUES ($1, $2, $3, $4, $5)`
+
+	_, err = db.Exec(sqlInsert, participant.GitHubName, participant.Email, participant.DisplayName, 0, participant.CampaignName)
 	if err != nil {
 		return
 	}
