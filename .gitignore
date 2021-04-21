@@ -1,6 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 bbash
+bbash.exe
 
 #IntelliJ
 .idea
@@ -11,3 +12,14 @@ bbash
 
 # Ignore
 .env
+
+# terraform
+*.hcl
+*.tfstate.lock.info
+terraform.tfstate
+terraform.tfstate.backup
+.terraform/
+terraform.tfvars
+
+# docker
+docker.sh

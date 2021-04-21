@@ -91,6 +91,10 @@ func main() {
 		e.Logger.Error(err)
 	}
 
+	e.GET("/", func(c echo.Context) error {
+		return c.String(http.StatusOK, "I am ALIVE")
+	})
+
 	participantGroup := e.Group(PARTICIPANT)
 
 	participantGroup.GET(
@@ -177,10 +181,6 @@ func getBugs(c echo.Context) (err error) {
 
 func putBugs(c echo.Context) (err error) {
 	return
-}
-
-func handleRoot(c echo.Context) (err error) {
-	return c.String(http.StatusOK, "I'm Fine")
 }
 
 func migrateDB(db *sql.DB) (err error) {
