@@ -30,6 +30,7 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/gommon/log"
 )
 
 var db *sql.DB
@@ -67,6 +68,7 @@ func main() {
 
 	e := echo.New()
 	e.Debug = true
+	e.Logger.SetLevel(log.INFO)
 
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -139,7 +141,13 @@ func main() {
 	bugsGroup.GET(LIST, getBugs)
 	bugsGroup.PUT(LIST, putBugs)
 
-	e.Logger.Fatal(e.Start(":7777"))
+	routes := e.Routes()
+
+	for _, v := range routes {
+		fmt.Printf("Registered route: %s %s at %s\n", v.Method, v.Path, v.Name)
+	}
+
+	e.Start(":7777")
 }
 
 func getParticipantDetail(c echo.Context) (err error) {
@@ -290,13 +298,24 @@ func migrateDB(db *sql.DB) (err error) {
 		"file://db/migrations",
 		"postgres", driver)
 
-	if err != nil {
+	if migrateErrorApplicable(err) {
 		return
 	}
 
 	if err = m.Up(); err != nil {
-		return
+		if migrateErrorApplicable(err) {
+			return
+		} else {
+			err = nil
+		}
 	}
 
 	return
+}
+
+func migrateErrorApplicable(err error) bool {
+	if err == nil || err == migrate.ErrNoChange {
+		return false
+	}
+	return true
 }
