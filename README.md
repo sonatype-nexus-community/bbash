@@ -18,7 +18,7 @@ To install air:
 
 You can run:
 
-- `go install github.com/cosmtrek/air@v1.26.0`
+- `go get -u github.com/cosmtrek/air` in a folder outside this project (so it is not added as a dependency)
 
 ### Running/Developing
 
