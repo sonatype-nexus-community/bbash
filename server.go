@@ -45,6 +45,12 @@ type participant struct {
 	CampaignName string    `json:"campaignName"`
 }
 
+type team struct {
+	Id           string         `json:"guid"`
+	TeamName     string         `json:"teamName"`
+	Organization sql.NullString `json:"organization"`
+}
+
 func main() {
 
 	const (
@@ -211,18 +217,47 @@ func addParticipant(c echo.Context) (err error) {
 
 	sqlInsert := `INSERT INTO participants 
 		(GithubName, Email, DisplayName, Score) 
-		VALUES ($1, $2, $3, $4, $5)`
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING Id`
 
-	_, err = db.Exec(sqlInsert, participant.GitHubName, participant.Email, participant.DisplayName, 0, participant.CampaignName)
+	var guid string
+	err = db.QueryRow(
+		sqlInsert,
+		participant.GitHubName,
+		participant.Email,
+		participant.DisplayName,
+		0,
+		participant.CampaignName).Scan(&guid)
 	if err != nil {
 		return
 	}
 
-	return c.NoContent(http.StatusOK)
+	return c.String(http.StatusCreated, guid)
 }
 
 func addTeam(c echo.Context) (err error) {
-	return
+	team := team{}
+
+	err = json.NewDecoder(c.Request().Body).Decode(&team)
+	if err != nil {
+		return
+	}
+
+	sqlInsert := `INSERT INTO teams 
+		(TeamName, Organization) 
+		VALUES ($1, $2) 
+		RETURNING Id`
+
+	var guid string
+	err = db.QueryRow(
+		sqlInsert,
+		team.TeamName,
+		team.Organization).Scan(&guid)
+	if err != nil {
+		return
+	}
+
+	return c.String(http.StatusCreated, guid)
 }
 
 func addPersonToTeam(c echo.Context) (err error) {
