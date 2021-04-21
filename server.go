@@ -125,7 +125,7 @@ func main() {
 	teamGroup := e.Group(TEAM)
 
 	teamGroup.PUT(ADD, addTeam)
-	teamGroup.PUT(PERSON, addPersonToTeam)
+	teamGroup.PUT(fmt.Sprintf("%s/:githHubName/:teamName", PERSON), addPersonToTeam)
 
 	// Bug related endpoints and group
 
@@ -269,7 +269,46 @@ func addTeam(c echo.Context) (err error) {
 }
 
 func addPersonToTeam(c echo.Context) (err error) {
-	return
+	teamName := c.Param("teamName")
+	gitHubName := c.Param("gitHubName")
+
+	if teamName == "" || gitHubName == "" {
+		return c.NoContent(http.StatusBadRequest)
+	}
+
+	sqlUpdate := `UPDATE participants 
+	SET fk_team = (SELECT Id FROM teams WHERE TeamName = $1)
+	WHERE GitHubName = $2`
+
+	res, err := db.Exec(
+		sqlUpdate,
+		teamName,
+		gitHubName)
+	if err != nil {
+		return
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return
+	}
+
+	if rows > 0 {
+		c.Logger().Infof(
+			"Success, huzzah! Row updated, teamName: %s, gitHubName: %s",
+			teamName,
+			gitHubName,
+		)
+
+		return c.NoContent(http.StatusNoContent)
+	} else {
+		c.Logger().Errorf(
+			"No row was updated, something goofy has occurred, teamName: %s, gitHubName: %s",
+			teamName,
+			gitHubName,
+		)
+
+		return c.NoContent(http.StatusBadRequest)
+	}
 }
 
 func addBug(c echo.Context) (err error) {
