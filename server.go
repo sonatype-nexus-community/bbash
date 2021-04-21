@@ -52,6 +52,13 @@ type team struct {
 	Organization sql.NullString `json:"organization"`
 }
 
+const (
+	PARAM_ID            string = "id"
+	PARAM_GITHUB_NAME   string = "gitHubName"
+	PARAM_CAMPAIGN_NAME string = "campaignName"
+	PARAM_TEAM_NAME     string = "teamName"
+)
+
 func main() {
 
 	const (
@@ -110,11 +117,11 @@ func main() {
 	participantGroup := e.Group(PARTICIPANT)
 
 	participantGroup.GET(
-		fmt.Sprintf("%s/:id", DETAIL),
+		fmt.Sprintf("%s/:%s", DETAIL, PARAM_GITHUB_NAME),
 		getParticipantDetail)
 
 	participantGroup.GET(
-		fmt.Sprintf("%s/:campaign", LIST),
+		fmt.Sprintf("%s/:%s", LIST, PARAM_CAMPAIGN_NAME),
 		getParticipantsList)
 
 	participantGroup.POST(UPDATE, updateParticipant)
@@ -125,7 +132,7 @@ func main() {
 	teamGroup := e.Group(TEAM)
 
 	teamGroup.PUT(ADD, addTeam)
-	teamGroup.PUT(fmt.Sprintf("%s/:githHubName/:teamName", PERSON), addPersonToTeam)
+	teamGroup.PUT(fmt.Sprintf("%s/:%s/:%s", PERSON, PARAM_GITHUB_NAME, PARAM_TEAM_NAME), addPersonToTeam)
 
 	// Bug related endpoints and group
 
@@ -151,7 +158,7 @@ func main() {
 }
 
 func getParticipantDetail(c echo.Context) (err error) {
-	gitHubName := c.Param("id")
+	gitHubName := c.Param(PARAM_GITHUB_NAME)
 	c.Logger().Debug("Getting detail for ", gitHubName)
 
 	sqlQuery := `SELECT * FROM participants 
@@ -178,7 +185,7 @@ func getParticipantDetail(c echo.Context) (err error) {
 }
 
 func getParticipantsList(c echo.Context) (err error) {
-	campaignName := c.Param("campaign")
+	campaignName := c.Param(PARAM_CAMPAIGN_NAME)
 	c.Logger().Debug("Getting list for ", campaignName)
 
 	sqlQuery := `SELECT * FROM participants 
@@ -269,16 +276,16 @@ func addTeam(c echo.Context) (err error) {
 }
 
 func addPersonToTeam(c echo.Context) (err error) {
-	teamName := c.Param("teamName")
-	gitHubName := c.Param("gitHubName")
+	teamName := c.Param(PARAM_TEAM_NAME)
+	gitHubName := c.Param(PARAM_GITHUB_NAME)
 
 	if teamName == "" || gitHubName == "" {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
 	sqlUpdate := `UPDATE participants 
-	SET fk_team = (SELECT Id FROM teams WHERE TeamName = $1)
-	WHERE GitHubName = $2`
+		SET fk_team = (SELECT Id FROM teams WHERE TeamName = $1)
+		WHERE GitHubName = $2`
 
 	res, err := db.Exec(
 		sqlUpdate,
