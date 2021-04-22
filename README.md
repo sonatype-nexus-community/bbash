@@ -33,13 +33,13 @@ cp .env.example .env
 make run-air
 ```
 
-For some fun interactive debugging with server.go, you could spin up the local docker db image, and manually run
+For some fun interactive debugging with [server.go](./server.go), you could spin up the local docker db image, and manually run
 the server in debug more. See the [Makefile](./Makefile) to the latest and greatest commands to cherry-pick.
 ```shell
 $ docker run --name bug_bash_postgres -p 5432:5432 -e POSTGRES_PASSWORD=bug_bash -e POSTGRES_DB=db -d postgres
 b6ac8769bab3b19b3e5818e726272bcee6957863b9a7af4261a0ae29ec5bc68e...
 ```
-Then run `server.go` in debug mode in your favorite IDE, and enjoy break points activating when you connect to 
+Then run [server.go](./server.go) in debug mode in your favorite IDE, and enjoy break points activating when you connect to 
 endpoints. Wee!
 
 ## Deployment
