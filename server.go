@@ -71,6 +71,7 @@ func main() {
 		PERSON      string = "/person"
 		BUG         string = "/bug"
 		BUGS        string = "/bugs"
+		CAMPAIGN    string = "/campaign"
 	)
 
 	e := echo.New()
@@ -148,6 +149,12 @@ func main() {
 	bugsGroup.GET(LIST, getBugs)
 	bugsGroup.PUT(LIST, putBugs)
 
+	// Campaign related endpoints and group
+
+	campaignGroup := e.Group(CAMPAIGN)
+
+	campaignGroup.PUT(fmt.Sprintf("%s/:%s", ADD, PARAM_CAMPAIGN_NAME), addCampaign)
+
 	routes := e.Routes()
 
 	for _, v := range routes {
@@ -161,8 +168,12 @@ func getParticipantDetail(c echo.Context) (err error) {
 	gitHubName := c.Param(PARAM_GITHUB_NAME)
 	c.Logger().Debug("Getting detail for ", gitHubName)
 
-	sqlQuery := `SELECT * FROM participants 
-		WHERE GitHubName = $1`
+	sqlQuery := `SELECT 
+		participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaign.CampaignName 
+		FROM participants
+		LEFT JOIN teams ON teams.Id = participants.fk_team
+		INNER JOIN campaign ON campaign.Id = participants.Campaign
+		WHERE participants.GitHubName = $1`
 
 	row := db.QueryRow(sqlQuery, gitHubName)
 
@@ -188,8 +199,12 @@ func getParticipantsList(c echo.Context) (err error) {
 	campaignName := c.Param(PARAM_CAMPAIGN_NAME)
 	c.Logger().Debug("Getting list for ", campaignName)
 
-	sqlQuery := `SELECT * FROM participants 
-		WHERE CampaignName = $1`
+	sqlQuery := `SELECT
+		participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName 
+		FROM participants
+		LEFT JOIN teams ON participants.fk_team = teams.Id
+		INNER JOIN campaigns ON participants.Campaign = campaigns.Id
+		WHERE campaigns.CampaignName = $1`
 
 	rows, err := db.Query(sqlQuery, campaignName)
 	if err != nil {
@@ -231,8 +246,8 @@ func addParticipant(c echo.Context) (err error) {
 	}
 
 	sqlInsert := `INSERT INTO participants 
-		(GithubName, Email, DisplayName, Score) 
-		VALUES ($1, $2, $3, $4, $5)
+		(GithubName, Email, DisplayName, Score, Campaign) 
+		VALUES ($1, $2, $3, $4, (SELECT Id FROM campaigns WHERE CampaignName = $5))
 		RETURNING Id`
 
 	var guid string
@@ -258,9 +273,9 @@ func addTeam(c echo.Context) (err error) {
 		return
 	}
 
-	sqlInsert := `INSERT INTO teams 
-		(TeamName, Organization) 
-		VALUES ($1, $2) 
+	sqlInsert := `INSERT INTO teams
+		(TeamName, Organization)
+		VALUES ($1, $2)
 		RETURNING Id`
 
 	var guid string
@@ -332,6 +347,25 @@ func getBugs(c echo.Context) (err error) {
 
 func putBugs(c echo.Context) (err error) {
 	return
+}
+
+func addCampaign(c echo.Context) (err error) {
+	campaignName := c.Param(PARAM_CAMPAIGN_NAME)
+
+	sqlInsert := `INSERT INTO campaigns 
+		(CampaignName) 
+		VALUES ($1)
+		RETURNING Id`
+
+	var guid string
+	err = db.QueryRow(
+		sqlInsert,
+		campaignName).Scan(&guid)
+	if err != nil {
+		return
+	}
+
+	return c.String(http.StatusCreated, guid)
 }
 
 func migrateDB(db *sql.DB) (err error) {
