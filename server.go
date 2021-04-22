@@ -257,7 +257,7 @@ func addParticipant(c echo.Context) (err error) {
 	sqlInsert := `INSERT INTO participants 
 		(GithubName, Email, DisplayName, Score, Campaign) 
 		VALUES ($1, $2, $3, $4, (SELECT Id FROM campaigns WHERE CampaignName = $5))
-		RETURNING Id`
+		RETURNING Id, Score, JoinedAt`
 
 	var guid string
 	err = db.QueryRow(
@@ -266,7 +266,7 @@ func addParticipant(c echo.Context) (err error) {
 		participant.Email,
 		participant.DisplayName,
 		0,
-		participant.CampaignName).Scan(&guid)
+		participant.CampaignName).Scan(&guid, &participant.Score, &participant.JoinedAt)
 	if err != nil {
 		return
 	}
