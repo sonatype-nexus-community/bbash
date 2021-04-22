@@ -52,27 +52,35 @@ type team struct {
 	Organization sql.NullString `json:"organization"`
 }
 
+type creationResponse struct {
+	Id       string                 `json:"guid"`
+	Endpints map[string]interface{} `json:"endpoints"`
+	Object   interface{}            `json:"object"`
+}
+
+type endpointDetail struct {
+	URI  string `json:"uri"`
+	Verb string `json:"httpVerb"`
+}
+
 const (
 	PARAM_ID            string = "id"
 	PARAM_GITHUB_NAME   string = "gitHubName"
 	PARAM_CAMPAIGN_NAME string = "campaignName"
 	PARAM_TEAM_NAME     string = "teamName"
+	PARTICIPANT         string = "/participant"
+	DETAIL              string = "/detail"
+	LIST                string = "/list"
+	UPDATE              string = "/update"
+	TEAM                string = "/team"
+	ADD                 string = "/add"
+	PERSON              string = "/person"
+	BUG                 string = "/bug"
+	BUGS                string = "/bugs"
+	CAMPAIGN            string = "/campaign"
 )
 
 func main() {
-
-	const (
-		PARTICIPANT string = "/participant"
-		DETAIL      string = "/detail"
-		LIST        string = "/list"
-		UPDATE      string = "/update"
-		TEAM        string = "/team"
-		ADD         string = "/add"
-		PERSON      string = "/person"
-		BUG         string = "/bug"
-		BUGS        string = "/bugs"
-		CAMPAIGN    string = "/campaign"
-	)
 
 	e := echo.New()
 	e.Debug = true
@@ -119,14 +127,14 @@ func main() {
 
 	participantGroup.GET(
 		fmt.Sprintf("%s/:%s", DETAIL, PARAM_GITHUB_NAME),
-		getParticipantDetail)
+		getParticipantDetail).Name = "participant-detail"
 
 	participantGroup.GET(
 		fmt.Sprintf("%s/:%s", LIST, PARAM_CAMPAIGN_NAME),
-		getParticipantsList)
+		getParticipantsList).Name = "participant-list"
 
-	participantGroup.POST(UPDATE, updateParticipant)
-	participantGroup.PUT(ADD, addParticipant)
+	participantGroup.POST(UPDATE, updateParticipant).Name = "participant-update"
+	participantGroup.PUT(ADD, addParticipant).Name = "participant-add"
 
 	// Team related endpoints and group
 
@@ -158,7 +166,7 @@ func main() {
 	routes := e.Routes()
 
 	for _, v := range routes {
-		fmt.Printf("Registered route: %s %s at %s\n", v.Method, v.Path, v.Name)
+		fmt.Printf("Registered route: %s %s as %s\n", v.Method, v.Path, v.Name)
 	}
 
 	e.Start(":7777")
@@ -169,10 +177,10 @@ func getParticipantDetail(c echo.Context) (err error) {
 	c.Logger().Debug("Getting detail for ", gitHubName)
 
 	sqlQuery := `SELECT 
-		participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaign.CampaignName 
+		participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName 
 		FROM participants
 		LEFT JOIN teams ON teams.Id = participants.fk_team
-		INNER JOIN campaign ON campaign.Id = participants.Campaign
+		INNER JOIN campaigns ON campaigns.Id = participants.Campaign
 		WHERE participants.GitHubName = $1`
 
 	row := db.QueryRow(sqlQuery, gitHubName)
@@ -189,6 +197,7 @@ func getParticipantDetail(c echo.Context) (err error) {
 	)
 
 	if err != nil {
+		c.Logger().Error(err)
 		return
 	}
 
@@ -262,7 +271,21 @@ func addParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	return c.String(http.StatusCreated, guid)
+	participant.ID = guid
+
+	detailUri := c.Echo().Reverse("participant-detail", participant.GitHubName)
+	updateUri := c.Echo().Reverse("participant-update")
+	endpoints := make(map[string]interface{})
+	endpoints["participantDetail"] = endpointDetail{URI: detailUri, Verb: "GET"}
+	endpoints["participantUpdate"] = endpointDetail{URI: updateUri, Verb: "PUT"}
+
+	creation := creationResponse{
+		Id:       guid,
+		Endpints: endpoints,
+		Object:   participant,
+	}
+
+	return c.JSON(http.StatusCreated, creation)
 }
 
 func addTeam(c echo.Context) (err error) {
