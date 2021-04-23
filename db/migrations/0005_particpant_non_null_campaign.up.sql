@@ -1,0 +1,6 @@
+BEGIN;
+
+ALTER TABLE participants
+    ALTER COLUMN Campaign SET NOT NULL;
+
+COMMIT;
