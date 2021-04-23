@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 )
 
@@ -123,15 +122,37 @@ func xxxTestMigrateDB(t *testing.T) {
 func setupMockContextCampaign(campaignName string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
 
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/:%s", ADD, PARAM_CAMPAIGN_NAME), strings.NewReader(campaignName))
-
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", ADD, PARAM_CAMPAIGN_NAME), nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
+	c.SetParamNames(PARAM_CAMPAIGN_NAME)
+	c.SetParamValues(campaignName)
 	return
 }
 
 func TestAddCampaignEmptyName(t *testing.T) {
 	campaignName := " "
+	c, rec := setupMockContextCampaign(campaignName)
+
+	dbMock, _ := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	expectedError := fmt.Errorf("invalid parameter %s: %s", PARAM_CAMPAIGN_NAME, "")
+
+	assert.NoError(t, addCampaign(c))
+	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
+	assert.Equal(t, expectedError.Error(), rec.Body.String())
+}
+
+func TestAddCampaign(t *testing.T) {
+	campaignName := "myCampaignName"
 	c, rec := setupMockContextCampaign(campaignName)
 
 	dbMock, mock := newMockDb(t)
@@ -144,13 +165,12 @@ func TestAddCampaignEmptyName(t *testing.T) {
 	}()
 	db = dbMock
 
-	expectedError := fmt.Errorf("invalid parameter %s: %s", PARAM_CAMPAIGN_NAME, "")
-	mock.ExpectExec("INSERT INTO campaigns \\(CampaignName\\) VALUES \\(\\$1\\) RETURNING Id").
+	campaignUUID := "campaignId"
+	mock.ExpectQuery("INSERT INTO .*").
 		WithArgs(campaignName).
-		WillReturnError(expectedError).
-		WillReturnResult(sqlmock.NewErrorResult(expectedError))
+		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignUUID))
 
-	assert.NoError(t, addCampaign(c), expectedError.Error())
-	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
-	assert.Equal(t, expectedError.Error(), rec.Body.String())
+	assert.NoError(t, addCampaign(c))
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.Equal(t, campaignUUID, rec.Body.String())
 }
