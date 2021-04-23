@@ -63,11 +63,19 @@ type endpointDetail struct {
 	Verb string `json:"httpVerb"`
 }
 
+type bug struct {
+	Id         string `json:"guid"`
+	Category   string `json:"category"`
+	PointValue int    `json:"pointValue"`
+}
+
 const (
 	PARAM_ID            string = "id"
 	PARAM_GITHUB_NAME   string = "gitHubName"
 	PARAM_CAMPAIGN_NAME string = "campaignName"
 	PARAM_TEAM_NAME     string = "teamName"
+	PARAM_BUG_CATEGORY  string = "bugCategory"
+	PARAM_POINT_VALUE   string = "pointValue"
 	PARTICIPANT         string = "/participant"
 	DETAIL              string = "/detail"
 	LIST                string = "/list"
@@ -76,7 +84,6 @@ const (
 	ADD                 string = "/add"
 	PERSON              string = "/person"
 	BUG                 string = "/bug"
-	BUGS                string = "/bugs"
 	CAMPAIGN            string = "/campaign"
 )
 
@@ -148,14 +155,9 @@ func main() {
 	bugGroup := e.Group(BUG)
 
 	bugGroup.PUT(ADD, addBug)
-	bugGroup.POST(UPDATE, updateBug)
-
-	// Bugs related endpoints and group
-
-	bugsGroup := e.Group(BUGS)
-
-	bugsGroup.GET(LIST, getBugs)
-	bugsGroup.PUT(LIST, putBugs)
+	bugGroup.POST(fmt.Sprintf("%s/:%s/:%s", UPDATE, PARAM_BUG_CATEGORY, PARAM_POINT_VALUE), updateBug)
+	bugGroup.GET(LIST, getBugs)
+	bugGroup.PUT(LIST, putBugs)
 
 	// Campaign related endpoints and group
 
@@ -357,19 +359,115 @@ func addPersonToTeam(c echo.Context) (err error) {
 }
 
 func addBug(c echo.Context) (err error) {
-	return
+	bug := bug{}
+
+	err = json.NewDecoder(c.Request().Body).Decode(&bug)
+	if err != nil {
+		return
+	}
+
+	sqlInsert := `INSERT INTO bugs
+		(category, pointValue)
+		VALUES ($1, $2)
+		RETURNING ID`
+
+	var guid string
+	err = db.QueryRow(sqlInsert, bug.Category, bug.PointValue).Scan(&guid)
+	if err != nil {
+		return
+	}
+	bug.Id = guid
+	creation := creationResponse{
+		Id:     guid,
+		Object: bug,
+	}
+	return c.JSON(http.StatusCreated, creation)
 }
 
 func updateBug(c echo.Context) (err error) {
-	return
+
+	category := c.Param(PARAM_BUG_CATEGORY)
+	pointValue, err := strconv.Atoi(c.Param(PARAM_POINT_VALUE))
+	if err != nil {
+		return
+	}
+
+	c.Logger().Debug(category)
+
+	sqlUpdate := `UPDATE bugs
+		SET pointValue = $1
+		WHERE category = $2`
+	res, err := db.Exec(sqlUpdate, pointValue, category)
+	if err != nil {
+		return
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return
+	}
+	if rows < 1 {
+		return c.String(http.StatusNotFound, "Bug Category not found")
+	}
+
+	return c.String(http.StatusOK, "Success")
 }
 
 func getBugs(c echo.Context) (err error) {
-	return
+
+	sqlQuery := `SELECT * FROM bugs`
+
+	rows, err := db.Query(sqlQuery)
+	if err != nil {
+		return
+	}
+
+	bugs := []bug{}
+	for rows.Next() {
+		bug := bug{}
+		err = rows.Scan(&bug.Id, &bug.Category, &bug.PointValue)
+		if err != nil {
+			return
+		}
+		bugs = append(bugs, bug)
+	}
+
+	return c.JSON(http.StatusOK, bugs)
 }
 
 func putBugs(c echo.Context) (err error) {
-	return
+	bugs := []bug{}
+	err = json.NewDecoder(c.Request().Body).Decode(&bugs)
+	if err != nil {
+		return
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return
+	}
+	sqlInsert := `INSERT INTO bugs
+		(category, pointValue)
+		VALUES ($1, $2)
+		RETURNING ID`
+	inserted := []bug{}
+	for _, bug := range bugs {
+		err = db.QueryRow(sqlInsert, bug.Category, bug.PointValue).Scan(&bug.Id)
+		if err != nil {
+			return
+		}
+		inserted = append(inserted, bug)
+	}
+	err = tx.Commit()
+	if err != nil {
+		return
+	}
+
+	response := creationResponse{
+		Id:     inserted[0].Id,
+		Object: inserted,
+	}
+
+	return c.JSON(http.StatusCreated, response)
 }
 
 func addCampaign(c echo.Context) (err error) {
