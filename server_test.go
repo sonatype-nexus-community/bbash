@@ -25,7 +25,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func newMockDb(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
@@ -173,4 +175,71 @@ func TestAddCampaign(t *testing.T) {
 	assert.NoError(t, addCampaign(c))
 	assert.Equal(t, http.StatusCreated, c.Response().Status)
 	assert.Equal(t, campaignUUID, rec.Body.String())
+}
+
+func setupMockContextParticipant(participantJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", ADD, PARTICIPANT), strings.NewReader(participantJson))
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
+}
+
+func TestAddParticipantBodyInvalid(t *testing.T) {
+	c, rec := setupMockContextParticipant("")
+
+	assert.EqualError(t, addParticipant(c), "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddParticipantCampaignMissing(t *testing.T) {
+	participantName := "partName"
+	participantJson := "{ \"gitHubName\": \"" + participantName + "\"}"
+	c, rec := setupMockContextParticipant(participantJson)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced SQL insert error")
+	mock.ExpectQuery("INSERT INTO participants \\(GithubName, Email, DisplayName, Score, Campaign\\) VALUES \\(\\$1\\, \\$2, \\$3, \\$4, \\(SELECT Id FROM campaigns WHERE CampaignName = \\$5\\)\\) RETURNING Id, Score, JoinedAt").
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, addParticipant(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddParticipant(t *testing.T) {
+	participantName := "partName"
+	participantJson := "{ \"gitHubName\": \"" + participantName + "\"}"
+	c, rec := setupMockContextParticipant(participantJson)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	participantID := "participantUUId"
+	mock.ExpectQuery("INSERT INTO participants \\(GithubName, Email, DisplayName, Score, Campaign\\) VALUES \\(\\$1\\, \\$2, \\$3, \\$4, \\(SELECT Id FROM campaigns WHERE CampaignName = \\$5\\)\\) RETURNING Id, Score, JoinedAt").
+		WithArgs(participantName, "", "", 0, "").
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "Score", "JoinedAt"}).AddRow(participantID, 0, time.Time{}))
+
+	assert.NoError(t, addParticipant(c))
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.True(t, strings.HasPrefix(rec.Body.String(), "{\"guid\":\""+participantID+"\",\"endpoints"), rec.Body.String())
+	assert.True(t, strings.Contains(rec.Body.String(), "\"gitHubName\":\""+participantName+"\""), rec.Body.String())
 }
