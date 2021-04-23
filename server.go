@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -53,9 +54,9 @@ type team struct {
 }
 
 type creationResponse struct {
-	Id       string                 `json:"guid"`
-	Endpints map[string]interface{} `json:"endpoints"`
-	Object   interface{}            `json:"object"`
+	Id        string                 `json:"guid"`
+	Endpoints map[string]interface{} `json:"endpoints"`
+	Object    interface{}            `json:"object"`
 }
 
 type endpointDetail struct {
@@ -112,7 +113,9 @@ func main() {
 	if err != nil {
 		e.Logger.Error(err)
 	}
-	defer db.Close()
+	defer func() {
+		_ = db.Close()
+	}()
 
 	err = db.Ping()
 	if err != nil {
@@ -222,7 +225,7 @@ func getParticipantsList(c echo.Context) (err error) {
 		return
 	}
 
-	participants := []participant{}
+	var participants []participant
 	for rows.Next() {
 		participant := new(participant)
 		err = rows.Scan(
@@ -282,9 +285,9 @@ func addParticipant(c echo.Context) (err error) {
 	endpoints["participantUpdate"] = endpointDetail{URI: updateUri, Verb: "PUT"}
 
 	creation := creationResponse{
-		Id:       guid,
-		Endpints: endpoints,
-		Object:   participant,
+		Id:        guid,
+		Endpoints: endpoints,
+		Object:    participant,
 	}
 
 	return c.JSON(http.StatusCreated, creation)
@@ -421,7 +424,7 @@ func getBugs(c echo.Context) (err error) {
 		return
 	}
 
-	bugs := []bug{}
+	var bugs []bug
 	for rows.Next() {
 		bug := bug{}
 		err = rows.Scan(&bug.Id, &bug.Category, &bug.PointValue)
@@ -435,7 +438,7 @@ func getBugs(c echo.Context) (err error) {
 }
 
 func putBugs(c echo.Context) (err error) {
-	bugs := []bug{}
+	var bugs []bug
 	err = json.NewDecoder(c.Request().Body).Decode(&bugs)
 	if err != nil {
 		return
@@ -449,7 +452,7 @@ func putBugs(c echo.Context) (err error) {
 		(category, pointValue)
 		VALUES ($1, $2)
 		RETURNING ID`
-	inserted := []bug{}
+	var inserted []bug
 	for _, bug := range bugs {
 		err = db.QueryRow(sqlInsert, bug.Category, bug.PointValue).Scan(&bug.Id)
 		if err != nil {
@@ -471,7 +474,13 @@ func putBugs(c echo.Context) (err error) {
 }
 
 func addCampaign(c echo.Context) (err error) {
-	campaignName := c.Param(PARAM_CAMPAIGN_NAME)
+	campaignName := strings.TrimSpace(c.Param(PARAM_CAMPAIGN_NAME))
+	if len(campaignName) == 0 {
+		err = fmt.Errorf("invalid parameter %s: %s", PARAM_CAMPAIGN_NAME, campaignName)
+		c.Logger().Error(err)
+
+		return c.String(http.StatusBadRequest, err.Error())
+	}
 
 	sqlInsert := `INSERT INTO campaigns 
 		(CampaignName) 
