@@ -166,7 +166,7 @@ func TestAddCampaign(t *testing.T) {
 	db = dbMock
 
 	campaignUUID := "campaignId"
-	mock.ExpectQuery("INSERT INTO .*").
+	mock.ExpectQuery("INSERT INTO campaigns \\(CampaignName\\) VALUES \\(\\$1\\) RETURNING Id").
 		WithArgs(campaignName).
 		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignUUID))
 
