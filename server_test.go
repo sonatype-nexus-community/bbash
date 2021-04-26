@@ -243,3 +243,106 @@ func TestAddParticipant(t *testing.T) {
 	assert.True(t, strings.HasPrefix(rec.Body.String(), "{\"guid\":\""+participantID+"\",\"endpoints"), rec.Body.String())
 	assert.True(t, strings.Contains(rec.Body.String(), "\"gitHubName\":\""+participantName+"\""), rec.Body.String())
 }
+
+func setupMockContextTeam(teamJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", TEAM, ADD), strings.NewReader(teamJson))
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
+}
+
+func TestAddTeamMissingTeam(t *testing.T) {
+	c, rec := setupMockContextTeam("")
+
+	assert.EqualError(t, addTeam(c), "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddTeamInsertError(t *testing.T) {
+	teamName := "myTeamName"
+	teamJson := "{ \"teamName\": \"" + teamName + "\"}"
+	c, rec := setupMockContextTeam(teamJson)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced SQL insert error")
+	mock.ExpectQuery("INSERT INTO teams \\(TeamName, Organization\\) VALUES \\(\\$1\\, \\$2\\) RETURNING Id").
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, addTeam(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddTeamEmptyOrganization(t *testing.T) {
+	teamName := "myTeamName"
+	teamJson := "{ \"teamName\": \"" + teamName + "\"}"
+	c, rec := setupMockContextTeam(teamJson)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	teamID := "teamUUId"
+	mock.ExpectQuery("INSERT INTO teams \\(TeamName, Organization\\) VALUES \\(\\$1\\, \\$2\\) RETURNING Id").
+		WithArgs(teamName, sql.NullString{}).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow(teamID))
+
+	assert.NoError(t, addTeam(c))
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.Equal(t, teamID, rec.Body.String())
+}
+
+func TestAddTeamOrganizationAsText(t *testing.T) {
+	teamName := "myTeamName"
+	organizationName := "myOrgName"
+	teamJson := "{ \"teamName\": \"" + teamName + "\", \"organization\": \"" + organizationName + "\"}"
+	c, rec := setupMockContextTeam(teamJson)
+
+	assert.EqualError(t, addTeam(c), "json: cannot unmarshal string into Go struct field team.organization of type sql.NullString")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddTeam(t *testing.T) {
+	teamName := "myTeamName"
+	organizationName := "myOrgName"
+	teamJson := "{ \"teamName\": \"" + teamName + "\", \"organization\": {\"String\":\"" + organizationName + "\",\"Valid\":true}}"
+	c, rec := setupMockContextTeam(teamJson)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	teamID := "teamUUId"
+	mock.ExpectQuery("INSERT INTO teams \\(TeamName, Organization\\) VALUES \\(\\$1\\, \\$2\\) RETURNING Id").
+		WithArgs(teamName, sql.NullString{String: organizationName, Valid: true}).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow(teamID))
+
+	assert.NoError(t, addTeam(c))
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.Equal(t, teamID, rec.Body.String())
+}
