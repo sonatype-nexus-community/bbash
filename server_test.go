@@ -464,3 +464,63 @@ func TestAddPersonToTeamSomeRowsAffected(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
+
+func setupMockContextParticipantDetail(githubName string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s/%s", PARTICIPANT, DETAIL, PARAM_GITHUB_NAME), nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	c.SetParamNames(PARAM_GITHUB_NAME)
+	c.SetParamValues(githubName)
+
+	return
+}
+
+func TestGetParticipantDetailScanError(t *testing.T) {
+	c, rec := setupMockContextParticipantDetail("")
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Scan error")
+	mock.ExpectQuery("SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON teams.Id = participants.fk_team INNER JOIN campaigns ON campaigns.Id = participants.Campaign WHERE participants.GitHubName = \\$1").
+		WithArgs("").
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, getParticipantDetail(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestGetParticipantDetail(t *testing.T) {
+	githubName := "myGithubName"
+	c, rec := setupMockContextParticipantDetail(githubName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	participantID := "9"
+	mock.ExpectQuery("SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON teams.Id = participants.fk_team INNER JOIN campaigns ON campaigns.Id = participants.Campaign WHERE participants.GitHubName = \\$1").
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).AddRow(participantID, githubName, "", "", "", "", time.Time{}, ""))
+
+	assert.NoError(t, getParticipantDetail(c))
+	assert.Equal(t, http.StatusOK, c.Response().Status)
+	assert.True(t, strings.HasPrefix(rec.Body.String(), "{\"guid\":\""+participantID+"\",\"gitHubName\":\""+githubName+"\""), rec.Body.String())
+}
