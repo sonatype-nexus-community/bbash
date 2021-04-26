@@ -346,3 +346,121 @@ func TestAddTeam(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, c.Response().Status)
 	assert.Equal(t, teamID, rec.Body.String())
 }
+
+func setupMockContextAddPersonToTeam(githubName, teamName string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/%s/%s", TEAM, PERSON, PARAM_GITHUB_NAME, PARAM_TEAM_NAME), nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	c.SetParamNames(PARAM_GITHUB_NAME, PARAM_TEAM_NAME)
+	c.SetParamValues(githubName, teamName)
+
+	return
+}
+
+func TestAddPersonToTeamMissingParameters(t *testing.T) {
+	c, rec := setupMockContextAddPersonToTeam("", "")
+
+	assert.NoError(t, addPersonToTeam(c))
+	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddPersonToTeamUpdateError(t *testing.T) {
+	githubName := "myGithubName"
+	teamName := "myTeamName"
+	c, rec := setupMockContextAddPersonToTeam(githubName, teamName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced SQL update error")
+	mock.ExpectExec("UPDATE participants SET fk_team = \\(SELECT Id FROM teams WHERE TeamName = \\$1\\) WHERE GitHubName = \\$2").
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, addPersonToTeam(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddPersonToTeamRowsAffectedError(t *testing.T) {
+	githubName := "myGithubName"
+	teamName := "myTeamName"
+	c, rec := setupMockContextAddPersonToTeam(githubName, teamName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Rows Affected error")
+	mock.ExpectExec("UPDATE participants SET fk_team = \\(SELECT Id FROM teams WHERE TeamName = \\$1\\) WHERE GitHubName = \\$2").
+		WithArgs(teamName, githubName).
+		WillReturnResult(sqlmock.NewErrorResult(forcedError))
+
+	assert.EqualError(t, addPersonToTeam(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddPersonToTeamZeroRowsAffected(t *testing.T) {
+	githubName := "myGithubName"
+	teamName := "myTeamName"
+	c, rec := setupMockContextAddPersonToTeam(githubName, teamName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectExec("UPDATE participants SET fk_team = \\(SELECT Id FROM teams WHERE TeamName = \\$1\\) WHERE GitHubName = \\$2").
+		WithArgs(teamName, githubName).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	assert.NoError(t, addPersonToTeam(c))
+	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddPersonToTeamSomeRowsAffected(t *testing.T) {
+	githubName := "myGithubName"
+	teamName := "myTeamName"
+	c, rec := setupMockContextAddPersonToTeam(githubName, teamName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectExec("UPDATE participants SET fk_team = \\(SELECT Id FROM teams WHERE TeamName = \\$1\\) WHERE GitHubName = \\$2").
+		WithArgs(teamName, githubName).
+		WillReturnResult(sqlmock.NewResult(0, 5))
+
+	assert.NoError(t, addPersonToTeam(c))
+	assert.Equal(t, http.StatusNoContent, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
