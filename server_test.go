@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -611,4 +612,72 @@ func TestGetParticipantsList(t *testing.T) {
 	assert.Equal(t, http.StatusOK, c.Response().Status)
 	assert.True(t, strings.HasPrefix(rec.Body.String(), `[{"guid":"`+participantID+`","gitHubName":""`), rec.Body.String())
 	assert.True(t, strings.HasSuffix(rec.Body.String(), `","campaignName":"`+campaignName+`"}]`+"\n"), rec.Body.String())
+}
+
+func setupMockContextAddBug(bugJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", BUG, ADD), strings.NewReader(bugJson))
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
+}
+
+func TestAddBugMissingBug(t *testing.T) {
+	c, rec := setupMockContextAddBug("")
+
+	assert.EqualError(t, addBug(c), "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddBugScanError(t *testing.T) {
+	category := "myCategory"
+	c, rec := setupMockContextAddBug(`{"category":"` + category + `"}`)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Scan error")
+	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+		WithArgs(category, 0).
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, addBug(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddBug(t *testing.T) {
+	category := "myCategory"
+	pointValue := 9
+	c, rec := setupMockContextAddBug(`{"category":"` + category + `","pointValue":` + strconv.Itoa(pointValue) + `}`)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	bugId := "myBugId"
+	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+		WithArgs(category, pointValue).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
+			AddRow(bugId))
+
+	assert.NoError(t, addBug(c))
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.True(t, strings.HasPrefix(rec.Body.String(), `{"guid":"`+bugId+`","endpoints":`), rec.Body.String())
+	assert.True(t, strings.HasSuffix(rec.Body.String(), `"object":{"guid":"`+bugId+`","category":"`+category+`","pointValue":`+strconv.Itoa(pointValue)+`}}`+"\n"), rec.Body.String())
 }
