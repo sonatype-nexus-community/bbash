@@ -879,3 +879,149 @@ func TestGetBugs(t *testing.T) {
 	assert.Equal(t, http.StatusOK, c.Response().Status)
 	assert.Equal(t, `[{"guid":"`+bugId+`","category":"`+category+`","pointValue":`+strconv.Itoa(pointValue)+`}]`+"\n", rec.Body.String())
 }
+
+func setupMockContextPutBugs(bugsJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", BUG, LIST), strings.NewReader(bugsJson))
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
+}
+
+func TestPutBugsBodyInvalid(t *testing.T) {
+	c, rec := setupMockContextPutBugs("")
+
+	assert.EqualError(t, putBugs(c), "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestPutBugsBeginTxError(t *testing.T) {
+	c, rec := setupMockContextPutBugs(`[{}]`)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Begin Txn error")
+	mock.ExpectBegin().WillReturnError(forcedError)
+
+	assert.EqualError(t, putBugs(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestPutBugsScanError(t *testing.T) {
+	c, rec := setupMockContextPutBugs(`[{}]`)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectBegin()
+	forcedError := fmt.Errorf("forced Scan error")
+	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+		WithArgs("", 0).
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, putBugs(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestPutBugsCommitTxError(t *testing.T) {
+	c, rec := setupMockContextPutBugs(`[{}]`)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+		WithArgs("", 0).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
+			AddRow(""))
+	forcedError := fmt.Errorf("forced Commit Txn error")
+	mock.ExpectCommit().WillReturnError(forcedError)
+
+	assert.EqualError(t, putBugs(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestPutBugsOneBug(t *testing.T) {
+	c, rec := setupMockContextPutBugs(`[{}]`)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectBegin()
+	bugId := "myBugId"
+	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+		WithArgs("", 0).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
+			AddRow(bugId))
+	mock.ExpectCommit()
+
+	assert.NoError(t, putBugs(c))
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","category":"","pointValue":0}]}`+"\n", rec.Body.String())
+}
+
+func TestPutBugsMultipleBugs(t *testing.T) {
+	c, rec := setupMockContextPutBugs(`[{}, {}]`)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectBegin()
+	bugId := "myBugId"
+	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+		WithArgs("", 0).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
+			AddRow(bugId))
+
+	bugId2 := "secondBugId"
+	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+		WithArgs("", 0).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
+			AddRow(bugId2))
+	mock.ExpectCommit()
+
+	assert.NoError(t, putBugs(c))
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","category":"","pointValue":0},{"guid":"`+bugId2+`","category":"","pointValue":0}]}`+"\n", rec.Body.String())
+}
