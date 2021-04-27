@@ -681,3 +681,122 @@ func TestAddBug(t *testing.T) {
 	assert.True(t, strings.HasPrefix(rec.Body.String(), `{"guid":"`+bugId+`","endpoints":`), rec.Body.String())
 	assert.True(t, strings.HasSuffix(rec.Body.String(), `"object":{"guid":"`+bugId+`","category":"`+category+`","pointValue":`+strconv.Itoa(pointValue)+`}}`+"\n"), rec.Body.String())
 }
+
+func setupMockContextUpdateBug(bugCategory, pointValue string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/%s/%s", BUG, UPDATE, PARAM_BUG_CATEGORY, PARAM_POINT_VALUE), nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	c.SetParamNames(PARAM_BUG_CATEGORY, PARAM_POINT_VALUE)
+	c.SetParamValues(bugCategory, pointValue)
+
+	return
+}
+
+func TestUpdateBugInvalidPointValue(t *testing.T) {
+	c, rec := setupMockContextUpdateBug("", "non-number")
+
+	assert.EqualError(t, updateBug(c), `strconv.Atoi: parsing "non-number": invalid syntax`)
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestUpdateBugUpdateError(t *testing.T) {
+	category := "myCategory"
+	pointValue := 9
+	c, rec := setupMockContextUpdateBug(category, strconv.Itoa(pointValue))
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Update error")
+	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+		WithArgs(pointValue, category).
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, updateBug(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestUpdateBugRowsAffectedError(t *testing.T) {
+	category := "myCategory"
+	pointValue := 9
+	c, rec := setupMockContextUpdateBug(category, strconv.Itoa(pointValue))
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Rows Affected error")
+	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+		WithArgs(pointValue, category).
+		WillReturnResult(sqlmock.NewErrorResult(forcedError))
+
+	assert.EqualError(t, updateBug(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestUpdateBugRowsAffectedZero(t *testing.T) {
+	category := "myCategory"
+	pointValue := 9
+	c, rec := setupMockContextUpdateBug(category, strconv.Itoa(pointValue))
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+		WithArgs(pointValue, category).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	assert.NoError(t, updateBug(c))
+	assert.Equal(t, http.StatusNotFound, c.Response().Status)
+	assert.Equal(t, "Bug Category not found", rec.Body.String())
+}
+
+func TestUpdateBug(t *testing.T) {
+	category := "myCategory"
+	pointValue := 9
+	c, rec := setupMockContextUpdateBug(category, strconv.Itoa(pointValue))
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+		WithArgs(pointValue, category).
+		WillReturnResult(sqlmock.NewResult(0, 5))
+
+	assert.NoError(t, updateBug(c))
+	assert.Equal(t, http.StatusOK, c.Response().Status)
+	assert.Equal(t, "Success", rec.Body.String())
+}
