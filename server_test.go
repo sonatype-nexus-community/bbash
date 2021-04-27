@@ -800,3 +800,82 @@ func TestUpdateBug(t *testing.T) {
 	assert.Equal(t, http.StatusOK, c.Response().Status)
 	assert.Equal(t, "Success", rec.Body.String())
 }
+
+func setupMockContextGetBugs() (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s", BUG, LIST), nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
+}
+
+func TestGetBugsSelectError(t *testing.T) {
+	c, rec := setupMockContextGetBugs()
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Select error")
+	mock.ExpectQuery(`SELECT \* FROM bugs`).WillReturnError(forcedError)
+
+	assert.EqualError(t, getBugs(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestGetBugsScanError(t *testing.T) {
+	c, rec := setupMockContextGetBugs()
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(`SELECT \* FROM bugs`).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "Category", "PointValue"}).
+			// force scan error due to time.Time type mismatch at PointValue column
+			AddRow(-1, "", "non-number"))
+
+	assert.EqualError(t, getBugs(c), `sql: Scan error on column index 2, name "PointValue": converting driver.Value type string ("non-number") to a int: invalid syntax`)
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestGetBugs(t *testing.T) {
+	c, rec := setupMockContextGetBugs()
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	bugId := "myBugId"
+	category := "myCategory"
+	pointValue := 9
+	mock.ExpectQuery(`SELECT \* FROM bugs`).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "Category", "PointValue"}).
+			// force scan error due to time.Time type mismatch at PointValue column
+			AddRow(bugId, category, strconv.Itoa(pointValue)))
+
+	assert.NoError(t, getBugs(c))
+	assert.Equal(t, http.StatusOK, c.Response().Status)
+	assert.Equal(t, `[{"guid":"`+bugId+`","category":"`+category+`","pointValue":`+strconv.Itoa(pointValue)+`}]`+"\n", rec.Body.String())
+}
