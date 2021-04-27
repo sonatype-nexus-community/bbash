@@ -524,3 +524,91 @@ func TestGetParticipantDetail(t *testing.T) {
 	assert.Equal(t, http.StatusOK, c.Response().Status)
 	assert.True(t, strings.HasPrefix(rec.Body.String(), "{\"guid\":\""+participantID+"\",\"gitHubName\":\""+githubName+"\""), rec.Body.String())
 }
+
+func setupMockContextParticipantList(campaignName string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s/%s", PARTICIPANT, LIST, PARAM_CAMPAIGN_NAME), nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+
+	c.SetParamNames(PARAM_CAMPAIGN_NAME)
+	c.SetParamValues(campaignName)
+
+	return
+}
+
+func TestGetParticipantsListScanError(t *testing.T) {
+	campaignName := ""
+	c, rec := setupMockContextParticipantList(campaignName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Scan error")
+	mock.ExpectQuery("SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON participants.fk_team = teams.Id INNER JOIN campaigns ON participants.Campaign = campaigns.Id WHERE campaigns.CampaignName = \\$1").
+		WithArgs("").
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, getParticipantsList(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestGetParticipantsListRowScanError(t *testing.T) {
+	campaignName := ""
+	c, rec := setupMockContextParticipantList(campaignName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery("SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON participants.fk_team = teams.Id INNER JOIN campaigns ON participants.Campaign = campaigns.Id WHERE campaigns.CampaignName = \\$1").
+		WithArgs("").
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).
+			// force scan error due to time.Time type mismatch at JoinedAt column
+			AddRow(-1, "", "", "", "", "", "", campaignName))
+
+	assert.EqualError(t, getParticipantsList(c), "sql: Scan error on column index 6, name \"JoinedAt\": unsupported Scan, storing driver.Value type string into type *time.Time")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestGetParticipantsList(t *testing.T) {
+	campaignName := "myCampaignName"
+	c, rec := setupMockContextParticipantList(campaignName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	participantID := "participantUUId"
+	mock.ExpectQuery("SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON participants.fk_team = teams.Id INNER JOIN campaigns ON participants.Campaign = campaigns.Id WHERE campaigns.CampaignName = \\$1").
+		WithArgs(campaignName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).
+			AddRow(participantID, "", "", "", "", "", time.Time{}, campaignName))
+
+	assert.NoError(t, getParticipantsList(c))
+	assert.Equal(t, http.StatusOK, c.Response().Status)
+	assert.True(t, strings.HasPrefix(rec.Body.String(), `[{"guid":"`+participantID+`","gitHubName":""`), rec.Body.String())
+	assert.True(t, strings.HasSuffix(rec.Body.String(), `","campaignName":"`+campaignName+`"}]`+"\n"), rec.Body.String())
+}
