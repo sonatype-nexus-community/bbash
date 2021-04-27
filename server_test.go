@@ -154,6 +154,30 @@ func TestAddCampaignEmptyName(t *testing.T) {
 	assert.Equal(t, expectedError.Error(), rec.Body.String())
 }
 
+func TestAddCampaignScanError(t *testing.T) {
+	campaignName := "myCampaignName"
+	c, rec := setupMockContextCampaign(campaignName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Scan error")
+	mock.ExpectQuery(`INSERT INTO campaigns \(CampaignName\) VALUES \(\$1\) RETURNING Id`).
+		WithArgs(campaignName).
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, addCampaign(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
 func TestAddCampaign(t *testing.T) {
 	campaignName := "myCampaignName"
 	c, rec := setupMockContextCampaign(campaignName)
