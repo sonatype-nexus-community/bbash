@@ -174,7 +174,10 @@ func main() {
 		fmt.Printf("Registered route: %s %s as %s\n", v.Method, v.Path, v.Name)
 	}
 
-	e.Start(":7777")
+	err = e.Start(":7777")
+	if err != nil {
+		e.Logger.Error(err)
+	}
 }
 
 func getParticipantDetail(c echo.Context) (err error) {
