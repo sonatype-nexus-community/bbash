@@ -125,7 +125,7 @@ func xxxTestMigrateDB(t *testing.T) {
 func setupMockContextCampaign(campaignName string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
 
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", ADD, PARAM_CAMPAIGN_NAME), nil)
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/%s", CAMPAIGN, ADD, PARAM_CAMPAIGN_NAME), nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	c.SetParamNames(PARAM_CAMPAIGN_NAME)
@@ -205,7 +205,7 @@ func TestAddCampaign(t *testing.T) {
 func setupMockContextParticipant(participantJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
 
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", ADD, PARTICIPANT), strings.NewReader(participantJson))
+	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", PARTICIPANT, ADD), strings.NewReader(participantJson))
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	return
