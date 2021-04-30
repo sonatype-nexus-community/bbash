@@ -269,6 +269,73 @@ func TestAddParticipant(t *testing.T) {
 	assert.True(t, strings.Contains(rec.Body.String(), `"gitHubName":"`+participantName+`"`), rec.Body.String())
 }
 
+func setupMockContextUpdateParticipant(participantJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s", PARTICIPANT, UPDATE), strings.NewReader(participantJson))
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
+}
+
+func TestUpdateParticipantBodyInvalid(t *testing.T) {
+	c, rec := setupMockContextUpdateParticipant("")
+
+	assert.EqualError(t, updateParticipant(c), "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestUpdateParticipantMissingParticipantID(t *testing.T) {
+	participantName := "partName"
+	participantJson := `{"gitHubName": "` + participantName + `"}`
+	c, rec := setupMockContextUpdateParticipant(participantJson)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced SQL insert error")
+	mock.ExpectQuery(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7 RETURNING Id`).
+		WithArgs(participantName, "", "", "", "", sql.NullString{}, "").
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, updateParticipant(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestUpdateParticipant(t *testing.T) {
+	participantID := "participantUUId"
+	participantName := "partName"
+	participantJson := `{"guid": "` + participantID + `", "gitHubName": "` + participantName + `"}`
+	c, rec := setupMockContextUpdateParticipant(participantJson)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7 RETURNING Id`).
+		WithArgs(participantName, "", "", "", "", sql.NullString{}, participantID).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow(""))
+
+	assert.NoError(t, updateParticipant(c))
+	assert.Equal(t, http.StatusNoContent, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
 func setupMockContextTeam(teamJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
 

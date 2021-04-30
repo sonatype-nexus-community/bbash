@@ -248,7 +248,42 @@ func getParticipantsList(c echo.Context) (err error) {
 }
 
 func updateParticipant(c echo.Context) (err error) {
-	return
+	participant := participant{}
+
+	err = json.NewDecoder(c.Request().Body).Decode(&participant)
+	if err != nil {
+		return
+	}
+
+	sqlUpdate := `UPDATE participants 
+		SET 
+		    GithubName = $1,
+		    Email = $2,
+		    DisplayName = $3,
+		    Score = $4,
+		    Campaign = (SELECT Id FROM campaigns WHERE CampaignName = $5),
+		    fk_team = $6		    
+		WHERE Id = $7
+		RETURNING Id`
+
+	var guid string
+	err = db.QueryRow(
+		sqlUpdate,
+		participant.GitHubName,
+		participant.Email,
+		participant.DisplayName,
+		participant.Score,
+		participant.CampaignName,
+		participant.fkTeam,
+		participant.ID,
+	).Scan(&guid)
+	if err != nil {
+		return
+	}
+
+	participant.ID = guid
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 func addParticipant(c echo.Context) (err error) {
