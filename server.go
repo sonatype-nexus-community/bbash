@@ -263,11 +263,9 @@ func updateParticipant(c echo.Context) (err error) {
 		    Score = $4,
 		    Campaign = (SELECT Id FROM campaigns WHERE CampaignName = $5),
 		    fk_team = $6		    
-		WHERE Id = $7
-		RETURNING Id`
+		WHERE Id = $7`
 
-	var guid string
-	err = db.QueryRow(
+	res, err := db.Exec(
 		sqlUpdate,
 		participant.GitHubName,
 		participant.Email,
@@ -276,14 +274,33 @@ func updateParticipant(c echo.Context) (err error) {
 		participant.CampaignName,
 		participant.fkTeam,
 		participant.ID,
-	).Scan(&guid)
+	)
+	if err != nil {
+		return
+	}
+	rows, err := res.RowsAffected()
 	if err != nil {
 		return
 	}
 
-	participant.ID = guid
+	if rows == 1 {
+		c.Logger().Infof(
+			"Success, huzzah! Participant updated, ID: %s, gitHubName: %s",
+			participant.ID,
+			participant.GitHubName,
+		)
 
-	return c.NoContent(http.StatusNoContent)
+		return c.NoContent(http.StatusNoContent)
+	} else {
+		c.Logger().Errorf(
+			"No row was updated, something goofy has occurred, ID: %s, gitHubName: %s, rows: %s",
+			participant.ID,
+			participant.GitHubName,
+			rows,
+		)
+
+		return c.NoContent(http.StatusBadRequest)
+	}
 }
 
 func addParticipant(c echo.Context) (err error) {
