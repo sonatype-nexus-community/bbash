@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/sonatype-nexus-community/bbash/buildversion"
 	"net/http"
 	"os"
 	"strconv"
@@ -94,6 +95,11 @@ func main() {
 	e.Debug = true
 	e.Logger.SetLevel(log.INFO)
 
+	buildInfoMessage := fmt.Sprintf("BuildVersion: %s, BuildTime: %s, BuildCommit: %s",
+		buildversion.BuildVersion, buildversion.BuildTime, buildversion.BuildCommit)
+	e.Logger.Infof(buildInfoMessage)
+	fmt.Println(buildInfoMessage)
+
 	err := godotenv.Load(".env")
 	if err != nil {
 		e.Logger.Error(err)
@@ -128,7 +134,7 @@ func main() {
 	}
 
 	e.GET("/", func(c echo.Context) error {
-		return c.String(http.StatusOK, "I am ALIVE")
+		return c.String(http.StatusOK, "I am ALIVE. "+buildInfoMessage)
 	})
 
 	// Participant related endpoints and group
