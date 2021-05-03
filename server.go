@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -41,7 +42,7 @@ type participant struct {
 	GitHubName   string `json:"gitHubName"`
 	Email        string `json:"email"`
 	DisplayName  string `json:"displayName"`
-	Score        string `json:"score"`
+	Score        int    `json:"score"`
 	fkTeam       sql.NullString
 	JoinedAt     time.Time `json:"joinedAt"`
 	CampaignName string    `json:"campaignName"`
@@ -77,10 +78,26 @@ type scoring_alert struct {
 type scoring_message struct {
 	RepoOwner   string         `json:"repositoryOwner"`
 	RepoName    string         `json:"repositoryName"`
-	TriggerUser string         `json:"trigger-user"`
+	TriggerUser string         `json:"triggerUser"`
 	TotalFixed  int            `json:"fixed-bugs"`
 	BugCounts   map[string]int `json:"fixed-bug-types"`
 	PullRequest int            `json:"pullRequestId"`
+}
+
+type leaderboard_item struct {
+	UserName string `json:"name"`
+	Slug     string `json:"slug"`
+	Score    int    `json:"score"`
+	Archived bool   `json:"_archived"`
+	Draft    bool   `json:"_draft"`
+}
+
+type leaderboard_payload struct {
+	Fields leaderboard_item `json:"fields"`
+}
+
+type leaderboard_response struct {
+	Id string `json:"_id"`
 }
 
 const (
@@ -100,7 +117,11 @@ const (
 	BUG                 string = "/bug"
 	CAMPAIGN            string = "/campaign"
 	SCORE_EVENT         string = "/scoring"
+	WEBFLOW_API_BASE    string = "https://api.webflow.com"
 )
+
+var webflowToken string
+var webflowCollection string
 
 func main() {
 
@@ -119,6 +140,8 @@ func main() {
 	password := os.Getenv("PG_PASSWORD")
 	dbname := os.Getenv("PG_DB_NAME")
 	sslMode := os.Getenv("SSL_MODE")
+	webflowToken = os.Getenv("WEBFLOW_TOKEN")
+	webflowCollection = os.Getenv("WEBFLOW_COLLECTION_ID")
 
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
 		"password=%s dbname=%s sslmode=%s",
@@ -199,9 +222,92 @@ func main() {
 	}
 }
 
+func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
+	item := leaderboard_item{}
+	item.UserName = p.GitHubName
+	item.Slug = p.GitHubName
+	item.Score = 0
+	item.Archived = false
+	item.Draft = false
+
+	payload := leaderboard_payload{}
+	payload.Fields = item
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", WEBFLOW_API_BASE, webflowCollection), bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", webflowToken))
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("accept-version", "1.0.0")
+
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return
+	}
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		c.Logger().Debug(req)
+		var responseBody []byte
+		res.Body.Read(responseBody)
+		c.Logger().Debug(responseBody)
+		err = c.String(http.StatusInternalServerError, "Could not create upstream participant")
+	}
+
+	var response leaderboard_response
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return
+	}
+	id = response.Id
+	return
+}
+
+func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error) {
+
+	var payload struct {
+		Fields struct {
+			Score int `json:"score"`
+		} `json:"fields"`
+	}
+	payload.Fields.Score = score
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	url := fmt.Sprintf("%s/collections/%s/items/%s?live=true", WEBFLOW_API_BASE, webflowCollection, webflowId)
+	req, err := http.NewRequest("PATCH", url, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", webflowToken))
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("accept-version", "1.0.0")
+
+	res, err := http.DefaultClient.Do(req)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		c.Logger().Debug(req)
+		var responseBody []byte
+		res.Body.Read(responseBody)
+		c.Logger().Debug(responseBody)
+		err = c.String(http.StatusInternalServerError, "Could not update score")
+	}
+
+	return
+}
+
 var PARTICIPATING_REPOS = map[string]bool{
 	"thanos-io/thanos":          true,
 	"serverlessworkflow/sdk-go": true,
+	"nescohen/hello_muse":       true,
+	"Muse-Dev/hello_muse":       true,
 }
 
 func validScore(owner string, name string, user string) bool {
@@ -216,7 +322,8 @@ func validScore(owner string, name string, user string) bool {
 		FROM participants
 		WHERE participants.GitHubName = $1`
 	row := db.QueryRow(sqlQuery, user)
-	err := row.Scan()
+	var id string
+	err := row.Scan(&id)
 	if err != nil {
 		return false
 	}
@@ -245,10 +352,17 @@ func scorePoints(msg scoring_message) (points int) {
 	return
 }
 
-func updateParticipantScore(username string, delta int) (err error) {
-	sqlUpdate := `UPDATE participants SET Score = Score + $1 WHERE GitHubName = $2`
-	_, err = db.Exec(sqlUpdate, delta, username)
-	// TODO: call update frontend function to display score on web leaderboard
+func updateParticipantScore(c echo.Context, username string, delta int) (err error) {
+	sqlQuery := `UPDATE participants SET Score = Score + $1 WHERE GitHubName = $2 RETURNING UpstreamId, Score`
+	var id string
+	var score int
+	row := db.QueryRow(sqlQuery, delta, username)
+	err = row.Scan(&id, &score)
+	if err != nil {
+		return
+	}
+
+	err = upstreamUpdateScore(c, id, score)
 	return
 }
 
@@ -259,15 +373,19 @@ func newScore(c echo.Context) (err error) {
 		return
 	}
 
+	c.Logger().Debug(alert)
+
 	for _, rawMsg := range alert.RecentHits {
 		var msg scoring_message
 		err = json.Unmarshal([]byte(rawMsg), &msg)
 		if err != nil {
 			return
 		}
+		c.Logger().Debug(msg)
 
 		// if this particular entry is not valid, ignore it and continue processing
 		if !validScore(msg.RepoOwner, msg.RepoName, msg.TriggerUser) {
+			c.Logger().Debug("Score is not valid!")
 			continue
 		}
 
@@ -286,26 +404,32 @@ func newScore(c echo.Context) (err error) {
 
 		row := db.QueryRow(scoreQuery, msg.RepoOwner, msg.RepoName, msg.PullRequest)
 		oldPoints := 0
-		row.Scan(&oldPoints)
+		err = row.Scan(&oldPoints)
+		if err != nil {
+			c.Logger().Debug(err)
+		}
 
 		insertEvent := `INSERT INTO scoring_events
 			(repoOwner, repoName, pr, username, points)
 			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT DO
+			ON CONFLICT (repoOwner, repoName, pr) DO
 				UPDATE SET points = $5`
 
 		_, err = db.Exec(insertEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
 		if err != nil {
+			c.Logger().Debug(err)
 			return err
 		}
 
-		err = updateParticipantScore(msg.TriggerUser, newPoints-oldPoints)
+		err = updateParticipantScore(c, msg.TriggerUser, newPoints-oldPoints)
 		if err != nil {
+			c.Logger().Debug(err)
 			return err
 		}
 
 		err = tx.Commit()
 		if err != nil {
+			c.Logger().Debug(err)
 			return err
 		}
 	}
@@ -447,9 +571,14 @@ func addParticipant(c echo.Context) (err error) {
 		return
 	}
 
+	webflowId, err := upstreamNewParticipant(c, participant)
+	if err != nil {
+		return
+	}
+
 	sqlInsert := `INSERT INTO participants 
-		(GithubName, Email, DisplayName, Score, Campaign) 
-		VALUES ($1, $2, $3, $4, (SELECT Id FROM campaigns WHERE CampaignName = $5))
+		(GithubName, Email, DisplayName, Score, UpstreamId, Campaign) 
+		VALUES ($1, $2, $3, $4, $5, (SELECT Id FROM campaigns WHERE CampaignName = $6))
 		RETURNING Id, Score, JoinedAt`
 
 	var guid string
@@ -459,6 +588,7 @@ func addParticipant(c echo.Context) (err error) {
 		participant.Email,
 		participant.DisplayName,
 		0,
+		webflowId,
 		participant.CampaignName).Scan(&guid, &participant.Score, &participant.JoinedAt)
 	if err != nil {
 		return
