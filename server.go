@@ -70,6 +70,19 @@ type bug struct {
 	PointValue int    `json:"pointValue"`
 }
 
+type scoring_alert struct {
+	RecentHits []string `json:"recent_hits"` // encoded scoring message
+}
+
+type scoring_message struct {
+	RepoOwner   string         `json:"repositoryOwner"`
+	RepoName    string         `json:"repositoryName"`
+	TriggerUser string         `json:"trigger-user"`
+	TotalFixed  int            `json:"fixed-bugs"`
+	BugCounts   map[string]int `json:"fixed-bug-types"`
+	PullRequest int            `json:"pullRequestId"`
+}
+
 const (
 	PARAM_ID            string = "id"
 	PARAM_GITHUB_NAME   string = "gitHubName"
@@ -86,6 +99,7 @@ const (
 	PERSON              string = "/person"
 	BUG                 string = "/bug"
 	CAMPAIGN            string = "/campaign"
+	SCORE_EVENT         string = "/scoring"
 )
 
 func main() {
@@ -168,6 +182,11 @@ func main() {
 
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", ADD, PARAM_CAMPAIGN_NAME), addCampaign)
 
+	// Scoreing related endpoints and group
+	scoreGroup := e.Group(SCORE_EVENT)
+
+	scoreGroup.POST("/new", newScore)
+
 	routes := e.Routes()
 
 	for _, v := range routes {
@@ -178,6 +197,120 @@ func main() {
 	if err != nil {
 		e.Logger.Error(err)
 	}
+}
+
+var PARTICIPATING_REPOS = map[string]bool{
+	"thanos-io/thanos":          true,
+	"serverlessworkflow/sdk-go": true,
+}
+
+func validScore(owner string, name string, user string) bool {
+	// check if repo is in participating set
+	if !PARTICIPATING_REPOS[fmt.Sprintf("%s/%s", owner, name)] {
+		return false
+	}
+
+	// Check if participant is registered
+	sqlQuery := `SELECT
+		participants.Id
+		FROM participants
+		WHERE participants.GitHubName = $1`
+	row := db.QueryRow(sqlQuery, user)
+	err := row.Scan()
+	if err != nil {
+		return false
+	}
+
+	return true
+}
+
+func scorePoints(msg scoring_message) (points int) {
+	points = 0
+	scored := 0
+
+	for bugType, count := range msg.BugCounts {
+		sqlQuery := `SELECT pointValue FROM bugs WHERE category = $1`
+		row := db.QueryRow(sqlQuery, bugType)
+		var value int = 1
+		row.Scan(&value)
+		points += count * value
+		scored += count
+	}
+
+	// add 1 point for all non-classified fixed bugs
+	if scored < msg.TotalFixed {
+		points += msg.TotalFixed - scored
+	}
+
+	return
+}
+
+func updateParticipantScore(username string, delta int) (err error) {
+	sqlUpdate := `UPDATE participants SET Score = Score + $1 WHERE GitHubName = $2`
+	_, err = db.Exec(sqlUpdate, delta, username)
+	// TODO: call update frontend function to display score on web leaderboard
+	return
+}
+
+func newScore(c echo.Context) (err error) {
+	var alert scoring_alert
+	err = json.NewDecoder(c.Request().Body).Decode(&alert)
+	if err != nil {
+		return
+	}
+
+	for _, rawMsg := range alert.RecentHits {
+		var msg scoring_message
+		err = json.Unmarshal([]byte(rawMsg), &msg)
+		if err != nil {
+			return
+		}
+
+		// if this particular entry is not valid, ignore it and continue processing
+		if !validScore(msg.RepoOwner, msg.RepoName, msg.TriggerUser) {
+			continue
+		}
+
+		newPoints := scorePoints(msg)
+
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+
+		scoreQuery := `SELECT points
+			FROM scoring_events
+			WHERE repoOwner = $1
+				AND repoName = $2
+				AND pr = $3`
+
+		row := db.QueryRow(scoreQuery, msg.RepoOwner, msg.RepoName, msg.PullRequest)
+		oldPoints := 0
+		row.Scan(&oldPoints)
+
+		insertEvent := `INSERT INTO scoring_events
+			(repoOwner, repoName, pr, username, points)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT DO
+				UPDATE SET points = $5`
+
+		_, err = db.Exec(insertEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
+		if err != nil {
+			return err
+		}
+
+		err = updateParticipantScore(msg.TriggerUser, newPoints-oldPoints)
+		if err != nil {
+			return err
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			return err
+		}
+	}
+
+	return c.NoContent(http.StatusAccepted)
 }
 
 func getParticipantDetail(c echo.Context) (err error) {
