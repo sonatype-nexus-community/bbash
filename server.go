@@ -111,6 +111,7 @@ const (
 	DETAIL              string = "/detail"
 	LIST                string = "/list"
 	UPDATE              string = "/update"
+	DELETE              string = "/delete"
 	TEAM                string = "/team"
 	ADD                 string = "/add"
 	PERSON              string = "/person"
@@ -182,6 +183,10 @@ func main() {
 
 	participantGroup.POST(UPDATE, updateParticipant).Name = "participant-update"
 	participantGroup.PUT(ADD, addParticipant).Name = "participant-add"
+	participantGroup.DELETE(
+		fmt.Sprintf("%s/:%s", DELETE, PARAM_GITHUB_NAME),
+		deleteParticipant,
+	)
 
 	// Team related endpoints and group
 
@@ -257,6 +262,7 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 		res.Body.Read(responseBody)
 		c.Logger().Debug(responseBody)
 		err = c.String(http.StatusInternalServerError, "Could not create upstream participant")
+		return
 	}
 
 	var response leaderboard_response
@@ -303,21 +309,19 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 	return
 }
 
-var PARTICIPATING_REPOS = map[string]bool{
-	"thanos-io/thanos":          true,
-	"serverlessworkflow/sdk-go": true,
-	"chaos-mesh/chaos-mesh":     true,
-	"cri-o/cri-o/":              true,
-	"openebs/openebs":           true,
-	"buildpacks/pack":           true,
-	"buildpacks/lifecycle":      true,
-	"buildpacks/imgutil":        true,
-	"schemahero/schemahero":     true,
+var PARTICIPATING_ORGS = map[string]bool{
+	"thanos-io":          true,
+	"serverlessworkflow": true,
+	"chaos-mesh":         true,
+	"cri-o":              true,
+	"openebs":            true,
+	"buildpacks":         true,
+	"schemahero":         true,
 }
 
 func validScore(owner string, name string, user string) bool {
 	// check if repo is in participating set
-	if !PARTICIPATING_REPOS[fmt.Sprintf("%s/%s", owner, name)] {
+	if !PARTICIPATING_ORGS[owner] {
 		return false
 	}
 
@@ -566,6 +570,15 @@ func updateParticipant(c echo.Context) (err error) {
 
 		return c.NoContent(http.StatusBadRequest)
 	}
+}
+
+func deleteParticipant(c echo.Context) (err error) {
+	githubName := c.Param(PARAM_GITHUB_NAME)
+
+	sqlDelete := `DELETE FROM participants WHERE GithubName = $1`
+
+	_, err = db.Exec(sqlDelete, githubName)
+	return
 }
 
 func addParticipant(c echo.Context) (err error) {
