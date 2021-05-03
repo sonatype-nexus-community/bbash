@@ -306,8 +306,13 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 var PARTICIPATING_REPOS = map[string]bool{
 	"thanos-io/thanos":          true,
 	"serverlessworkflow/sdk-go": true,
-	"nescohen/hello_muse":       true,
-	"Muse-Dev/hello_muse":       true,
+	"chaos-mesh/chaos-mesh":     true,
+	"cri-o/cri-o/":              true,
+	"openebs/openebs":           true,
+	"buildpacks/pack":           true,
+	"buildpacks/lifecycle":      true,
+	"buildpacks/imgutil":        true,
+	"schemahero/schemahero":     true,
 }
 
 func validScore(owner string, name string, user string) bool {
