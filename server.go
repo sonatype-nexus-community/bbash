@@ -552,6 +552,11 @@ func updateParticipant(c echo.Context) (err error) {
 		return
 	}
 
+	err = updateParticipantScore(c, participant.GitHubName, 0)
+	if err != nil {
+		return
+	}
+
 	if rows == 1 {
 		c.Logger().Infof(
 			"Success, huzzah! Participant updated, ID: %s, gitHubName: %s",
