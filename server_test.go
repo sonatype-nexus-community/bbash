@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -154,6 +155,23 @@ func TestAddCampaignEmptyName(t *testing.T) {
 	assert.Equal(t, expectedError.Error(), rec.Body.String())
 }
 
+// convertSqlToDbMockExpect takes a "real" sql string and adds escape characters as needed to produce a
+// regex matching string for use with database mock expect calls.
+func convertSqlToDbMockExpect(realSql string) string {
+	reDollarSign := regexp.MustCompile(`(\$)`)
+	sqlMatch := reDollarSign.ReplaceAll([]byte(realSql), []byte(`\$`))
+
+	reLeftParen := regexp.MustCompile(`(\()`)
+	sqlMatch = reLeftParen.ReplaceAll(sqlMatch, []byte(`\(`))
+
+	reRightParen := regexp.MustCompile(`(\))`)
+	sqlMatch = reRightParen.ReplaceAll(sqlMatch, []byte(`\)`))
+
+	reStar := regexp.MustCompile(`(\*)`)
+	sqlMatch = reStar.ReplaceAll(sqlMatch, []byte(`\*`))
+	return string(sqlMatch)
+}
+
 func TestAddCampaignScanError(t *testing.T) {
 	campaignName := "myCampaignName"
 	c, rec := setupMockContextCampaign(campaignName)
@@ -169,7 +187,7 @@ func TestAddCampaignScanError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`INSERT INTO campaigns \(CampaignName\) VALUES \(\$1\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
 		WithArgs(campaignName).
 		WillReturnError(forcedError)
 
@@ -193,7 +211,7 @@ func TestAddCampaign(t *testing.T) {
 	db = dbMock
 
 	campaignUUID := "campaignId"
-	mock.ExpectQuery(`INSERT INTO campaigns \(CampaignName\) VALUES \(\$1\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
 		WithArgs(campaignName).
 		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignUUID))
 
@@ -235,7 +253,7 @@ func TestAddParticipantCampaignMissing(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL insert error")
-	mock.ExpectQuery(`INSERT INTO participants \(GithubName, Email, DisplayName, Score, Campaign\) VALUES \(\$1\, \$2, \$3, \$4, \(SELECT Id FROM campaigns WHERE CampaignName = \$5\)\) RETURNING Id, Score, JoinedAt`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addParticipant(c), forcedError.Error())
@@ -259,7 +277,7 @@ func TestAddParticipant(t *testing.T) {
 	db = dbMock
 
 	participantID := "participantUUId"
-	mock.ExpectQuery(`INSERT INTO participants \(GithubName, Email, DisplayName, Score, Campaign\) VALUES \(\$1\, \$2, \$3, \$4, \(SELECT Id FROM campaigns WHERE CampaignName = \$5\)\) RETURNING Id, Score, JoinedAt`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
 		WithArgs(participantName, "", "", 0, "").
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Score", "JoinedAt"}).AddRow(participantID, 0, time.Time{}))
 
@@ -302,7 +320,7 @@ func TestUpdateParticipantMissingParticipantID(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL insert error")
-	mock.ExpectExec(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
 		WithArgs(participantName, "", "", "", "", sql.NullString{}, "").
 		WillReturnError(forcedError)
 
@@ -328,7 +346,7 @@ func TestUpdateParticipantUpdateError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL insert error")
-	mock.ExpectExec(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
 		WithArgs(participantName, "", "", "", "", sql.NullString{}, participantID).
 		WillReturnResult(sqlmock.NewErrorResult(forcedError))
 
@@ -353,7 +371,7 @@ func TestUpdateParticipantNoRowsUpdated(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
 		WithArgs(participantName, "", "", "", "", sql.NullString{}, participantID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
@@ -378,7 +396,7 @@ func TestUpdateParticipant(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
 		WithArgs(participantName, "", "", "", "", sql.NullString{}, participantID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -420,7 +438,7 @@ func TestAddTeamInsertError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL insert error")
-	mock.ExpectQuery(`INSERT INTO teams \(TeamName, Organization\) VALUES \(\$1\, \$2\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertTeam)).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addTeam(c), forcedError.Error())
@@ -444,7 +462,7 @@ func TestAddTeamEmptyOrganization(t *testing.T) {
 	db = dbMock
 
 	teamID := "teamUUId"
-	mock.ExpectQuery(`INSERT INTO teams \(TeamName, Organization\) VALUES \(\$1\, \$2\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertTeam)).
 		WithArgs(teamName, sql.NullString{}).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow(teamID))
 
@@ -481,7 +499,7 @@ func TestAddTeam(t *testing.T) {
 	db = dbMock
 
 	teamID := "teamUUId"
-	mock.ExpectQuery(`INSERT INTO teams \(TeamName, Organization\) VALUES \(\$1\, \$2\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertTeam)).
 		WithArgs(teamName, sql.NullString{String: organizationName, Valid: true}).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow(teamID))
 
@@ -527,7 +545,7 @@ func TestAddPersonToTeamUpdateError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL update error")
-	mock.ExpectExec(`UPDATE participants SET fk_team = \(SELECT Id FROM teams WHERE TeamName = \$1\) WHERE GitHubName = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addPersonToTeam(c), forcedError.Error())
@@ -551,7 +569,7 @@ func TestAddPersonToTeamRowsAffectedError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Rows Affected error")
-	mock.ExpectExec(`UPDATE participants SET fk_team = \(SELECT Id FROM teams WHERE TeamName = \$1\) WHERE GitHubName = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WithArgs(teamName, githubName).
 		WillReturnResult(sqlmock.NewErrorResult(forcedError))
 
@@ -575,7 +593,7 @@ func TestAddPersonToTeamZeroRowsAffected(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE participants SET fk_team = \(SELECT Id FROM teams WHERE TeamName = \$1\) WHERE GitHubName = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WithArgs(teamName, githubName).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
@@ -599,7 +617,7 @@ func TestAddPersonToTeamSomeRowsAffected(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE participants SET fk_team = \(SELECT Id FROM teams WHERE TeamName = \$1\) WHERE GitHubName = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WithArgs(teamName, githubName).
 		WillReturnResult(sqlmock.NewResult(0, 5))
 
@@ -635,7 +653,7 @@ func TestGetParticipantDetailScanError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON teams.Id = participants.fk_team INNER JOIN campaigns ON campaigns.Id = participants.Campaign WHERE participants.GitHubName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantDetail)).
 		WithArgs("").
 		WillReturnError(forcedError)
 
@@ -659,7 +677,7 @@ func TestGetParticipantDetail(t *testing.T) {
 	db = dbMock
 
 	participantID := "9"
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON teams.Id = participants.fk_team INNER JOIN campaigns ON campaigns.Id = participants.Campaign WHERE participants.GitHubName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantDetail)).
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).AddRow(participantID, githubName, "", "", "", "", time.Time{}, ""))
 
@@ -696,7 +714,7 @@ func TestGetParticipantsListScanError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON participants.fk_team = teams.Id INNER JOIN campaigns ON participants.Campaign = campaigns.Id WHERE campaigns.CampaignName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs("").
 		WillReturnError(forcedError)
 
@@ -719,7 +737,7 @@ func TestGetParticipantsListRowScanError(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON participants.fk_team = teams.Id INNER JOIN campaigns ON participants.Campaign = campaigns.Id WHERE campaigns.CampaignName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs("").
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).
 			// force scan error due to time.Time type mismatch at JoinedAt column
@@ -745,7 +763,7 @@ func TestGetParticipantsList(t *testing.T) {
 	db = dbMock
 
 	participantID := "participantUUId"
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON participants.fk_team = teams.Id INNER JOIN campaigns ON participants.Campaign = campaigns.Id WHERE campaigns.CampaignName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs(campaignName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).
 			AddRow(participantID, "", "", "", "", "", time.Time{}, campaignName))
@@ -788,7 +806,7 @@ func TestAddBugScanError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs(category, 0).
 		WillReturnError(forcedError)
 
@@ -813,7 +831,7 @@ func TestAddBug(t *testing.T) {
 	db = dbMock
 
 	bugId := "myBugId"
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs(category, pointValue).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId))
@@ -861,7 +879,7 @@ func TestUpdateBugUpdateError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Update error")
-	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, category).
 		WillReturnError(forcedError)
 
@@ -886,7 +904,7 @@ func TestUpdateBugRowsAffectedError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Rows Affected error")
-	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, category).
 		WillReturnResult(sqlmock.NewErrorResult(forcedError))
 
@@ -910,7 +928,7 @@ func TestUpdateBugRowsAffectedZero(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, category).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
@@ -934,7 +952,7 @@ func TestUpdateBug(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, category).
 		WillReturnResult(sqlmock.NewResult(0, 5))
 
@@ -966,7 +984,7 @@ func TestGetBugsSelectError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Select error")
-	mock.ExpectQuery(`SELECT \* FROM bugs`).WillReturnError(forcedError)
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectBug)).WillReturnError(forcedError)
 
 	assert.EqualError(t, getBugs(c), forcedError.Error())
 	assert.Equal(t, 0, c.Response().Status)
@@ -986,7 +1004,7 @@ func TestGetBugsScanError(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectQuery(`SELECT \* FROM bugs`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectBug)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Category", "PointValue"}).
 			// force scan error due to time.Time type mismatch at PointValue column
 			AddRow(-1, "", "non-number"))
@@ -1012,7 +1030,7 @@ func TestGetBugs(t *testing.T) {
 	bugId := "myBugId"
 	category := "myCategory"
 	pointValue := 9
-	mock.ExpectQuery(`SELECT \* FROM bugs`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectBug)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Category", "PointValue"}).
 			// force scan error due to time.Time type mismatch at PointValue column
 			AddRow(bugId, category, strconv.Itoa(pointValue)))
@@ -1075,7 +1093,7 @@ func TestPutBugsScanError(t *testing.T) {
 
 	mock.ExpectBegin()
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnError(forcedError)
 
@@ -1098,7 +1116,7 @@ func TestPutBugsCommitTxError(t *testing.T) {
 	db = dbMock
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(""))
@@ -1125,7 +1143,7 @@ func TestPutBugsOneBug(t *testing.T) {
 
 	mock.ExpectBegin()
 	bugId := "myBugId"
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId))
@@ -1151,13 +1169,13 @@ func TestPutBugsMultipleBugs(t *testing.T) {
 
 	mock.ExpectBegin()
 	bugId := "myBugId"
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId))
 
 	bugId2 := "secondBugId"
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId2))
