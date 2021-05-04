@@ -172,6 +172,11 @@ func convertSqlToDbMockExpect(realSql string) string {
 	return string(sqlMatch)
 }
 
+func TestConvertSqlToDbMockExpect(t *testing.T) {
+	// sanity check all the cases we've found so far
+	assert.Equal(t, `\$\(\)\*`, convertSqlToDbMockExpect(`$()*`))
+}
+
 func TestAddCampaignScanError(t *testing.T) {
 	campaignName := "myCampaignName"
 	c, rec := setupMockContextCampaign(campaignName)
