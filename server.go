@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/sonatype-nexus-community/bbash/buildversion"
 	"net/http"
 	"os"
 	"strconv"
@@ -130,6 +131,11 @@ func main() {
 	e.Debug = true
 	e.Logger.SetLevel(log.INFO)
 
+	buildInfoMessage := fmt.Sprintf("BuildVersion: %s, BuildTime: %s, BuildCommit: %s",
+		buildversion.BuildVersion, buildversion.BuildTime, buildversion.BuildCommit)
+	e.Logger.Infof(buildInfoMessage)
+	fmt.Println(buildInfoMessage)
+
 	err := godotenv.Load(".env")
 	if err != nil {
 		e.Logger.Error(err)
@@ -166,7 +172,7 @@ func main() {
 	}
 
 	e.GET("/", func(c echo.Context) error {
-		return c.String(http.StatusOK, "I am ALIVE")
+		return c.String(http.StatusOK, "I am ALIVE. "+buildInfoMessage)
 	})
 
 	// Participant related endpoints and group
@@ -446,18 +452,18 @@ func newScore(c echo.Context) (err error) {
 	return c.NoContent(http.StatusAccepted)
 }
 
-func getParticipantDetail(c echo.Context) (err error) {
-	gitHubName := c.Param(PARAM_GITHUB_NAME)
-	c.Logger().Debug("Getting detail for ", gitHubName)
-
-	sqlQuery := `SELECT 
+const sqlSelectParticipantDetail = `SELECT 
 		participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName 
 		FROM participants
 		LEFT JOIN teams ON teams.Id = participants.fk_team
 		INNER JOIN campaigns ON campaigns.Id = participants.Campaign
 		WHERE participants.GitHubName = $1`
 
-	row := db.QueryRow(sqlQuery, gitHubName)
+func getParticipantDetail(c echo.Context) (err error) {
+	gitHubName := c.Param(PARAM_GITHUB_NAME)
+	c.Logger().Debug("Getting detail for ", gitHubName)
+
+	row := db.QueryRow(sqlSelectParticipantDetail, gitHubName)
 
 	participant := new(participant)
 	err = row.Scan(&participant.ID,
@@ -478,18 +484,18 @@ func getParticipantDetail(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, participant)
 }
 
-func getParticipantsList(c echo.Context) (err error) {
-	campaignName := c.Param(PARAM_CAMPAIGN_NAME)
-	c.Logger().Debug("Getting list for ", campaignName)
-
-	sqlQuery := `SELECT
+const sqlSelectParticipantsByCampaign = `SELECT
 		participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName 
 		FROM participants
 		LEFT JOIN teams ON participants.fk_team = teams.Id
 		INNER JOIN campaigns ON participants.Campaign = campaigns.Id
 		WHERE campaigns.CampaignName = $1`
 
-	rows, err := db.Query(sqlQuery, campaignName)
+func getParticipantsList(c echo.Context) (err error) {
+	campaignName := c.Param(PARAM_CAMPAIGN_NAME)
+	c.Logger().Debug("Getting list for ", campaignName)
+
+	rows, err := db.Query(sqlSelectParticipantsByCampaign, campaignName)
 	if err != nil {
 		return
 	}
@@ -516,15 +522,7 @@ func getParticipantsList(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, participants)
 }
 
-func updateParticipant(c echo.Context) (err error) {
-	participant := participant{}
-
-	err = json.NewDecoder(c.Request().Body).Decode(&participant)
-	if err != nil {
-		return
-	}
-
-	sqlUpdate := `UPDATE participants 
+const sqlUpdateParticipant = `UPDATE participants 
 		SET 
 		    GithubName = $1,
 		    Email = $2,
@@ -534,8 +532,16 @@ func updateParticipant(c echo.Context) (err error) {
 		    fk_team = $6		    
 		WHERE Id = $7`
 
+func updateParticipant(c echo.Context) (err error) {
+	participant := participant{}
+
+	err = json.NewDecoder(c.Request().Body).Decode(&participant)
+	if err != nil {
+		return
+	}
+
 	res, err := db.Exec(
-		sqlUpdate,
+		sqlUpdateParticipant,
 		participant.GitHubName,
 		participant.Email,
 		participant.DisplayName,
@@ -586,6 +592,12 @@ func deleteParticipant(c echo.Context) (err error) {
 	return
 }
 
+const sqlInsertParticipant = `INSERT INTO participants 
+		(GithubName, Email, DisplayName, Score, Campaign) 
+		VALUES ($1, $2, $3, $4, (SELECT Id FROM campaigns WHERE CampaignName = $5))
+		RETURNING Id, Score, JoinedAt`
+
+
 func addParticipant(c echo.Context) (err error) {
 	participant := participant{}
 
@@ -599,14 +611,9 @@ func addParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	sqlInsert := `INSERT INTO participants 
-		(GithubName, Email, DisplayName, Score, UpstreamId, Campaign) 
-		VALUES ($1, $2, $3, $4, $5, (SELECT Id FROM campaigns WHERE CampaignName = $6))
-		RETURNING Id, Score, JoinedAt`
-
 	var guid string
 	err = db.QueryRow(
-		sqlInsert,
+		sqlInsertParticipant,
 		participant.GitHubName,
 		participant.Email,
 		participant.DisplayName,
@@ -634,6 +641,11 @@ func addParticipant(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, creation)
 }
 
+const sqlInsertTeam = `INSERT INTO teams
+		(TeamName, Organization)
+		VALUES ($1, $2)
+		RETURNING Id`
+
 func addTeam(c echo.Context) (err error) {
 	team := team{}
 
@@ -642,14 +654,9 @@ func addTeam(c echo.Context) (err error) {
 		return
 	}
 
-	sqlInsert := `INSERT INTO teams
-		(TeamName, Organization)
-		VALUES ($1, $2)
-		RETURNING Id`
-
 	var guid string
 	err = db.QueryRow(
-		sqlInsert,
+		sqlInsertTeam,
 		team.TeamName,
 		team.Organization).Scan(&guid)
 	if err != nil {
@@ -659,6 +666,10 @@ func addTeam(c echo.Context) (err error) {
 	return c.String(http.StatusCreated, guid)
 }
 
+const sqlUpdateParticipantTeam = `UPDATE participants 
+		SET fk_team = (SELECT Id FROM teams WHERE TeamName = $1)
+		WHERE GitHubName = $2`
+
 func addPersonToTeam(c echo.Context) (err error) {
 	teamName := c.Param(PARAM_TEAM_NAME)
 	gitHubName := c.Param(PARAM_GITHUB_NAME)
@@ -667,12 +678,8 @@ func addPersonToTeam(c echo.Context) (err error) {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	sqlUpdate := `UPDATE participants 
-		SET fk_team = (SELECT Id FROM teams WHERE TeamName = $1)
-		WHERE GitHubName = $2`
-
 	res, err := db.Exec(
-		sqlUpdate,
+		sqlUpdateParticipantTeam,
 		teamName,
 		gitHubName)
 	if err != nil {
@@ -702,6 +709,11 @@ func addPersonToTeam(c echo.Context) (err error) {
 	}
 }
 
+const sqlInsertBug = `INSERT INTO bugs
+		(category, pointValue)
+		VALUES ($1, $2)
+		RETURNING ID`
+
 func addBug(c echo.Context) (err error) {
 	bug := bug{}
 
@@ -710,13 +722,8 @@ func addBug(c echo.Context) (err error) {
 		return
 	}
 
-	sqlInsert := `INSERT INTO bugs
-		(category, pointValue)
-		VALUES ($1, $2)
-		RETURNING ID`
-
 	var guid string
-	err = db.QueryRow(sqlInsert, bug.Category, bug.PointValue).Scan(&guid)
+	err = db.QueryRow(sqlInsertBug, bug.Category, bug.PointValue).Scan(&guid)
 	if err != nil {
 		return
 	}
@@ -728,6 +735,10 @@ func addBug(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, creation)
 }
 
+const sqlUpdateBug = `UPDATE bugs
+		SET pointValue = $1
+		WHERE category = $2`
+
 func updateBug(c echo.Context) (err error) {
 
 	category := c.Param(PARAM_BUG_CATEGORY)
@@ -738,10 +749,7 @@ func updateBug(c echo.Context) (err error) {
 
 	c.Logger().Debug(category)
 
-	sqlUpdate := `UPDATE bugs
-		SET pointValue = $1
-		WHERE category = $2`
-	res, err := db.Exec(sqlUpdate, pointValue, category)
+	res, err := db.Exec(sqlUpdateBug, pointValue, category)
 	if err != nil {
 		return
 	}
@@ -756,11 +764,11 @@ func updateBug(c echo.Context) (err error) {
 	return c.String(http.StatusOK, "Success")
 }
 
+const sqlSelectBug = `SELECT * FROM bugs`
+
 func getBugs(c echo.Context) (err error) {
 
-	sqlQuery := `SELECT * FROM bugs`
-
-	rows, err := db.Query(sqlQuery)
+	rows, err := db.Query(sqlSelectBug)
 	if err != nil {
 		return
 	}
@@ -789,13 +797,9 @@ func putBugs(c echo.Context) (err error) {
 	if err != nil {
 		return
 	}
-	sqlInsert := `INSERT INTO bugs
-		(category, pointValue)
-		VALUES ($1, $2)
-		RETURNING ID`
 	var inserted []bug
 	for _, bug := range bugs {
-		err = db.QueryRow(sqlInsert, bug.Category, bug.PointValue).Scan(&bug.Id)
+		err = db.QueryRow(sqlInsertBug, bug.Category, bug.PointValue).Scan(&bug.Id)
 		if err != nil {
 			return
 		}
@@ -814,6 +818,11 @@ func putBugs(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, response)
 }
 
+const sqlInsertCampaign = `INSERT INTO campaigns 
+		(CampaignName) 
+		VALUES ($1)
+		RETURNING Id`
+
 func addCampaign(c echo.Context) (err error) {
 	campaignName := strings.TrimSpace(c.Param(PARAM_CAMPAIGN_NAME))
 	if len(campaignName) == 0 {
@@ -823,14 +832,9 @@ func addCampaign(c echo.Context) (err error) {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 
-	sqlInsert := `INSERT INTO campaigns 
-		(CampaignName) 
-		VALUES ($1)
-		RETURNING Id`
-
 	var guid string
 	err = db.QueryRow(
-		sqlInsert,
+		sqlInsertCampaign,
 		campaignName).Scan(&guid)
 	if err != nil {
 		return
