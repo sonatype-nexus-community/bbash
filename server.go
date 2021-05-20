@@ -122,6 +122,8 @@ const (
 	WEBFLOW_API_BASE    string = "https://api.webflow.com"
 )
 
+// variable allows for changes to url for testing
+var webflowBaseAPI = WEBFLOW_API_BASE
 var webflowToken string
 var webflowCollection string
 
@@ -233,6 +235,8 @@ func main() {
 	}
 }
 
+const msgUpstreamParticipantCreateError = "could not create upstream participant. response status: %s"
+
 func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
 	item := leaderboard_item{}
 	item.UserName = p.GitHubName
@@ -249,7 +253,7 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 		return
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", WEBFLOW_API_BASE, webflowCollection), bytes.NewReader(body))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", webflowBaseAPI, webflowCollection), bytes.NewReader(body))
 	if err != nil {
 		return
 	}
@@ -265,9 +269,15 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		c.Logger().Debug(req)
 		var responseBody []byte
-		res.Body.Read(responseBody)
+		_, _ = res.Body.Read(responseBody)
 		c.Logger().Debug(responseBody)
-		err = c.String(http.StatusInternalServerError, "Could not create upstream participant")
+		// return a real error to the caller to indicate failure
+		errMsg := fmt.Sprintf(msgUpstreamParticipantCreateError, res.Status)
+		if errContext := c.String(http.StatusInternalServerError, errMsg); errContext != nil {
+			err = errContext
+		} else {
+			err = fmt.Errorf(errMsg)
+		}
 		return
 	}
 
@@ -279,6 +289,8 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 	id = response.Id
 	return
 }
+
+const msgUpstreamParticipantUpdateError = "could not update score. response status: %s"
 
 func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error) {
 
@@ -294,7 +306,7 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 		return
 	}
 
-	url := fmt.Sprintf("%s/collections/%s/items/%s?live=true", WEBFLOW_API_BASE, webflowCollection, webflowId)
+	url := fmt.Sprintf("%s/collections/%s/items/%s?live=true", webflowBaseAPI, webflowCollection, webflowId)
 	req, err := http.NewRequest("PATCH", url, bytes.NewReader(body))
 	if err != nil {
 		return
@@ -304,12 +316,20 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 	req.Header.Add("accept-version", "1.0.0")
 
 	res, err := http.DefaultClient.Do(req)
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
+	if err != nil {
+		return
+	} else if res.StatusCode < 200 || res.StatusCode >= 300 {
 		c.Logger().Debug(req)
 		var responseBody []byte
-		res.Body.Read(responseBody)
+		_, _ = res.Body.Read(responseBody)
 		c.Logger().Debug(responseBody)
-		err = c.String(http.StatusInternalServerError, "Could not update score")
+		// return a real error to the caller to indicate failure
+		errMsg := fmt.Sprintf(msgUpstreamParticipantUpdateError, res.Status)
+		if errContext := c.String(http.StatusInternalServerError, errMsg); errContext != nil {
+			err = errContext
+		} else {
+			err = fmt.Errorf(errMsg)
+		}
 	}
 
 	return
@@ -354,6 +374,7 @@ func scorePoints(msg scoring_message) (points int) {
 		sqlQuery := `SELECT pointValue FROM bugs WHERE category = $1`
 		row := db.QueryRow(sqlQuery, bugType)
 		var value int = 1
+		// @TODO handle possible row scan error below
 		row.Scan(&value)
 		points += count * value
 		scored += count
@@ -367,11 +388,15 @@ func scorePoints(msg scoring_message) (points int) {
 	return
 }
 
+const sqlUpdateParticipantScore = `UPDATE participants 
+		SET Score = Score + $1 
+		WHERE GitHubName = $2 
+		RETURNING UpstreamId, Score`
+
 func updateParticipantScore(c echo.Context, username string, delta int) (err error) {
-	sqlQuery := `UPDATE participants SET Score = Score + $1 WHERE GitHubName = $2 RETURNING UpstreamId, Score`
 	var id string
 	var score int
-	row := db.QueryRow(sqlQuery, delta, username)
+	row := db.QueryRow(sqlUpdateParticipantScore, delta, username)
 	err = row.Scan(&id, &score)
 	if err != nil {
 		return
@@ -593,10 +618,9 @@ func deleteParticipant(c echo.Context) (err error) {
 }
 
 const sqlInsertParticipant = `INSERT INTO participants 
-		(GithubName, Email, DisplayName, Score, Campaign) 
-		VALUES ($1, $2, $3, $4, (SELECT Id FROM campaigns WHERE CampaignName = $5))
+		(GithubName, Email, DisplayName, Score, UpstreamId, Campaign) 
+		VALUES ($1, $2, $3, $4, $5, (SELECT Id FROM campaigns WHERE CampaignName = $6))
 		RETURNING Id, Score, JoinedAt`
-
 
 func addParticipant(c echo.Context) (err error) {
 	participant := participant{}
