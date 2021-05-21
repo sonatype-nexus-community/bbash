@@ -177,7 +177,7 @@ func convertSqlToDbMockExpect(realSql string) string {
 
 func TestConvertSqlToDbMockExpect(t *testing.T) {
 	// sanity check all the cases we've found so far
-	assert.Equal(t, `\$\(\)\*`, convertSqlToDbMockExpect(`$()*`))
+	assert.Equal(t, `\$\(\)\*\+`, convertSqlToDbMockExpect(`$()*+`))
 }
 
 func TestAddCampaignScanError(t *testing.T) {
