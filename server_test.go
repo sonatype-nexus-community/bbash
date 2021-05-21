@@ -230,8 +230,6 @@ func TestAddCampaign(t *testing.T) {
 
 func setupMockContextWebflow() (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	//req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/collections/%s/items", webflowCollection), strings.NewReader(leaderboard_payload))
 	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
