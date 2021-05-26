@@ -174,7 +174,7 @@ func main() {
 	}
 
 	e.GET("/", func(c echo.Context) error {
-		return c.String(http.StatusOK, "I am ALIVE. "+buildInfoMessage)
+		return c.String(http.StatusOK, fmt.Sprintf("I am ALIVE. %s", buildInfoMessage))
 	})
 
 	// Participant related endpoints and group
