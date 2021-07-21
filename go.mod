@@ -18,4 +18,5 @@ replace github.com/dhui/dktest => github.com/dhui/dktest v0.3.4
 replace go.mongodb.org/mongo-driver => go.mongodb.org/mongo-driver v1.5.1
 
 // fix: CVE-2021-21334 in pkg:golang/github.com/containerd/containerd@v1.4.3
-replace github.com/containerd/containerd => github.com/containerd/containerd v1.4.4
+// fix: CVE-2021-32760 in github.com/containerd/containerd v1.4.4
+replace github.com/containerd/containerd => github.com/containerd/containerd v1.4.8
