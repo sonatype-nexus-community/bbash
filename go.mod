@@ -20,3 +20,6 @@ replace go.mongodb.org/mongo-driver => go.mongodb.org/mongo-driver v1.5.1
 // fix: CVE-2021-21334 in pkg:golang/github.com/containerd/containerd@v1.4.3
 // fix: CVE-2021-32760 in github.com/containerd/containerd v1.4.4
 replace github.com/containerd/containerd => github.com/containerd/containerd v1.4.8
+
+// fix: SONATYPE-2019-0702 in github.com/gobuffalo/packr/v2 v2.2.0
+replace github.com/gobuffalo/packr/v2 => github.com/gobuffalo/packr/v2 v2.3.2
