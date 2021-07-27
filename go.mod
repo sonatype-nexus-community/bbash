@@ -24,5 +24,8 @@ replace github.com/containerd/containerd => github.com/containerd/containerd v1.
 // fix: SONATYPE-2019-0702 in github.com/gobuffalo/packr/v2 v2.2.0
 replace github.com/gobuffalo/packr/v2 => github.com/gobuffalo/packr/v2 v2.3.2
 
-// fix vulnerability: CVE-2020-15114 in etcd v3.3.10
+// fix: CVE-2020-15114 in etcd v3.3.10
 replace github.com/coreos/etcd => github.com/coreos/etcd v3.3.24+incompatible
+
+// fix: sonatype-2021-0853 in github.com/jackc/pgproto3 v1.1.0
+replace github.com/jackc/pgproto3 => github.com/jackc/pgproto3/v2 v2.1.1
