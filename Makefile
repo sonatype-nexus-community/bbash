@@ -1,12 +1,31 @@
 .PHONY: all test build go-build air docker run-air go-alpine-build
 GOCMD=go
 GOBUILD=$(GOCMD) build
+
+TAG_COMMIT := $(shell git rev-list --abbrev-commit --tags --max-count=1)
+TAG := $(shell git describe --abbrev=0 --tags ${TAG_COMMIT} 2>/dev/null || true)
+COMMIT := $(shell git rev-parse --short HEAD)
+DATE := $(shell git log -1 --format=%cd --date=iso)
+VERSION := $(TAG:v%=%)
+ifneq ($(COMMIT), $(TAG_COMMIT))
+	VERSION := 0.0.0-dev
+endif
+ifeq ($(VERSION),)
+	VERSION := $(COMMIT)-$(DATE)
+endif
+ifneq ($(shell git status --porcelain),)
+	VERSION := $(VERSION)-dirty
+endif
+GOBUILD_FLAGS=-ldflags "-X 'github.com/sonatype-nexus-community/bbash/buildversion.BuildVersion=$(VERSION)' \
+	   -X 'github.com/sonatype-nexus-community/bbash/buildversion.BuildTime=$(DATE)' \
+	   -X 'github.com/sonatype-nexus-community/bbash/buildversion.BuildCommit=$(COMMIT)'"
+
 GOTEST=$(GOCMD) test
 
 all: test
 
 air:
-	$(GOBUILD) -o ./tmp/bbash ./server.go
+	$(GOBUILD) -o ./tmp/bbash $(GOBUILD_FLAGS) ./server.go
 
 docker:
 	docker build -t bug-bash .
@@ -19,10 +38,13 @@ run-air:
 build: go-build
 
 go-build:
-	$(GOBUILD) -o bbash ./server.go
+	echo "VERSION: $(VERSION)"
+	echo "DATE: $(DATE)"
+	echo "COMMIT: $(COMMIT)"
+	$(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go
 
 go-alpine-build:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -o bbash ./server.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go
 
 test: build
 	$(GOTEST) -v ./... 2>&1

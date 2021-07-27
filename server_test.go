@@ -19,12 +19,14 @@ package main
 import (
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"fmt"
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -124,8 +126,7 @@ func xxxTestMigrateDB(t *testing.T) {
 
 func setupMockContextCampaign(campaignName string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/%s", CAMPAIGN, ADD, PARAM_CAMPAIGN_NAME), nil)
+	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	c.SetParamNames(PARAM_CAMPAIGN_NAME)
@@ -154,6 +155,31 @@ func TestAddCampaignEmptyName(t *testing.T) {
 	assert.Equal(t, expectedError.Error(), rec.Body.String())
 }
 
+// convertSqlToDbMockExpect takes a "real" sql string and adds escape characters as needed to produce a
+// regex matching string for use with database mock expect calls.
+func convertSqlToDbMockExpect(realSql string) string {
+	reDollarSign := regexp.MustCompile(`(\$)`)
+	sqlMatch := reDollarSign.ReplaceAll([]byte(realSql), []byte(`\$`))
+
+	reLeftParen := regexp.MustCompile(`(\()`)
+	sqlMatch = reLeftParen.ReplaceAll(sqlMatch, []byte(`\(`))
+
+	reRightParen := regexp.MustCompile(`(\))`)
+	sqlMatch = reRightParen.ReplaceAll(sqlMatch, []byte(`\)`))
+
+	reStar := regexp.MustCompile(`(\*)`)
+	sqlMatch = reStar.ReplaceAll(sqlMatch, []byte(`\*`))
+
+	rePlus := regexp.MustCompile(`(\+)`)
+	sqlMatch = rePlus.ReplaceAll(sqlMatch, []byte(`\+`))
+	return string(sqlMatch)
+}
+
+func TestConvertSqlToDbMockExpect(t *testing.T) {
+	// sanity check all the cases we've found so far
+	assert.Equal(t, `\$\(\)\*\+`, convertSqlToDbMockExpect(`$()*+`))
+}
+
 func TestAddCampaignScanError(t *testing.T) {
 	campaignName := "myCampaignName"
 	c, rec := setupMockContextCampaign(campaignName)
@@ -169,7 +195,7 @@ func TestAddCampaignScanError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`INSERT INTO campaigns \(CampaignName\) VALUES \(\$1\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
 		WithArgs(campaignName).
 		WillReturnError(forcedError)
 
@@ -193,7 +219,7 @@ func TestAddCampaign(t *testing.T) {
 	db = dbMock
 
 	campaignUUID := "campaignId"
-	mock.ExpectQuery(`INSERT INTO campaigns \(CampaignName\) VALUES \(\$1\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
 		WithArgs(campaignName).
 		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignUUID))
 
@@ -202,10 +228,139 @@ func TestAddCampaign(t *testing.T) {
 	assert.Equal(t, campaignUUID, rec.Body.String())
 }
 
+func setupMockContextWebflow() (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+	req := httptest.NewRequest("", "/", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	c.SetParamNames("live")
+	c.SetParamValues("true")
+	return
+}
+
+func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
+	origWebflowColletion := webflowCollection
+	defer func() {
+		webflowCollection = origWebflowColletion
+	}()
+	webflowCollection = "testWfCollection"
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
+
+		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	c, rec := setupMockContextWebflow()
+
+	id, err := upstreamNewParticipant(c, participant{})
+	assert.Equal(t, "", id)
+	expectedErrMsg := fmt.Sprintf(msgUpstreamParticipantCreateError, "404 Not Found")
+	assert.EqualError(t, err, expectedErrMsg)
+	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
+	assert.Equal(t, expectedErrMsg, rec.Body.String())
+}
+
+func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
+	origWebflowColletion := webflowCollection
+	defer func() {
+		webflowCollection = origWebflowColletion
+	}()
+	webflowCollection = "testWfCollection"
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
+
+		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("bad json text"))
+	}))
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	c, rec := setupMockContextWebflow()
+
+	id, err := upstreamNewParticipant(c, participant{})
+	assert.Equal(t, "", id)
+	assert.EqualError(t, err, "invalid character 'b' looking for beginning of value")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func setupMockWebflowUserCreate(t *testing.T, testId string) *httptest.Server {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
+
+		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		assert.Equal(t, "1.0.0", r.Header.Get("accept-version"))
+
+		w.WriteHeader(http.StatusOK)
+		lbResponse := leaderboard_response{Id: testId}
+		respBytes, err := json.Marshal(lbResponse)
+		assert.NoError(t, err)
+		_, _ = w.Write(respBytes)
+	}))
+	return ts
+}
+
+func TestUpstreamNewParticipantWebflowValidID(t *testing.T) {
+	origWebflowColletion := webflowCollection
+	defer func() {
+		webflowCollection = origWebflowColletion
+	}()
+	webflowCollection = "testWfCollection"
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+	testId := "testNewWebflowParticipantId"
+	ts := setupMockWebflowUserCreate(t, testId)
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	c, rec := setupMockContextWebflow()
+
+	id, err := upstreamNewParticipant(c, participant{})
+	assert.Equal(t, testId, id)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
 func setupMockContextParticipant(participantJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", PARTICIPANT, ADD), strings.NewReader(participantJson))
+	req := httptest.NewRequest("", "/", strings.NewReader(participantJson))
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	return
@@ -219,10 +374,55 @@ func TestAddParticipantBodyInvalid(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
+func TestAddParticipantWebflowError(t *testing.T) {
+	participantName := "partName"
+	participantJson := `{"gitHubName": "` + participantName + `"}`
+	c, rec := setupMockContextParticipant(participantJson)
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
+
+		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	expectedErrMsg := fmt.Sprintf(msgUpstreamParticipantCreateError, "404 Not Found")
+	assert.EqualError(t, addParticipant(c), expectedErrMsg)
+	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
+	assert.Equal(t, expectedErrMsg, rec.Body.String())
+}
+
 func TestAddParticipantCampaignMissing(t *testing.T) {
 	participantName := "partName"
 	participantJson := `{"gitHubName": "` + participantName + `"}`
 	c, rec := setupMockContextParticipant(participantJson)
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+	testId := "testNewWebflowParticipantId"
+	ts := setupMockWebflowUserCreate(t, testId)
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
 
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -235,7 +435,7 @@ func TestAddParticipantCampaignMissing(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL insert error")
-	mock.ExpectQuery(`INSERT INTO participants \(GithubName, Email, DisplayName, Score, Campaign\) VALUES \(\$1\, \$2, \$3, \$4, \(SELECT Id FROM campaigns WHERE CampaignName = \$5\)\) RETURNING Id, Score, JoinedAt`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addParticipant(c), forcedError.Error())
@@ -248,6 +448,20 @@ func TestAddParticipant(t *testing.T) {
 	participantJson := `{"gitHubName": "` + participantName + `"}`
 	c, rec := setupMockContextParticipant(participantJson)
 
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+	testId := "testNewWebflowParticipantId"
+	ts := setupMockWebflowUserCreate(t, testId)
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
 	dbMock, mock := newMockDb(t)
 	defer func() {
 		_ = dbMock.Close()
@@ -259,8 +473,8 @@ func TestAddParticipant(t *testing.T) {
 	db = dbMock
 
 	participantID := "participantUUId"
-	mock.ExpectQuery(`INSERT INTO participants \(GithubName, Email, DisplayName, Score, Campaign\) VALUES \(\$1\, \$2, \$3, \$4, \(SELECT Id FROM campaigns WHERE CampaignName = \$5\)\) RETURNING Id, Score, JoinedAt`).
-		WithArgs(participantName, "", "", 0, "").
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
+		WithArgs(participantName, "", "", 0, testId, "").
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Score", "JoinedAt"}).AddRow(participantID, 0, time.Time{}))
 
 	assert.NoError(t, addParticipant(c))
@@ -271,8 +485,7 @@ func TestAddParticipant(t *testing.T) {
 
 func setupMockContextUpdateParticipant(participantJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s", PARTICIPANT, UPDATE), strings.NewReader(participantJson))
+	req := httptest.NewRequest("", "/", strings.NewReader(participantJson))
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	return
@@ -302,8 +515,8 @@ func TestUpdateParticipantMissingParticipantID(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL insert error")
-	mock.ExpectExec(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7`).
-		WithArgs(participantName, "", "", "", "", sql.NullString{}, "").
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
+		WithArgs(participantName, "", "", 0, "", sql.NullString{}, "").
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, updateParticipant(c), forcedError.Error())
@@ -328,11 +541,86 @@ func TestUpdateParticipantUpdateError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL insert error")
-	mock.ExpectExec(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7`).
-		WithArgs(participantName, "", "", "", "", sql.NullString{}, participantID).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
+		WithArgs(participantName, "", "", 0, "", sql.NullString{}, participantID).
 		WillReturnResult(sqlmock.NewErrorResult(forcedError))
 
 	assert.EqualError(t, updateParticipant(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func setupMockContextUpstreamUpdateScore() (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+	req := httptest.NewRequest("", "/", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
+}
+
+func TestUpstreamUpdateScoreStatusError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/", webflowCollection), r.URL.EscapedPath())
+
+		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+
+	c, rec := setupMockContextUpstreamUpdateScore()
+
+	expectedErrMsg := fmt.Sprintf(msgUpstreamParticipantUpdateError, "404 Not Found")
+	assert.EqualError(t, upstreamUpdateScore(c, "", 0), expectedErrMsg)
+	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
+	assert.Equal(t, expectedErrMsg, rec.Body.String())
+}
+
+func setupMockWebflowUserUpdate(t *testing.T, webflowId string) *httptest.Server {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, webflowId), r.URL.EscapedPath())
+
+		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		assert.Equal(t, "1.0.0", r.Header.Get("accept-version"))
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	return ts
+}
+
+func TestUpstreamUpdateScore(t *testing.T) {
+	ts := setupMockWebflowUserUpdate(t, "")
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+
+	c, rec := setupMockContextUpstreamUpdateScore()
+
+	assert.NoError(t, upstreamUpdateScore(c, "", 0))
 	assert.Equal(t, 0, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
@@ -353,9 +641,26 @@ func TestUpdateParticipantNoRowsUpdated(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7`).
-		WithArgs(participantName, "", "", "", "", sql.NullString{}, participantID).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
+		WithArgs(participantName, "", "", 0, "", sql.NullString{}, participantID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
+		WithArgs(0, participantName).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(participantID, 0))
+
+	ts := setupMockWebflowUserUpdate(t, participantID)
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
 
 	assert.NoError(t, updateParticipant(c))
 	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
@@ -378,9 +683,26 @@ func TestUpdateParticipant(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE participants SET GithubName = \$1, Email = \$2, DisplayName = \$3, Score = \$4, Campaign = \(SELECT Id FROM campaigns WHERE CampaignName = \$5\), fk_team = \$6 WHERE Id = \$7`).
-		WithArgs(participantName, "", "", "", "", sql.NullString{}, participantID).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
+		WithArgs(participantName, "", "", 0, "", sql.NullString{}, participantID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
+		WithArgs(0, participantName).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(participantID, 0))
+
+	ts := setupMockWebflowUserUpdate(t, participantID)
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
 
 	assert.NoError(t, updateParticipant(c))
 	assert.Equal(t, http.StatusNoContent, c.Response().Status)
@@ -389,8 +711,7 @@ func TestUpdateParticipant(t *testing.T) {
 
 func setupMockContextTeam(teamJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", TEAM, ADD), strings.NewReader(teamJson))
+	req := httptest.NewRequest("", "/", strings.NewReader(teamJson))
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	return
@@ -420,7 +741,7 @@ func TestAddTeamInsertError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL insert error")
-	mock.ExpectQuery(`INSERT INTO teams \(TeamName, Organization\) VALUES \(\$1\, \$2\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertTeam)).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addTeam(c), forcedError.Error())
@@ -444,7 +765,7 @@ func TestAddTeamEmptyOrganization(t *testing.T) {
 	db = dbMock
 
 	teamID := "teamUUId"
-	mock.ExpectQuery(`INSERT INTO teams \(TeamName, Organization\) VALUES \(\$1\, \$2\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertTeam)).
 		WithArgs(teamName, sql.NullString{}).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow(teamID))
 
@@ -481,7 +802,7 @@ func TestAddTeam(t *testing.T) {
 	db = dbMock
 
 	teamID := "teamUUId"
-	mock.ExpectQuery(`INSERT INTO teams \(TeamName, Organization\) VALUES \(\$1\, \$2\) RETURNING Id`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertTeam)).
 		WithArgs(teamName, sql.NullString{String: organizationName, Valid: true}).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow(teamID))
 
@@ -492,14 +813,11 @@ func TestAddTeam(t *testing.T) {
 
 func setupMockContextAddPersonToTeam(githubName, teamName string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/%s/%s", TEAM, PERSON, PARAM_GITHUB_NAME, PARAM_TEAM_NAME), nil)
+	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
-
 	c.SetParamNames(PARAM_GITHUB_NAME, PARAM_TEAM_NAME)
 	c.SetParamValues(githubName, teamName)
-
 	return
 }
 
@@ -527,7 +845,7 @@ func TestAddPersonToTeamUpdateError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced SQL update error")
-	mock.ExpectExec(`UPDATE participants SET fk_team = \(SELECT Id FROM teams WHERE TeamName = \$1\) WHERE GitHubName = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addPersonToTeam(c), forcedError.Error())
@@ -551,7 +869,7 @@ func TestAddPersonToTeamRowsAffectedError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Rows Affected error")
-	mock.ExpectExec(`UPDATE participants SET fk_team = \(SELECT Id FROM teams WHERE TeamName = \$1\) WHERE GitHubName = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WithArgs(teamName, githubName).
 		WillReturnResult(sqlmock.NewErrorResult(forcedError))
 
@@ -575,7 +893,7 @@ func TestAddPersonToTeamZeroRowsAffected(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE participants SET fk_team = \(SELECT Id FROM teams WHERE TeamName = \$1\) WHERE GitHubName = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WithArgs(teamName, githubName).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
@@ -599,7 +917,7 @@ func TestAddPersonToTeamSomeRowsAffected(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE participants SET fk_team = \(SELECT Id FROM teams WHERE TeamName = \$1\) WHERE GitHubName = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WithArgs(teamName, githubName).
 		WillReturnResult(sqlmock.NewResult(0, 5))
 
@@ -610,14 +928,11 @@ func TestAddPersonToTeamSomeRowsAffected(t *testing.T) {
 
 func setupMockContextParticipantDetail(githubName string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s/%s", PARTICIPANT, DETAIL, PARAM_GITHUB_NAME), nil)
+	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
-
 	c.SetParamNames(PARAM_GITHUB_NAME)
 	c.SetParamValues(githubName)
-
 	return
 }
 
@@ -635,7 +950,7 @@ func TestGetParticipantDetailScanError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON teams.Id = participants.fk_team INNER JOIN campaigns ON campaigns.Id = participants.Campaign WHERE participants.GitHubName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantDetail)).
 		WithArgs("").
 		WillReturnError(forcedError)
 
@@ -659,9 +974,9 @@ func TestGetParticipantDetail(t *testing.T) {
 	db = dbMock
 
 	participantID := "9"
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON teams.Id = participants.fk_team INNER JOIN campaigns ON campaigns.Id = participants.Campaign WHERE participants.GitHubName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantDetail)).
 		WithArgs(githubName).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).AddRow(participantID, githubName, "", "", "", "", time.Time{}, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).AddRow(participantID, githubName, "", "", 0, "", time.Time{}, ""))
 
 	assert.NoError(t, getParticipantDetail(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
@@ -670,14 +985,11 @@ func TestGetParticipantDetail(t *testing.T) {
 
 func setupMockContextParticipantList(campaignName string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s/%s", PARTICIPANT, LIST, PARAM_CAMPAIGN_NAME), nil)
+	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
-
 	c.SetParamNames(PARAM_CAMPAIGN_NAME)
 	c.SetParamValues(campaignName)
-
 	return
 }
 
@@ -696,7 +1008,7 @@ func TestGetParticipantsListScanError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON participants.fk_team = teams.Id INNER JOIN campaigns ON participants.Campaign = campaigns.Id WHERE campaigns.CampaignName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs("").
 		WillReturnError(forcedError)
 
@@ -719,11 +1031,11 @@ func TestGetParticipantsListRowScanError(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON participants.fk_team = teams.Id INNER JOIN campaigns ON participants.Campaign = campaigns.Id WHERE campaigns.CampaignName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs("").
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).
 			// force scan error due to time.Time type mismatch at JoinedAt column
-			AddRow(-1, "", "", "", "", "", "", campaignName))
+			AddRow(-1, "", "", "", 0, "", "", campaignName))
 
 	assert.EqualError(t, getParticipantsList(c), `sql: Scan error on column index 6, name "JoinedAt": unsupported Scan, storing driver.Value type string into type *time.Time`)
 	assert.Equal(t, 0, c.Response().Status)
@@ -745,10 +1057,10 @@ func TestGetParticipantsList(t *testing.T) {
 	db = dbMock
 
 	participantID := "participantUUId"
-	mock.ExpectQuery(`SELECT participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName FROM participants LEFT JOIN teams ON participants.fk_team = teams.Id INNER JOIN campaigns ON participants.Campaign = campaigns.Id WHERE campaigns.CampaignName = \$1`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs(campaignName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "GHName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt", "CampaignName"}).
-			AddRow(participantID, "", "", "", "", "", time.Time{}, campaignName))
+			AddRow(participantID, "", "", "", 0, "", time.Time{}, campaignName))
 
 	assert.NoError(t, getParticipantsList(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
@@ -758,8 +1070,7 @@ func TestGetParticipantsList(t *testing.T) {
 
 func setupMockContextAddBug(bugJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", BUG, ADD), strings.NewReader(bugJson))
+	req := httptest.NewRequest("", "/", strings.NewReader(bugJson))
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	return
@@ -788,7 +1099,7 @@ func TestAddBugScanError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs(category, 0).
 		WillReturnError(forcedError)
 
@@ -813,7 +1124,7 @@ func TestAddBug(t *testing.T) {
 	db = dbMock
 
 	bugId := "myBugId"
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs(category, pointValue).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId))
@@ -826,14 +1137,11 @@ func TestAddBug(t *testing.T) {
 
 func setupMockContextUpdateBug(bugCategory, pointValue string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("%s/%s/%s/%s", BUG, UPDATE, PARAM_BUG_CATEGORY, PARAM_POINT_VALUE), nil)
+	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
-
 	c.SetParamNames(PARAM_BUG_CATEGORY, PARAM_POINT_VALUE)
 	c.SetParamValues(bugCategory, pointValue)
-
 	return
 }
 
@@ -861,7 +1169,7 @@ func TestUpdateBugUpdateError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Update error")
-	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, category).
 		WillReturnError(forcedError)
 
@@ -886,7 +1194,7 @@ func TestUpdateBugRowsAffectedError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Rows Affected error")
-	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, category).
 		WillReturnResult(sqlmock.NewErrorResult(forcedError))
 
@@ -910,7 +1218,7 @@ func TestUpdateBugRowsAffectedZero(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, category).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
@@ -934,7 +1242,7 @@ func TestUpdateBug(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectExec(`UPDATE bugs SET pointValue = \$1 WHERE category = \$2`).
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, category).
 		WillReturnResult(sqlmock.NewResult(0, 5))
 
@@ -945,8 +1253,7 @@ func TestUpdateBug(t *testing.T) {
 
 func setupMockContextGetBugs() (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("%s/%s", BUG, LIST), nil)
+	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	return
@@ -966,7 +1273,7 @@ func TestGetBugsSelectError(t *testing.T) {
 	db = dbMock
 
 	forcedError := fmt.Errorf("forced Select error")
-	mock.ExpectQuery(`SELECT \* FROM bugs`).WillReturnError(forcedError)
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectBug)).WillReturnError(forcedError)
 
 	assert.EqualError(t, getBugs(c), forcedError.Error())
 	assert.Equal(t, 0, c.Response().Status)
@@ -986,7 +1293,7 @@ func TestGetBugsScanError(t *testing.T) {
 	}()
 	db = dbMock
 
-	mock.ExpectQuery(`SELECT \* FROM bugs`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectBug)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Category", "PointValue"}).
 			// force scan error due to time.Time type mismatch at PointValue column
 			AddRow(-1, "", "non-number"))
@@ -1012,7 +1319,7 @@ func TestGetBugs(t *testing.T) {
 	bugId := "myBugId"
 	category := "myCategory"
 	pointValue := 9
-	mock.ExpectQuery(`SELECT \* FROM bugs`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectBug)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Category", "PointValue"}).
 			// force scan error due to time.Time type mismatch at PointValue column
 			AddRow(bugId, category, strconv.Itoa(pointValue)))
@@ -1024,8 +1331,7 @@ func TestGetBugs(t *testing.T) {
 
 func setupMockContextPutBugs(bugsJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-
-	req := httptest.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s", BUG, LIST), strings.NewReader(bugsJson))
+	req := httptest.NewRequest("", "/", strings.NewReader(bugsJson))
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	return
@@ -1075,7 +1381,7 @@ func TestPutBugsScanError(t *testing.T) {
 
 	mock.ExpectBegin()
 	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnError(forcedError)
 
@@ -1098,7 +1404,7 @@ func TestPutBugsCommitTxError(t *testing.T) {
 	db = dbMock
 
 	mock.ExpectBegin()
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(""))
@@ -1125,7 +1431,7 @@ func TestPutBugsOneBug(t *testing.T) {
 
 	mock.ExpectBegin()
 	bugId := "myBugId"
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId))
@@ -1151,13 +1457,13 @@ func TestPutBugsMultipleBugs(t *testing.T) {
 
 	mock.ExpectBegin()
 	bugId := "myBugId"
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId))
 
 	bugId2 := "secondBugId"
-	mock.ExpectQuery(`INSERT INTO bugs \(category, pointValue\) VALUES \(\$1, \$2\) RETURNING ID`).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
 		WithArgs("", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId2))
