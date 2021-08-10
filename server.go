@@ -119,6 +119,7 @@ const (
 	BUG                 string = "/bug"
 	CAMPAIGN            string = "/campaign"
 	SCORE_EVENT         string = "/scoring"
+	NEW                 string = "/new"
 	WEBFLOW_API_BASE    string = "https://api.webflow.com"
 )
 
@@ -221,7 +222,7 @@ func main() {
 	// Scoring related endpoints and group
 	scoreGroup := e.Group(SCORE_EVENT)
 
-	scoreGroup.POST("/new", newScore)
+	scoreGroup.POST(NEW, newScore)
 
 	routes := e.Routes()
 
