@@ -346,7 +346,7 @@ var PARTICIPATING_ORGS = map[string]bool{
 	"schemahero":         true,
 }
 
-func validScore(owner string, name string, user string) bool {
+func validScore(owner string, user string) bool {
 	// check if repo is in participating set
 	if !PARTICIPATING_ORGS[owner] {
 		return false
@@ -425,7 +425,7 @@ func newScore(c echo.Context) (err error) {
 		c.Logger().Debug(msg)
 
 		// if this particular entry is not valid, ignore it and continue processing
-		if !validScore(msg.RepoOwner, msg.RepoName, msg.TriggerUser) {
+		if !validScore(msg.RepoOwner, msg.TriggerUser) {
 			c.Logger().Debug("Score is not valid!")
 			continue
 		}
