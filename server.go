@@ -72,11 +72,11 @@ type bug struct {
 	PointValue int    `json:"pointValue"`
 }
 
-type scoring_alert struct {
+type scoringAlert struct {
 	RecentHits []string `json:"recent_hits"` // encoded scoring message
 }
 
-type scoring_message struct {
+type scoringMessage struct {
 	RepoOwner   string         `json:"repositoryOwner"`
 	RepoName    string         `json:"repositoryName"`
 	TriggerUser string         `json:"triggerUser"`
@@ -85,7 +85,7 @@ type scoring_message struct {
 	PullRequest int            `json:"pullRequestId"`
 }
 
-type leaderboard_item struct {
+type leaderboardItem struct {
 	UserName string `json:"name"`
 	Slug     string `json:"slug"`
 	Score    int    `json:"score"`
@@ -93,11 +93,11 @@ type leaderboard_item struct {
 	Draft    bool   `json:"_draft"`
 }
 
-type leaderboard_payload struct {
-	Fields leaderboard_item `json:"fields"`
+type leaderboardPayload struct {
+	Fields leaderboardItem `json:"fields"`
 }
 
-type leaderboard_response struct {
+type leaderboardResponse struct {
 	Id string `json:"_id"`
 }
 
@@ -218,7 +218,7 @@ func main() {
 
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", ADD, PARAM_CAMPAIGN_NAME), addCampaign)
 
-	// Scoreing related endpoints and group
+	// Scoring related endpoints and group
 	scoreGroup := e.Group(SCORE_EVENT)
 
 	scoreGroup.POST("/new", newScore)
@@ -238,14 +238,14 @@ func main() {
 const msgUpstreamParticipantCreateError = "could not create upstream participant. response status: %s"
 
 func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
-	item := leaderboard_item{}
+	item := leaderboardItem{}
 	item.UserName = p.GitHubName
 	item.Slug = p.GitHubName
 	item.Score = 0
 	item.Archived = false
 	item.Draft = false
 
-	payload := leaderboard_payload{}
+	payload := leaderboardPayload{}
 	payload.Fields = item
 
 	body, err := json.Marshal(payload)
@@ -281,7 +281,7 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 		return
 	}
 
-	var response leaderboard_response
+	var response leaderboardResponse
 	err = json.NewDecoder(res.Body).Decode(&response)
 	if err != nil {
 		return
@@ -366,7 +366,7 @@ func validScore(owner string, name string, user string) bool {
 	return true
 }
 
-func scorePoints(msg scoring_message) (points int) {
+func scorePoints(msg scoringMessage) (points int) {
 	points = 0
 	scored := 0
 
@@ -407,7 +407,7 @@ func updateParticipantScore(c echo.Context, username string, delta int) (err err
 }
 
 func newScore(c echo.Context) (err error) {
-	var alert scoring_alert
+	var alert scoringAlert
 	err = json.NewDecoder(c.Request().Body).Decode(&alert)
 	if err != nil {
 		return
@@ -416,7 +416,7 @@ func newScore(c echo.Context) (err error) {
 	c.Logger().Debug(alert)
 
 	for _, rawMsg := range alert.RecentHits {
-		var msg scoring_message
+		var msg scoringMessage
 		err = json.Unmarshal([]byte(rawMsg), &msg)
 		if err != nil {
 			return

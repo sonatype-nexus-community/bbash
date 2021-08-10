@@ -321,7 +321,7 @@ func setupMockWebflowUserCreate(t *testing.T, testId string) *httptest.Server {
 		assert.Equal(t, "1.0.0", r.Header.Get("accept-version"))
 
 		w.WriteHeader(http.StatusOK)
-		lbResponse := leaderboard_response{Id: testId}
+		lbResponse := leaderboardResponse{Id: testId}
 		respBytes, err := json.Marshal(lbResponse)
 		assert.NoError(t, err)
 		_, _ = w.Write(respBytes)
