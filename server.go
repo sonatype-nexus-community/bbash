@@ -236,7 +236,13 @@ func main() {
 	}
 }
 
-const msgUpstreamParticipantCreateError = "could not create upstream participant. response status: %s"
+type ParticipantCreateError struct {
+	Status string
+}
+
+func (e *ParticipantCreateError) Error() string {
+	return fmt.Sprintf("could not create upstream participant. response status: %s", e.Status)
+}
 
 func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
 	item := leaderboardItem{}
@@ -273,11 +279,9 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 		_, _ = res.Body.Read(responseBody)
 		c.Logger().Debug(responseBody)
 		// return a real error to the caller to indicate failure
-		errMsg := fmt.Sprintf(msgUpstreamParticipantCreateError, res.Status)
-		if errContext := c.String(http.StatusInternalServerError, errMsg); errContext != nil {
+		err = &ParticipantCreateError{res.Status}
+		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
 			err = errContext
-		} else {
-			err = fmt.Errorf(errMsg)
 		}
 		return
 	}
@@ -291,7 +295,13 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 	return
 }
 
-const msgUpstreamParticipantUpdateError = "could not update score. response status: %s"
+type ParticipantUpdateError struct {
+	Status string
+}
+
+func (e *ParticipantUpdateError) Error() string {
+	return fmt.Sprintf("could not update score. response status: %s", e.Status)
+}
 
 func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error) {
 
@@ -325,11 +335,9 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 		_, _ = res.Body.Read(responseBody)
 		c.Logger().Debug(responseBody)
 		// return a real error to the caller to indicate failure
-		errMsg := fmt.Sprintf(msgUpstreamParticipantUpdateError, res.Status)
-		if errContext := c.String(http.StatusInternalServerError, errMsg); errContext != nil {
+		err = &ParticipantUpdateError{res.Status}
+		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
 			err = errContext
-		} else {
-			err = fmt.Errorf(errMsg)
 		}
 	}
 

@@ -268,10 +268,10 @@ func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
 
 	id, err := upstreamNewParticipant(c, participant{})
 	assert.Equal(t, "", id)
-	expectedErrMsg := fmt.Sprintf(msgUpstreamParticipantCreateError, "404 Not Found")
-	assert.EqualError(t, err, expectedErrMsg)
+	expectedErr := &ParticipantCreateError{"404 Not Found"}
+	assert.EqualError(t, err, expectedErr.Error())
 	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, expectedErrMsg, rec.Body.String())
+	assert.Equal(t, expectedErr.Error(), rec.Body.String())
 }
 
 func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
@@ -399,10 +399,10 @@ func TestAddParticipantWebflowError(t *testing.T) {
 	}()
 	webflowBaseAPI = ts.URL
 
-	expectedErrMsg := fmt.Sprintf(msgUpstreamParticipantCreateError, "404 Not Found")
-	assert.EqualError(t, addParticipant(c), expectedErrMsg)
+	expectedErr := &ParticipantCreateError{"404 Not Found"}
+	assert.EqualError(t, addParticipant(c), expectedErr.Error())
 	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, expectedErrMsg, rec.Body.String())
+	assert.Equal(t, expectedErr.Error(), rec.Body.String())
 }
 
 func TestAddParticipantCampaignMissing(t *testing.T) {
@@ -582,10 +582,10 @@ func TestUpstreamUpdateScoreStatusError(t *testing.T) {
 
 	c, rec := setupMockContextUpstreamUpdateScore()
 
-	expectedErrMsg := fmt.Sprintf(msgUpstreamParticipantUpdateError, "404 Not Found")
-	assert.EqualError(t, upstreamUpdateScore(c, "", 0), expectedErrMsg)
+	expectedErr := &ParticipantUpdateError{"404 Not Found"}
+	assert.EqualError(t, upstreamUpdateScore(c, "", 0), expectedErr.Error())
 	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, expectedErrMsg, rec.Body.String())
+	assert.Equal(t, expectedErr.Error(), rec.Body.String())
 }
 
 func setupMockWebflowUserUpdate(t *testing.T, webflowId string) *httptest.Server {
