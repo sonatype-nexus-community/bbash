@@ -266,7 +266,7 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 	}
 	requestHeaderSetup(req)
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := getNetClient().Do(req)
 	if err != nil {
 		return
 	}
@@ -290,6 +290,14 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 		return
 	}
 	id = response.Id
+	return
+}
+
+// see: https://medium.com/@nate510/don-t-use-go-s-default-http-client-4804cb19f779
+func getNetClient() (netClient *http.Client) {
+	netClient = &http.Client{
+		Timeout: time.Second * 10,
+	}
 	return
 }
 
@@ -328,7 +336,7 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 	}
 	requestHeaderSetup(req)
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := getNetClient().Do(req)
 	if err != nil {
 		return
 	} else if res.StatusCode < 200 || res.StatusCode >= 300 {

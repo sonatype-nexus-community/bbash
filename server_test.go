@@ -238,6 +238,11 @@ func setupMockContextWebflow() (c echo.Context, rec *httptest.ResponseRecorder) 
 	return
 }
 
+func TestGetNetClient(t *testing.T) {
+	netClient := getNetClient()
+	assert.Equal(t, 10.0, netClient.Timeout.Seconds())
+}
+
 func TestRequestHeaderSetup(t *testing.T) {
 	req, err := http.NewRequest("myMethod", "myUrl", nil)
 	assert.NoError(t, err)
