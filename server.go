@@ -102,29 +102,28 @@ type leaderboardResponse struct {
 }
 
 const (
-	PARAM_ID            string = "id"
-	PARAM_GITHUB_NAME   string = "gitHubName"
-	PARAM_CAMPAIGN_NAME string = "campaignName"
-	PARAM_TEAM_NAME     string = "teamName"
-	PARAM_BUG_CATEGORY  string = "bugCategory"
-	PARAM_POINT_VALUE   string = "pointValue"
-	PARTICIPANT         string = "/participant"
-	DETAIL              string = "/detail"
-	LIST                string = "/list"
-	UPDATE              string = "/update"
-	DELETE              string = "/delete"
-	TEAM                string = "/team"
-	ADD                 string = "/add"
-	PERSON              string = "/person"
-	BUG                 string = "/bug"
-	CAMPAIGN            string = "/campaign"
-	SCORE_EVENT         string = "/scoring"
-	NEW                 string = "/new"
-	WEBFLOW_API_BASE    string = "https://api.webflow.com"
+	ParamGithubName   string = "gitHubName"
+	ParamCampaignName string = "campaignName"
+	ParamTeamName     string = "teamName"
+	ParamBugCategory  string = "bugCategory"
+	ParamPointValue   string = "pointValue"
+	Participant       string = "/participant"
+	Detail            string = "/detail"
+	List              string = "/list"
+	Update            string = "/update"
+	Delete            string = "/delete"
+	Team              string = "/team"
+	Add               string = "/add"
+	Person            string = "/person"
+	Bug               string = "/bug"
+	Campaign          string = "/campaign"
+	ScoreEvent        string = "/scoring"
+	New               string = "/new"
+	WebflowApiBase    string = "https://api.webflow.com"
 )
 
 // variable allows for changes to url for testing
-var webflowBaseAPI = WEBFLOW_API_BASE
+var webflowBaseAPI = WebflowApiBase
 var webflowToken string
 var webflowCollection string
 
@@ -180,49 +179,49 @@ func main() {
 
 	// Participant related endpoints and group
 
-	participantGroup := e.Group(PARTICIPANT)
+	participantGroup := e.Group(Participant)
 
 	participantGroup.GET(
-		fmt.Sprintf("%s/:%s", DETAIL, PARAM_GITHUB_NAME),
+		fmt.Sprintf("%s/:%s", Detail, ParamGithubName),
 		getParticipantDetail).Name = "participant-detail"
 
 	participantGroup.GET(
-		fmt.Sprintf("%s/:%s", LIST, PARAM_CAMPAIGN_NAME),
+		fmt.Sprintf("%s/:%s", List, ParamCampaignName),
 		getParticipantsList).Name = "participant-list"
 
-	participantGroup.POST(UPDATE, updateParticipant).Name = "participant-update"
-	participantGroup.PUT(ADD, addParticipant).Name = "participant-add"
+	participantGroup.POST(Update, updateParticipant).Name = "participant-update"
+	participantGroup.PUT(Add, addParticipant).Name = "participant-add"
 	participantGroup.DELETE(
-		fmt.Sprintf("%s/:%s", DELETE, PARAM_GITHUB_NAME),
+		fmt.Sprintf("%s/:%s", Delete, ParamGithubName),
 		deleteParticipant,
 	)
 
 	// Team related endpoints and group
 
-	teamGroup := e.Group(TEAM)
+	teamGroup := e.Group(Team)
 
-	teamGroup.PUT(ADD, addTeam)
-	teamGroup.PUT(fmt.Sprintf("%s/:%s/:%s", PERSON, PARAM_GITHUB_NAME, PARAM_TEAM_NAME), addPersonToTeam)
+	teamGroup.PUT(Add, addTeam)
+	teamGroup.PUT(fmt.Sprintf("%s/:%s/:%s", Person, ParamGithubName, ParamTeamName), addPersonToTeam)
 
 	// Bug related endpoints and group
 
-	bugGroup := e.Group(BUG)
+	bugGroup := e.Group(Bug)
 
-	bugGroup.PUT(ADD, addBug)
-	bugGroup.POST(fmt.Sprintf("%s/:%s/:%s", UPDATE, PARAM_BUG_CATEGORY, PARAM_POINT_VALUE), updateBug)
-	bugGroup.GET(LIST, getBugs)
-	bugGroup.PUT(LIST, putBugs)
+	bugGroup.PUT(Add, addBug)
+	bugGroup.POST(fmt.Sprintf("%s/:%s/:%s", Update, ParamBugCategory, ParamPointValue), updateBug)
+	bugGroup.GET(List, getBugs)
+	bugGroup.PUT(List, putBugs)
 
 	// Campaign related endpoints and group
 
-	campaignGroup := e.Group(CAMPAIGN)
+	campaignGroup := e.Group(Campaign)
 
-	campaignGroup.PUT(fmt.Sprintf("%s/:%s", ADD, PARAM_CAMPAIGN_NAME), addCampaign)
+	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Add, ParamCampaignName), addCampaign)
 
 	// Scoring related endpoints and group
-	scoreGroup := e.Group(SCORE_EVENT)
+	scoreGroup := e.Group(ScoreEvent)
 
-	scoreGroup.POST(NEW, newScore)
+	scoreGroup.POST(New, newScore)
 
 	routes := e.Routes()
 
@@ -354,7 +353,7 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 	return
 }
 
-var PARTICIPATING_ORGS = map[string]bool{
+var ParticipatingOrgs = map[string]bool{
 	"thanos-io":          true,
 	"serverlessworkflow": true,
 	"chaos-mesh":         true,
@@ -366,7 +365,7 @@ var PARTICIPATING_ORGS = map[string]bool{
 
 func validScore(owner string, user string) bool {
 	// check if repo is in participating set
-	if !PARTICIPATING_ORGS[owner] {
+	if !ParticipatingOrgs[owner] {
 		return false
 	}
 
@@ -392,7 +391,7 @@ func scorePoints(msg scoringMessage) (points int) {
 	for bugType, count := range msg.BugCounts {
 		sqlQuery := `SELECT pointValue FROM bugs WHERE category = $1`
 		row := db.QueryRow(sqlQuery, bugType)
-		var value int = 1
+		var value = 1
 		// @TODO handle possible row scan error below
 		row.Scan(&value)
 		points += count * value
@@ -504,7 +503,7 @@ const sqlSelectParticipantDetail = `SELECT
 		WHERE participants.GitHubName = $1`
 
 func getParticipantDetail(c echo.Context) (err error) {
-	gitHubName := c.Param(PARAM_GITHUB_NAME)
+	gitHubName := c.Param(ParamGithubName)
 	c.Logger().Debug("Getting detail for ", gitHubName)
 
 	row := db.QueryRow(sqlSelectParticipantDetail, gitHubName)
@@ -536,7 +535,7 @@ const sqlSelectParticipantsByCampaign = `SELECT
 		WHERE campaigns.CampaignName = $1`
 
 func getParticipantsList(c echo.Context) (err error) {
-	campaignName := c.Param(PARAM_CAMPAIGN_NAME)
+	campaignName := c.Param(ParamCampaignName)
 	c.Logger().Debug("Getting list for ", campaignName)
 
 	rows, err := db.Query(sqlSelectParticipantsByCampaign, campaignName)
@@ -628,7 +627,7 @@ func updateParticipant(c echo.Context) (err error) {
 }
 
 func deleteParticipant(c echo.Context) (err error) {
-	githubName := c.Param(PARAM_GITHUB_NAME)
+	githubName := c.Param(ParamGithubName)
 
 	sqlDelete := `DELETE FROM participants WHERE GithubName = $1`
 
@@ -714,8 +713,8 @@ const sqlUpdateParticipantTeam = `UPDATE participants
 		WHERE GitHubName = $2`
 
 func addPersonToTeam(c echo.Context) (err error) {
-	teamName := c.Param(PARAM_TEAM_NAME)
-	gitHubName := c.Param(PARAM_GITHUB_NAME)
+	teamName := c.Param(ParamTeamName)
+	gitHubName := c.Param(ParamGithubName)
 
 	if teamName == "" || gitHubName == "" {
 		return c.NoContent(http.StatusBadRequest)
@@ -784,8 +783,8 @@ const sqlUpdateBug = `UPDATE bugs
 
 func updateBug(c echo.Context) (err error) {
 
-	category := c.Param(PARAM_BUG_CATEGORY)
-	pointValue, err := strconv.Atoi(c.Param(PARAM_POINT_VALUE))
+	category := c.Param(ParamBugCategory)
+	pointValue, err := strconv.Atoi(c.Param(ParamPointValue))
 	if err != nil {
 		return
 	}
@@ -867,9 +866,9 @@ const sqlInsertCampaign = `INSERT INTO campaigns
 		RETURNING Id`
 
 func addCampaign(c echo.Context) (err error) {
-	campaignName := strings.TrimSpace(c.Param(PARAM_CAMPAIGN_NAME))
+	campaignName := strings.TrimSpace(c.Param(ParamCampaignName))
 	if len(campaignName) == 0 {
-		err = fmt.Errorf("invalid parameter %s: %s", PARAM_CAMPAIGN_NAME, campaignName)
+		err = fmt.Errorf("invalid parameter %s: %s", ParamCampaignName, campaignName)
 		c.Logger().Error(err)
 
 		return c.String(http.StatusBadRequest, err.Error())

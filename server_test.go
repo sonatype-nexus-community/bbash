@@ -83,6 +83,7 @@ func TestMigrateDBErrorMigrateUp(t *testing.T) {
 	assert.EqualError(t, migrateDB(dbMock), "try lock failed in line 0: SELECT pg_advisory_lock($1) (details: all expectations were already fulfilled, call to ExecQuery 'SELECT pg_advisory_lock($1)' with args [{Name: Ordinal:1 Value:1014225327}] was not expected)")
 }
 
+//goland:noinspection GoUnusedFunction
 func xxxTestMigrateDB(t *testing.T) {
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -129,7 +130,7 @@ func setupMockContextCampaign(campaignName string) (c echo.Context, rec *httptes
 	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
-	c.SetParamNames(PARAM_CAMPAIGN_NAME)
+	c.SetParamNames(ParamCampaignName)
 	c.SetParamValues(campaignName)
 	return
 }
@@ -148,7 +149,7 @@ func TestAddCampaignEmptyName(t *testing.T) {
 	}()
 	db = dbMock
 
-	expectedError := fmt.Errorf("invalid parameter %s: %s", PARAM_CAMPAIGN_NAME, "")
+	expectedError := fmt.Errorf("invalid parameter %s: %s", ParamCampaignName, "")
 
 	assert.NoError(t, addCampaign(c))
 	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
@@ -828,7 +829,7 @@ func setupMockContextAddPersonToTeam(githubName, teamName string) (c echo.Contex
 	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
-	c.SetParamNames(PARAM_GITHUB_NAME, PARAM_TEAM_NAME)
+	c.SetParamNames(ParamGithubName, ParamTeamName)
 	c.SetParamValues(githubName, teamName)
 	return
 }
@@ -943,7 +944,7 @@ func setupMockContextParticipantDetail(githubName string) (c echo.Context, rec *
 	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
-	c.SetParamNames(PARAM_GITHUB_NAME)
+	c.SetParamNames(ParamGithubName)
 	c.SetParamValues(githubName)
 	return
 }
@@ -1000,7 +1001,7 @@ func setupMockContextParticipantList(campaignName string) (c echo.Context, rec *
 	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
-	c.SetParamNames(PARAM_CAMPAIGN_NAME)
+	c.SetParamNames(ParamCampaignName)
 	c.SetParamValues(campaignName)
 	return
 }
@@ -1152,7 +1153,7 @@ func setupMockContextUpdateBug(bugCategory, pointValue string) (c echo.Context, 
 	req := httptest.NewRequest("", "/", nil)
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
-	c.SetParamNames(PARAM_BUG_CATEGORY, PARAM_POINT_VALUE)
+	c.SetParamNames(ParamBugCategory, ParamPointValue)
 	c.SetParamValues(bugCategory, pointValue)
 	return
 }
