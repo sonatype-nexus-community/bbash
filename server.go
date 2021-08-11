@@ -264,9 +264,7 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 	if err != nil {
 		return
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", webflowToken))
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("accept-version", "1.0.0")
+	requestHeaderSetup(req)
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -293,6 +291,12 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 	}
 	id = response.Id
 	return
+}
+
+func requestHeaderSetup(req *http.Request) {
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", webflowToken))
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("accept-version", "1.0.0")
 }
 
 type ParticipantUpdateError struct {
@@ -322,9 +326,7 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 	if err != nil {
 		return
 	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", webflowToken))
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("accept-version", "1.0.0")
+	requestHeaderSetup(req)
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {

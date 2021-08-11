@@ -238,6 +238,19 @@ func setupMockContextWebflow() (c echo.Context, rec *httptest.ResponseRecorder) 
 	return
 }
 
+func TestRequestHeaderSetup(t *testing.T) {
+	req, err := http.NewRequest("myMethod", "myUrl", nil)
+	assert.NoError(t, err)
+	requestHeaderSetup(req)
+	verifyRequestHeaders(t, req)
+}
+
+func verifyRequestHeaders(t *testing.T, req *http.Request) {
+	assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), req.Header.Get("Authorization"))
+	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
+	assert.Equal(t, "1.0.0", req.Header.Get("accept-version"))
+}
+
 func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
 	origWebflowColletion := webflowCollection
 	defer func() {
@@ -253,7 +266,7 @@ func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
 
-		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -289,7 +302,7 @@ func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
 
-		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("bad json text"))
@@ -315,10 +328,7 @@ func setupMockWebflowUserCreate(t *testing.T, testId string) *httptest.Server {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
 
-		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
-
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		assert.Equal(t, "1.0.0", r.Header.Get("accept-version"))
+		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusOK)
 		lbResponse := leaderboardResponse{Id: testId}
@@ -388,7 +398,7 @@ func TestAddParticipantWebflowError(t *testing.T) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
 
-		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -563,7 +573,7 @@ func TestUpstreamUpdateScoreStatusError(t *testing.T) {
 		assert.Equal(t, http.MethodPatch, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items/", webflowCollection), r.URL.EscapedPath())
 
-		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
+		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -593,10 +603,7 @@ func setupMockWebflowUserUpdate(t *testing.T, webflowId string) *httptest.Server
 		assert.Equal(t, http.MethodPatch, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, webflowId), r.URL.EscapedPath())
 
-		assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), r.Header.Get("Authorization"))
-
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		assert.Equal(t, "1.0.0", r.Header.Get("accept-version"))
+		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusOK)
 	}))
