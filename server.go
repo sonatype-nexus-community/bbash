@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -42,7 +43,7 @@ type participant struct {
 	GitHubName   string `json:"gitHubName"`
 	Email        string `json:"email"`
 	DisplayName  string `json:"displayName"`
-	Score        string `json:"score"`
+	Score        int    `json:"score"`
 	fkTeam       sql.NullString
 	JoinedAt     time.Time `json:"joinedAt"`
 	CampaignName string    `json:"campaignName"`
@@ -71,6 +72,35 @@ type bug struct {
 	PointValue int    `json:"pointValue"`
 }
 
+type scoringAlert struct {
+	RecentHits []string `json:"recent_hits"` // encoded scoring message
+}
+
+type scoringMessage struct {
+	RepoOwner   string         `json:"repositoryOwner"`
+	RepoName    string         `json:"repositoryName"`
+	TriggerUser string         `json:"triggerUser"`
+	TotalFixed  int            `json:"fixed-bugs"`
+	BugCounts   map[string]int `json:"fixed-bug-types"`
+	PullRequest int            `json:"pullRequestId"`
+}
+
+type leaderboardItem struct {
+	UserName string `json:"name"`
+	Slug     string `json:"slug"`
+	Score    int    `json:"score"`
+	Archived bool   `json:"_archived"`
+	Draft    bool   `json:"_draft"`
+}
+
+type leaderboardPayload struct {
+	Fields leaderboardItem `json:"fields"`
+}
+
+type leaderboardResponse struct {
+	Id string `json:"_id"`
+}
+
 const (
 	PARAM_ID            string = "id"
 	PARAM_GITHUB_NAME   string = "gitHubName"
@@ -82,12 +112,21 @@ const (
 	DETAIL              string = "/detail"
 	LIST                string = "/list"
 	UPDATE              string = "/update"
+	DELETE              string = "/delete"
 	TEAM                string = "/team"
 	ADD                 string = "/add"
 	PERSON              string = "/person"
 	BUG                 string = "/bug"
 	CAMPAIGN            string = "/campaign"
+	SCORE_EVENT         string = "/scoring"
+	NEW                 string = "/new"
+	WEBFLOW_API_BASE    string = "https://api.webflow.com"
 )
+
+// variable allows for changes to url for testing
+var webflowBaseAPI = WEBFLOW_API_BASE
+var webflowToken string
+var webflowCollection string
 
 func main() {
 
@@ -111,6 +150,8 @@ func main() {
 	password := os.Getenv("PG_PASSWORD")
 	dbname := os.Getenv("PG_DB_NAME")
 	sslMode := os.Getenv("SSL_MODE")
+	webflowToken = os.Getenv("WEBFLOW_TOKEN")
+	webflowCollection = os.Getenv("WEBFLOW_COLLECTION_ID")
 
 	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
 		"password=%s dbname=%s sslmode=%s",
@@ -134,7 +175,7 @@ func main() {
 	}
 
 	e.GET("/", func(c echo.Context) error {
-		return c.String(http.StatusOK, "I am ALIVE. "+buildInfoMessage)
+		return c.String(http.StatusOK, fmt.Sprintf("I am ALIVE. %s", buildInfoMessage))
 	})
 
 	// Participant related endpoints and group
@@ -151,6 +192,10 @@ func main() {
 
 	participantGroup.POST(UPDATE, updateParticipant).Name = "participant-update"
 	participantGroup.PUT(ADD, addParticipant).Name = "participant-add"
+	participantGroup.DELETE(
+		fmt.Sprintf("%s/:%s", DELETE, PARAM_GITHUB_NAME),
+		deleteParticipant,
+	)
 
 	// Team related endpoints and group
 
@@ -174,6 +219,11 @@ func main() {
 
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", ADD, PARAM_CAMPAIGN_NAME), addCampaign)
 
+	// Scoring related endpoints and group
+	scoreGroup := e.Group(SCORE_EVENT)
+
+	scoreGroup.POST(NEW, newScore)
+
 	routes := e.Routes()
 
 	for _, v := range routes {
@@ -184,6 +234,266 @@ func main() {
 	if err != nil {
 		e.Logger.Error(err)
 	}
+}
+
+type ParticipantCreateError struct {
+	Status string
+}
+
+func (e *ParticipantCreateError) Error() string {
+	return fmt.Sprintf("could not create upstream participant. response status: %s", e.Status)
+}
+
+func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
+	item := leaderboardItem{}
+	item.UserName = p.GitHubName
+	item.Slug = p.GitHubName
+	item.Score = 0
+	item.Archived = false
+	item.Draft = false
+
+	payload := leaderboardPayload{}
+	payload.Fields = item
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", webflowBaseAPI, webflowCollection), bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	requestHeaderSetup(req)
+
+	res, err := getNetClient().Do(req)
+	if err != nil {
+		return
+	}
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		c.Logger().Debug(req)
+		var responseBody []byte
+		_, _ = res.Body.Read(responseBody)
+		c.Logger().Debug(responseBody)
+		// return a real error to the caller to indicate failure
+		err = &ParticipantCreateError{res.Status}
+		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
+			err = errContext
+		}
+		return
+	}
+
+	var response leaderboardResponse
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return
+	}
+	id = response.Id
+	return
+}
+
+// see: https://medium.com/@nate510/don-t-use-go-s-default-http-client-4804cb19f779
+func getNetClient() (netClient *http.Client) {
+	netClient = &http.Client{
+		Timeout: time.Second * 10,
+	}
+	return
+}
+
+func requestHeaderSetup(req *http.Request) {
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", webflowToken))
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("accept-version", "1.0.0")
+}
+
+type ParticipantUpdateError struct {
+	Status string
+}
+
+func (e *ParticipantUpdateError) Error() string {
+	return fmt.Sprintf("could not update score. response status: %s", e.Status)
+}
+
+func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error) {
+
+	var payload struct {
+		Fields struct {
+			Score int `json:"score"`
+		} `json:"fields"`
+	}
+	payload.Fields.Score = score
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	url := fmt.Sprintf("%s/collections/%s/items/%s?live=true", webflowBaseAPI, webflowCollection, webflowId)
+	req, err := http.NewRequest("PATCH", url, bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+	requestHeaderSetup(req)
+
+	res, err := getNetClient().Do(req)
+	if err != nil {
+		return
+	} else if res.StatusCode < 200 || res.StatusCode >= 300 {
+		c.Logger().Debug(req)
+		var responseBody []byte
+		_, _ = res.Body.Read(responseBody)
+		c.Logger().Debug(responseBody)
+		// return a real error to the caller to indicate failure
+		err = &ParticipantUpdateError{res.Status}
+		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
+			err = errContext
+		}
+	}
+
+	return
+}
+
+var PARTICIPATING_ORGS = map[string]bool{
+	"thanos-io":          true,
+	"serverlessworkflow": true,
+	"chaos-mesh":         true,
+	"cri-o":              true,
+	"openebs":            true,
+	"buildpacks":         true,
+	"schemahero":         true,
+}
+
+func validScore(owner string, user string) bool {
+	// check if repo is in participating set
+	if !PARTICIPATING_ORGS[owner] {
+		return false
+	}
+
+	// Check if participant is registered
+	sqlQuery := `SELECT
+		participants.Id
+		FROM participants
+		WHERE participants.GitHubName = $1`
+	row := db.QueryRow(sqlQuery, user)
+	var id string
+	err := row.Scan(&id)
+	if err != nil {
+		return false
+	}
+
+	return true
+}
+
+func scorePoints(msg scoringMessage) (points int) {
+	points = 0
+	scored := 0
+
+	for bugType, count := range msg.BugCounts {
+		sqlQuery := `SELECT pointValue FROM bugs WHERE category = $1`
+		row := db.QueryRow(sqlQuery, bugType)
+		var value int = 1
+		// @TODO handle possible row scan error below
+		row.Scan(&value)
+		points += count * value
+		scored += count
+	}
+
+	// add 1 point for all non-classified fixed bugs
+	if scored < msg.TotalFixed {
+		points += msg.TotalFixed - scored
+	}
+
+	return
+}
+
+const sqlUpdateParticipantScore = `UPDATE participants 
+		SET Score = Score + $1 
+		WHERE GitHubName = $2 
+		RETURNING UpstreamId, Score`
+
+func updateParticipantScore(c echo.Context, username string, delta int) (err error) {
+	var id string
+	var score int
+	row := db.QueryRow(sqlUpdateParticipantScore, delta, username)
+	err = row.Scan(&id, &score)
+	if err != nil {
+		return
+	}
+
+	err = upstreamUpdateScore(c, id, score)
+	return
+}
+
+func newScore(c echo.Context) (err error) {
+	var alert scoringAlert
+	err = json.NewDecoder(c.Request().Body).Decode(&alert)
+	if err != nil {
+		return
+	}
+
+	c.Logger().Debug(alert)
+
+	for _, rawMsg := range alert.RecentHits {
+		var msg scoringMessage
+		err = json.Unmarshal([]byte(rawMsg), &msg)
+		if err != nil {
+			return
+		}
+		c.Logger().Debug(msg)
+
+		// if this particular entry is not valid, ignore it and continue processing
+		if !validScore(msg.RepoOwner, msg.TriggerUser) {
+			c.Logger().Debug("Score is not valid!")
+			continue
+		}
+
+		newPoints := scorePoints(msg)
+
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+
+		scoreQuery := `SELECT points
+			FROM scoring_events
+			WHERE repoOwner = $1
+				AND repoName = $2
+				AND pr = $3`
+
+		row := db.QueryRow(scoreQuery, msg.RepoOwner, msg.RepoName, msg.PullRequest)
+		oldPoints := 0
+		err = row.Scan(&oldPoints)
+		if err != nil {
+			c.Logger().Debug(err)
+		}
+
+		insertEvent := `INSERT INTO scoring_events
+			(repoOwner, repoName, pr, username, points)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (repoOwner, repoName, pr) DO
+				UPDATE SET points = $5`
+
+		_, err = db.Exec(insertEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
+		if err != nil {
+			c.Logger().Debug(err)
+			return err
+		}
+
+		err = updateParticipantScore(c, msg.TriggerUser, newPoints-oldPoints)
+		if err != nil {
+			c.Logger().Debug(err)
+			return err
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			c.Logger().Debug(err)
+			return err
+		}
+	}
+
+	return c.NoContent(http.StatusAccepted)
 }
 
 const sqlSelectParticipantDetail = `SELECT 
@@ -292,6 +602,11 @@ func updateParticipant(c echo.Context) (err error) {
 		return
 	}
 
+	err = updateParticipantScore(c, participant.GitHubName, 0)
+	if err != nil {
+		return
+	}
+
 	if rows == 1 {
 		c.Logger().Infof(
 			"Success, huzzah! Participant updated, ID: %s, gitHubName: %s",
@@ -312,15 +627,29 @@ func updateParticipant(c echo.Context) (err error) {
 	}
 }
 
+func deleteParticipant(c echo.Context) (err error) {
+	githubName := c.Param(PARAM_GITHUB_NAME)
+
+	sqlDelete := `DELETE FROM participants WHERE GithubName = $1`
+
+	_, err = db.Exec(sqlDelete, githubName)
+	return
+}
+
 const sqlInsertParticipant = `INSERT INTO participants 
-		(GithubName, Email, DisplayName, Score, Campaign) 
-		VALUES ($1, $2, $3, $4, (SELECT Id FROM campaigns WHERE CampaignName = $5))
+		(GithubName, Email, DisplayName, Score, UpstreamId, Campaign) 
+		VALUES ($1, $2, $3, $4, $5, (SELECT Id FROM campaigns WHERE CampaignName = $6))
 		RETURNING Id, Score, JoinedAt`
 
 func addParticipant(c echo.Context) (err error) {
 	participant := participant{}
 
 	err = json.NewDecoder(c.Request().Body).Decode(&participant)
+	if err != nil {
+		return
+	}
+
+	webflowId, err := upstreamNewParticipant(c, participant)
 	if err != nil {
 		return
 	}
@@ -332,6 +661,7 @@ func addParticipant(c echo.Context) (err error) {
 		participant.Email,
 		participant.DisplayName,
 		0,
+		webflowId,
 		participant.CampaignName).Scan(&guid, &participant.Score, &participant.JoinedAt)
 	if err != nil {
 		return
