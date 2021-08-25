@@ -85,13 +85,34 @@ To create the docker image:
 
 #### Deployment
 
+Some pre-requisite/one-time setup steps:
+
+  * setup aws cli configuration to verify working credentials. see: [AWS CLI on mac](https://docs.aws.amazon.com/cli/latest/userguide/install-macos.html)
+
+  * install `aws-vault`
+        
+        $ brew install --cask aws-vault
+
+  * add aws-vault profile ("<your_profile>" in steps below) for use in pushing images
+
+        $ aws-vault add my-bbash-profile
+
+  * (One-time) initialize terraform
+
+        $ aws-vault exec <your_profile> terraform init
+
+  * View terraform actions to be taken:
+
+        $ aws-vault exec <your_profile> terraform plan
+
+
 An executable bash script similar to the following will make pushing images easier:
 
 ```bash
 #!/bin/bash
 aws-vault exec <your_profile> aws ecr get-login-password --region <aws_region> | docker login --username AWS --password-stdin <aws_account_id>.dkr.ecr.<aws_region>.amazonaws.com
 docker tag bug-bash:latest <aws_account_id>.dkr.ecr.<aws_region>.amazonaws.com/bug-bash-app:latest
-docker push <aws_account_id>.dkr.ecr.<aws_region>.amazonaws.com/bug-basg-app:latest
+docker push <aws_account_id>.dkr.ecr.<aws_region>.amazonaws.com/bug-bash-app:latest
 aws-vault exec <your_profile> -- aws ecs update-service --cluster bug-bash-cluster --service bug-bash-service --force-new-deployment
 ```
 
