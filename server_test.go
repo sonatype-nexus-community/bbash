@@ -1519,3 +1519,45 @@ func TestDeleteParticipant(t *testing.T) {
 	assert.Equal(t, 0, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
+
+func TestValidScoreUnknownOwner(t *testing.T) {
+	assert.False(t, validScore("", ""))
+}
+
+func TestValidScoreParticipantNotRegistered(t *testing.T) {
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	githubName := "myGithubName"
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}))
+
+	assert.False(t, validScore("thanos-io", "unregisteredUser"))
+}
+
+func TestValidScoreParticipant(t *testing.T) {
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	githubName := "myGithubName"
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	assert.True(t, validScore("thanos-io", githubName))
+}

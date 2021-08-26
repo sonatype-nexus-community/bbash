@@ -363,6 +363,11 @@ var ParticipatingOrgs = map[string]bool{
 	"schemahero":         true,
 }
 
+const sqlSelectParticipantId = `SELECT
+		participants.Id
+		FROM participants
+		WHERE participants.GitHubName = $1`
+
 func validScore(owner string, user string) bool {
 	// check if repo is in participating set
 	if !ParticipatingOrgs[owner] {
@@ -370,11 +375,7 @@ func validScore(owner string, user string) bool {
 	}
 
 	// Check if participant is registered
-	sqlQuery := `SELECT
-		participants.Id
-		FROM participants
-		WHERE participants.GitHubName = $1`
-	row := db.QueryRow(sqlQuery, user)
+	row := db.QueryRow(sqlSelectParticipantId, user)
 	var id string
 	err := row.Scan(&id)
 	if err != nil {
