@@ -1561,3 +1561,61 @@ func TestValidScoreParticipant(t *testing.T) {
 
 	assert.True(t, validScore("thanos-io", githubName))
 }
+
+func TestScorePointsNothing(t *testing.T) {
+	msg := scoringMessage{}
+	points, err := scorePoints(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, points)
+}
+
+func TestScorePointsScanError(t *testing.T) {
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	bugType := "myBugType"
+	msg := scoringMessage{BugCounts: map[string]int{bugType: 1}}
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectPointValue)).
+		WithArgs("unexpectedBugType").
+		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(1))
+
+	points, err := scorePoints(msg)
+	assert.EqualError(t, err, "Query 'SELECT pointValue FROM bugs WHERE category = $1', arguments do not match: argument 0 expected [string - unexpectedBugType] does not match actual [string - myBugType]")
+	assert.Equal(t, 0, points)
+}
+
+func TestScorePointsFixedTwoThreePointers(t *testing.T) {
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	bugType := "threePointBugType"
+	msg := scoringMessage{BugCounts: map[string]int{bugType: 2}}
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectPointValue)).
+		WithArgs(bugType).
+		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(3))
+
+	points, err := scorePoints(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, 6, points)
+}
+
+func TestScorePointsBonusForNonClassified(t *testing.T) {
+	msg := scoringMessage{TotalFixed: 1}
+	points, err := scorePoints(msg)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, points)
+}

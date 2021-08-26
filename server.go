@@ -385,16 +385,19 @@ func validScore(owner string, user string) bool {
 	return true
 }
 
-func scorePoints(msg scoringMessage) (points int) {
+const sqlSelectPointValue = `SELECT pointValue FROM bugs WHERE category = $1`
+
+func scorePoints(msg scoringMessage) (points int, err error) {
 	points = 0
 	scored := 0
 
 	for bugType, count := range msg.BugCounts {
-		sqlQuery := `SELECT pointValue FROM bugs WHERE category = $1`
-		row := db.QueryRow(sqlQuery, bugType)
+		row := db.QueryRow(sqlSelectPointValue, bugType)
 		var value = 1
-		// @TODO handle possible row scan error below
-		row.Scan(&value)
+		if err = row.Scan(&value); err != nil {
+			return
+		}
+
 		points += count * value
 		scored += count
 	}
@@ -448,7 +451,10 @@ func newScore(c echo.Context) (err error) {
 			continue
 		}
 
-		newPoints := scorePoints(msg)
+		newPoints, err := scorePoints(msg)
+		if err != nil {
+			return err
+		}
 
 		tx, err := db.Begin()
 		if err != nil {
