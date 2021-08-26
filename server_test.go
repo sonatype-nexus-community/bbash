@@ -1486,3 +1486,36 @@ func TestPutBugsMultipleBugs(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, c.Response().Status)
 	assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","category":"","pointValue":0},{"guid":"`+bugId2+`","category":"","pointValue":0}]}`+"\n", rec.Body.String())
 }
+
+func setupMockContextParticipantDelete(githubName string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodDelete, "/", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	c.SetParamNames(ParamGithubName)
+	c.SetParamValues(githubName)
+	return
+}
+
+func TestDeleteParticipant(t *testing.T) {
+	githubName := "myGithubName"
+	c, rec := setupMockContextParticipantDelete(githubName)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlDeleteParticipant)).
+		WithArgs(githubName).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	assert.NoError(t, deleteParticipant(c))
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}

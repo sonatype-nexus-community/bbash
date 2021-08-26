@@ -626,12 +626,11 @@ func updateParticipant(c echo.Context) (err error) {
 	}
 }
 
+const sqlDeleteParticipant = `DELETE FROM participants WHERE GithubName = $1`
+
 func deleteParticipant(c echo.Context) (err error) {
 	githubName := c.Param(ParamGithubName)
-
-	sqlDelete := `DELETE FROM participants WHERE GithubName = $1`
-
-	_, err = db.Exec(sqlDelete, githubName)
+	_, err = db.Exec(sqlDeleteParticipant, githubName)
 	return
 }
 
