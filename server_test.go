@@ -1663,3 +1663,376 @@ func TestNewScoreOneAlertInvalidScore(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
+
+func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
+	githubName := "myGithubName"
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{}))
+
+	err = newScore(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlertHandleBeginTransactionError(t *testing.T) {
+	githubName := "myGithubName"
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	err = newScore(c)
+	assert.EqualError(t, err, "all expectations were already fulfilled, call to database transaction Begin was not expected")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlertScoreQueryErrorIgnored(t *testing.T) {
+	githubName := "myGithubName"
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
+		WillReturnRows(sqlmock.NewRows([]string{}))
+
+	err = newScore(c)
+	assert.NotNil(t, err)
+	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to ExecQuery 'INSERT INTO scoring_events"))
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlertInsertScoringEventErrorNotIgnored(t *testing.T) {
+	githubName := "myGithubName"
+	githubRepoName := "myRepoName"
+	githubPrId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, RepoName: githubRepoName, PullRequest: githubPrId})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId).
+		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
+
+	err = newScore(c)
+	assert.NotNil(t, err)
+	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to ExecQuery 'INSERT INTO scoring_events"))
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
+	githubName := "myGithubName"
+	githubRepoName := "myRepoName"
+	githubPrId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, RepoName: githubRepoName, PullRequest: githubPrId})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId).
+		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
+
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId, githubName, 0).
+		WillReturnResult(sqlmock.NewResult(0, -1))
+
+	err = newScore(c)
+	assert.NotNil(t, err)
+	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to Query 'UPDATE participants"))
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
+	githubName := "myGithubName"
+	githubRepoName := "myRepoName"
+	githubPrId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, RepoName: githubRepoName, PullRequest: githubPrId})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId).
+		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
+
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId, githubName, 0).
+		WillReturnResult(sqlmock.NewResult(0, -1))
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
+		WithArgs(8, githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(githubName, 0))
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, githubName), r.URL.EscapedPath())
+
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+
+	err = newScore(c)
+	assert.EqualError(t, err, "could not update score. response status: 400 Bad Request")
+	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
+	assert.Equal(t, "could not update score. response status: 400 Bad Request", rec.Body.String())
+}
+
+func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
+	githubName := "myGithubName"
+	githubRepoName := "myRepoName"
+	githubPrId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, RepoName: githubRepoName, PullRequest: githubPrId})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId).
+		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
+
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId, githubName, 0).
+		WillReturnResult(sqlmock.NewResult(0, -1))
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
+		WithArgs(8, githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(githubName, 0))
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, githubName), r.URL.EscapedPath())
+
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+
+	err = newScore(c)
+	assert.EqualError(t, err, "all expectations were already fulfilled, call to Commit transaction was not expected")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlert(t *testing.T) {
+	githubName := "myGithubName"
+	githubRepoName := "myRepoName"
+	githubPrId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, RepoName: githubRepoName, PullRequest: githubPrId})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId).
+		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
+
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId, githubName, 0).
+		WillReturnResult(sqlmock.NewResult(0, -1))
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
+		WithArgs(8, githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(githubName, 0))
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, githubName), r.URL.EscapedPath())
+
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+
+	mock.ExpectCommit()
+
+	err = newScore(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}

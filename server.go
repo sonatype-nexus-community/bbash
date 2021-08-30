@@ -428,6 +428,18 @@ func updateParticipantScore(c echo.Context, username string, delta int) (err err
 	return
 }
 
+const sqlScoreQuery = `SELECT points
+			FROM scoring_events
+			WHERE repoOwner = $1
+				AND repoName = $2
+				AND pr = $3`
+
+const sqlInsertScoringEvent = `INSERT INTO scoring_events
+			(repoOwner, repoName, pr, username, points)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (repoOwner, repoName, pr) DO
+				UPDATE SET points = $5`
+
 func newScore(c echo.Context) (err error) {
 	var alert scoringAlert
 	err = json.NewDecoder(c.Request().Body).Decode(&alert)
@@ -441,6 +453,7 @@ func newScore(c echo.Context) (err error) {
 		var msg scoringMessage
 		err = json.Unmarshal([]byte(rawMsg), &msg)
 		if err != nil {
+			// @todo verify we want to ignore this error case
 			return
 		}
 		c.Logger().Debug(msg)
@@ -461,26 +474,15 @@ func newScore(c echo.Context) (err error) {
 			return err
 		}
 
-		scoreQuery := `SELECT points
-			FROM scoring_events
-			WHERE repoOwner = $1
-				AND repoName = $2
-				AND pr = $3`
-
-		row := db.QueryRow(scoreQuery, msg.RepoOwner, msg.RepoName, msg.PullRequest)
+		row := db.QueryRow(sqlScoreQuery, msg.RepoOwner, msg.RepoName, msg.PullRequest)
 		oldPoints := 0
 		err = row.Scan(&oldPoints)
 		if err != nil {
+			// @todo verify we want to ignore this error case
 			c.Logger().Debug(err)
 		}
 
-		insertEvent := `INSERT INTO scoring_events
-			(repoOwner, repoName, pr, username, points)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (repoOwner, repoName, pr) DO
-				UPDATE SET points = $5`
-
-		_, err = db.Exec(insertEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
+		_, err = db.Exec(sqlInsertScoringEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
 		if err != nil {
 			c.Logger().Debug(err)
 			return err
