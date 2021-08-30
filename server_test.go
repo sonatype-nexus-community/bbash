@@ -1524,6 +1524,8 @@ func TestValidScoreUnknownOwner(t *testing.T) {
 	assert.False(t, validScore("", ""))
 }
 
+const testOrgValid = "thanos-io"
+
 func TestValidScoreParticipantNotRegistered(t *testing.T) {
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -1540,7 +1542,7 @@ func TestValidScoreParticipantNotRegistered(t *testing.T) {
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}))
 
-	assert.False(t, validScore("thanos-io", "unregisteredUser"))
+	assert.False(t, validScore(testOrgValid, "unregisteredUser"))
 }
 
 func TestValidScoreParticipant(t *testing.T) {
@@ -1559,7 +1561,7 @@ func TestValidScoreParticipant(t *testing.T) {
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
-	assert.True(t, validScore("thanos-io", githubName))
+	assert.True(t, validScore(testOrgValid, githubName))
 }
 
 func TestScorePointsNothing(t *testing.T) {
@@ -1634,6 +1636,29 @@ func setupMockContextNewScore(t *testing.T, alert scoringAlert) (c echo.Context,
 func TestNewScoreEmptyAlert(t *testing.T) {
 	c, rec := setupMockContextNewScore(t, scoringAlert{})
 	err := newScore(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlertInvalidScoringMessage(t *testing.T) {
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{"badScoringMessage"},
+	})
+	err := newScore(c)
+	assert.EqualError(t, err, "invalid character 'b' looking for beginning of value")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlertInvalidScore(t *testing.T) {
+	scoringMsgBytes, err := json.Marshal(scoringMessage{})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+	err = newScore(c)
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusAccepted, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
