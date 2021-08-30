@@ -1619,3 +1619,22 @@ func TestScorePointsBonusForNonClassified(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, points)
 }
+
+func setupMockContextNewScore(t *testing.T, alert scoringAlert) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+	alertBytes, err := json.Marshal(alert)
+	assert.NoError(t, err)
+	alertJson := string(alertBytes)
+	req := httptest.NewRequest(http.MethodPost, New, strings.NewReader(alertJson))
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
+}
+
+func TestNewScoreEmptyAlert(t *testing.T) {
+	c, rec := setupMockContextNewScore(t, scoringAlert{})
+	err := newScore(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
