@@ -566,6 +566,33 @@ func TestUpdateParticipantUpdateError(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
+func TestUpdateParticipantScoreError(t *testing.T) {
+	participantID := "participantUUId"
+	participantName := "partName"
+	participantJson := `{"guid": "` + participantID + `", "gitHubName": "` + participantName + `"}`
+	c, rec := setupMockContextUpdateParticipant(participantJson)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
+		WithArgs(participantName, "", "", 0, "", sql.NullString{}, participantID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err := updateParticipant(c)
+	assert.NotNil(t, err)
+	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to Query 'UPDATE participants"))
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
 func setupMockContextUpstreamUpdateScore() (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
 	req := httptest.NewRequest("", "/", nil)
