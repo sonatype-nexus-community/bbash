@@ -453,7 +453,6 @@ func newScore(c echo.Context) (err error) {
 		var msg scoringMessage
 		err = json.Unmarshal([]byte(rawMsg), &msg)
 		if err != nil {
-			// @todo verify we want to ignore this error case
 			return
 		}
 		c.Logger().Debug(msg)
@@ -478,7 +477,7 @@ func newScore(c echo.Context) (err error) {
 		oldPoints := 0
 		err = row.Scan(&oldPoints)
 		if err != nil {
-			// @todo verify we want to ignore this error case
+			// ignore error case from scan when no row exists, will occur when this is a new score event
 			c.Logger().Debug(err)
 		}
 
