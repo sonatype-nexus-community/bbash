@@ -92,7 +92,7 @@ func xxxTestMigrateDB(t *testing.T) {
 
 	args := setupMockPostgresWithInstance(mock)
 
-	// mocks for the migrate.Up()
+	// mocks for migrate.Up()
 	mock.ExpectExec(`SELECT pg_advisory_lock\(\$1\)`).
 		WithArgs(args...).
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -1631,6 +1631,18 @@ func setupMockContextNewScore(t *testing.T, alert scoringAlert) (c echo.Context,
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	return
+}
+
+func TestNewScoreMalformedAlert(t *testing.T) {
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodPost, New, strings.NewReader("notAnAlert"))
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	err := newScore(c)
+	assert.EqualError(t, err, "invalid character 'o' in literal null (expecting 'u')")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
 }
 
 func TestNewScoreEmptyAlert(t *testing.T) {
