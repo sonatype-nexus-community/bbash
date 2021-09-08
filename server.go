@@ -354,13 +354,14 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 }
 
 var ParticipatingOrgs = map[string]bool{
-	"thanos-io":          true,
-	"serverlessworkflow": true,
-	"chaos-mesh":         true,
-	"cri-o":              true,
-	"openebs":            true,
-	"buildpacks":         true,
-	"schemahero":         true,
+	"thanos-io":                true,
+	"serverlessworkflow":       true,
+	"chaos-mesh":               true,
+	"cri-o":                    true,
+	"openebs":                  true,
+	"buildpacks":               true,
+	"schemahero":               true,
+	"sonatype-nexus-community": true,
 }
 
 const sqlSelectParticipantId = `SELECT
@@ -378,11 +379,7 @@ func validScore(owner string, user string) bool {
 	row := db.QueryRow(sqlSelectParticipantId, user)
 	var id string
 	err := row.Scan(&id)
-	if err != nil {
-		return false
-	}
-
-	return true
+	return err == nil
 }
 
 const sqlSelectPointValue = `SELECT pointValue FROM bugs WHERE category = $1`
