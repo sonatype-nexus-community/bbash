@@ -466,11 +466,13 @@ func newScore(c echo.Context) (err error) {
 
 		newPoints, err := scorePoints(msg)
 		if err != nil {
+			c.Logger().Debugf("scorePoints badness: %v", err)
 			return err
 		}
 
 		tx, err := db.Begin()
 		if err != nil {
+			c.Logger().Debugf("tx begin badness: %v", err)
 			return err
 		}
 
