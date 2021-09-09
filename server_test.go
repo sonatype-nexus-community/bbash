@@ -259,9 +259,9 @@ func verifyRequestHeaders(t *testing.T, req *http.Request) {
 }
 
 func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
-	origWebflowColletion := webflowCollection
+	origWebflowCollection := webflowCollection
 	defer func() {
-		webflowCollection = origWebflowColletion
+		webflowCollection = origWebflowCollection
 	}()
 	webflowCollection = "testWfCollection"
 	origWebflowToken := webflowToken
@@ -295,9 +295,9 @@ func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
 }
 
 func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
-	origWebflowColletion := webflowCollection
+	origWebflowCollection := webflowCollection
 	defer func() {
-		webflowCollection = origWebflowColletion
+		webflowCollection = origWebflowCollection
 	}()
 	webflowCollection = "testWfCollection"
 	origWebflowToken := webflowToken
@@ -350,9 +350,9 @@ func setupMockWebflowUserCreate(t *testing.T, testId string) *httptest.Server {
 }
 
 func TestUpstreamNewParticipantWebflowValidID(t *testing.T) {
-	origWebflowColletion := webflowCollection
+	origWebflowCollection := webflowCollection
 	defer func() {
-		webflowCollection = origWebflowColletion
+		webflowCollection = origWebflowCollection
 	}()
 	webflowCollection = "testWfCollection"
 	origWebflowToken := webflowToken
