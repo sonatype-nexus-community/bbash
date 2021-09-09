@@ -396,7 +396,8 @@ func scorePoints(msg scoringMessage) (points int, err error) {
 		row := db.QueryRow(sqlSelectPointValue, bugType)
 		var value = 1
 		if err = row.Scan(&value); err != nil {
-			// ignore error from scan operation
+			// ignore (and clear return) error from scan operation
+			err = nil
 		}
 
 		points += count * value
@@ -460,7 +461,7 @@ func newScore(c echo.Context) (err error) {
 
 		// if this particular entry is not valid, ignore it and continue processing
 		if !validScore(c, msg.RepoOwner, msg.TriggerUser) {
-			c.Logger().Debug("Score is not valid!")
+			c.Logger().Debugf("Score is not valid! owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
 			continue
 		}
 
