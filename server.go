@@ -396,7 +396,7 @@ func scorePoints(msg scoringMessage) (points int, err error) {
 		row := db.QueryRow(sqlSelectPointValue, bugType)
 		var value = 1
 		if err = row.Scan(&value); err != nil {
-			return
+			// ignore error from scan operation
 		}
 
 		points += count * value

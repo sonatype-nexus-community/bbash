@@ -1628,7 +1628,7 @@ func TestScorePointsScanError(t *testing.T) {
 
 	points, err := scorePoints(msg)
 	assert.EqualError(t, err, "Query 'SELECT pointValue FROM bugs WHERE category = $1', arguments do not match: argument 0 expected [string - unexpectedBugType] does not match actual [string - myBugType]")
-	assert.Equal(t, 0, points)
+	assert.Equal(t, 1, points)
 }
 
 func TestScorePointsFixedTwoThreePointers(t *testing.T) {
