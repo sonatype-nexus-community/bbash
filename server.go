@@ -369,9 +369,10 @@ const sqlSelectParticipantId = `SELECT
 		FROM participants
 		WHERE participants.GitHubName = $1`
 
-func validScore(owner string, user string) bool {
+func validScore(c echo.Context, owner string, user string) bool {
 	// check if repo is in participating set
 	if !ParticipatingOrgs[owner] {
+		c.Logger().Debugf("score is not valid due to missing ParticipatingOrg. owner: %s", owner)
 		return false
 	}
 
@@ -455,7 +456,7 @@ func newScore(c echo.Context) (err error) {
 		c.Logger().Debug(msg)
 
 		// if this particular entry is not valid, ignore it and continue processing
-		if !validScore(msg.RepoOwner, msg.TriggerUser) {
+		if !validScore(c, msg.RepoOwner, msg.TriggerUser) {
 			c.Logger().Debug("Score is not valid!")
 			continue
 		}

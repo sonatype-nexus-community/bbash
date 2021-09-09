@@ -1548,7 +1548,12 @@ func TestDeleteParticipant(t *testing.T) {
 }
 
 func TestValidScoreUnknownOwner(t *testing.T) {
-	assert.False(t, validScore("", ""))
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	assert.False(t, validScore(c, "", ""))
 }
 
 const testOrgValid = "thanos-io"
@@ -1569,7 +1574,7 @@ func TestValidScoreParticipantNotRegistered(t *testing.T) {
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}))
 
-	assert.False(t, validScore(testOrgValid, "unregisteredUser"))
+	assert.False(t, validScore(nil, testOrgValid, "unregisteredUser"))
 }
 
 func TestValidScoreParticipant(t *testing.T) {
@@ -1588,7 +1593,7 @@ func TestValidScoreParticipant(t *testing.T) {
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
-	assert.True(t, validScore(testOrgValid, githubName))
+	assert.True(t, validScore(nil, testOrgValid, githubName))
 }
 
 func TestScorePointsNothing(t *testing.T) {
