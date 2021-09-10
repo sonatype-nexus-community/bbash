@@ -397,7 +397,7 @@ func scorePoints(c echo.Context, msg scoringMessage) (points int, err error) {
 		var value = 1
 		if err = row.Scan(&value); err != nil {
 			// ignore (and clear return) error from scan operation
-			c.Logger().Debugf("ignoring missing pointValue. err: %+v", err)
+			c.Logger().Debugf("ignoring missing pointValue. err: %+v, msg: %+v", err, msg)
 			err = nil
 		}
 
@@ -479,7 +479,7 @@ func newScore(c echo.Context) (err error) {
 
 		tx, err := db.Begin()
 		if err != nil {
-			c.Logger().Debugf("tx begin badness: %+v", err)
+			c.Logger().Debugf("tx begin badness: err: %+v, scoringMessage: %+v", err, msg)
 			return err
 		}
 
@@ -488,7 +488,7 @@ func newScore(c echo.Context) (err error) {
 		err = row.Scan(&oldPoints)
 		if err != nil {
 			// ignore error case from scan when no row exists, will occur when this is a new score event
-			c.Logger().Debugf("ignoring likely new score event. err: %+v", err)
+			c.Logger().Debugf("ignoring likely new score event. err: %+v, scoringMessage: %+v", err, msg)
 		}
 
 		_, err = db.Exec(sqlInsertScoringEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
@@ -508,7 +508,11 @@ func newScore(c echo.Context) (err error) {
 			c.Logger().Debug(err)
 			return err
 		}
+
+		c.Logger().Debugf("score updated. msg: %+v", msg)
 	}
+
+	c.Logger().Debugf("newScore alert completed. alert: %+v", alert)
 
 	return c.NoContent(http.StatusAccepted)
 }
