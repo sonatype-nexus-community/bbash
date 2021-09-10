@@ -458,7 +458,7 @@ func newScore(c echo.Context) (err error) {
 			c.Logger().Debugf("error unmarshalling scoringMessage, err: %+v, rawMsg: %s", err, rawMsg)
 			return
 		}
-		c.Logger().Debug(msg)
+		c.Logger().Debugf("scoringMessage: %+v", msg)
 
 		// if this particular entry is not valid, ignore it and continue processing
 		if !validScore(c, msg.RepoOwner, msg.TriggerUser) {
