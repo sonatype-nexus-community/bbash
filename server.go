@@ -388,7 +388,7 @@ func validScore(c echo.Context, owner string, user string) bool {
 
 const sqlSelectPointValue = `SELECT pointValue FROM bugs WHERE category = $1`
 
-func scorePoints(msg scoringMessage) (points int, err error) {
+func scorePoints(c echo.Context, msg scoringMessage) (points int, err error) {
 	points = 0
 	scored := 0
 
@@ -397,6 +397,7 @@ func scorePoints(msg scoringMessage) (points int, err error) {
 		var value = 1
 		if err = row.Scan(&value); err != nil {
 			// ignore (and clear return) error from scan operation
+			c.Logger().Debugf("ignoring missing pointValue. err: %+v", err)
 			err = nil
 		}
 
@@ -465,12 +466,16 @@ func newScore(c echo.Context) (err error) {
 			c.Logger().Debugf("Score is not valid! owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
 			continue
 		}
+		// @todo remove this
+		c.Logger().Debugf("score is valid. scoringMessage: %+v", msg)
 
-		newPoints, err := scorePoints(msg)
+		newPoints, err := scorePoints(c, msg)
 		if err != nil {
 			c.Logger().Debugf("scorePoints badness: %+v", err)
 			return err
 		}
+		// @todo remove this
+		c.Logger().Debugf("newPoints: %d scoringMessage: %+v", newPoints, msg)
 
 		tx, err := db.Begin()
 		if err != nil {
@@ -483,7 +488,7 @@ func newScore(c echo.Context) (err error) {
 		err = row.Scan(&oldPoints)
 		if err != nil {
 			// ignore error case from scan when no row exists, will occur when this is a new score event
-			c.Logger().Debug(err)
+			c.Logger().Debugf("ignoring likely new score event. err: %+v", err)
 		}
 
 		_, err = db.Exec(sqlInsertScoringEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)

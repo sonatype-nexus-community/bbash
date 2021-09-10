@@ -1605,7 +1605,7 @@ func TestValidScoreParticipant(t *testing.T) {
 
 func TestScorePointsNothing(t *testing.T) {
 	msg := scoringMessage{}
-	points, err := scorePoints(msg)
+	points, err := scorePoints(nil, msg)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, points)
 }
@@ -1626,7 +1626,9 @@ func TestScorePointsScanError(t *testing.T) {
 		WithArgs("unexpectedBugType").
 		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(1))
 
-	points, err := scorePoints(msg)
+	c := setupMockContext()
+
+	points, err := scorePoints(c, msg)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, points)
 }
@@ -1648,14 +1650,14 @@ func TestScorePointsFixedTwoThreePointers(t *testing.T) {
 		WithArgs(bugType).
 		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(3))
 
-	points, err := scorePoints(msg)
+	points, err := scorePoints(nil, msg)
 	assert.NoError(t, err)
 	assert.Equal(t, 6, points)
 }
 
 func TestScorePointsBonusForNonClassified(t *testing.T) {
 	msg := scoringMessage{TotalFixed: 1}
-	points, err := scorePoints(msg)
+	points, err := scorePoints(nil, msg)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, points)
 }
