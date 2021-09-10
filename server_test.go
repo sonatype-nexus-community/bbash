@@ -24,6 +24,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -340,7 +341,10 @@ func setupMockWebflowUserCreate(t *testing.T, testId string) *httptest.Server {
 		lbResponse := leaderboardResponse{Id: testId}
 		respBytes, err := json.Marshal(lbResponse)
 		assert.NoError(t, err)
-		_, _ = w.Write(respBytes)
+		tmpl, err := template.New("MockWebflowUserCreateResponse").Parse(string(respBytes))
+		assert.NoError(t, err)
+		err = tmpl.Execute(w, nil)
+		assert.NoError(t, err)
 	}))
 	return ts
 }
