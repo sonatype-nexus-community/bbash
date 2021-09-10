@@ -1548,7 +1548,17 @@ func TestDeleteParticipant(t *testing.T) {
 }
 
 func TestValidScoreUnknownOwner(t *testing.T) {
-	assert.False(t, validScore("", ""))
+	c := setupMockContext()
+
+	assert.False(t, validScore(c, "", ""))
+}
+
+func setupMockContext() echo.Context {
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	return c
 }
 
 const testOrgValid = "thanos-io"
@@ -1569,7 +1579,9 @@ func TestValidScoreParticipantNotRegistered(t *testing.T) {
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}))
 
-	assert.False(t, validScore(testOrgValid, "unregisteredUser"))
+	c := setupMockContext()
+
+	assert.False(t, validScore(c, testOrgValid, "unregisteredUser"))
 }
 
 func TestValidScoreParticipant(t *testing.T) {
@@ -1588,12 +1600,12 @@ func TestValidScoreParticipant(t *testing.T) {
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
-	assert.True(t, validScore(testOrgValid, githubName))
+	assert.True(t, validScore(nil, testOrgValid, githubName))
 }
 
 func TestScorePointsNothing(t *testing.T) {
 	msg := scoringMessage{}
-	points, err := scorePoints(msg)
+	points, err := scorePoints(nil, msg)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, points)
 }
@@ -1614,9 +1626,11 @@ func TestScorePointsScanError(t *testing.T) {
 		WithArgs("unexpectedBugType").
 		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(1))
 
-	points, err := scorePoints(msg)
-	assert.EqualError(t, err, "Query 'SELECT pointValue FROM bugs WHERE category = $1', arguments do not match: argument 0 expected [string - unexpectedBugType] does not match actual [string - myBugType]")
-	assert.Equal(t, 0, points)
+	c := setupMockContext()
+
+	points, err := scorePoints(c, msg)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, points)
 }
 
 func TestScorePointsFixedTwoThreePointers(t *testing.T) {
@@ -1636,14 +1650,14 @@ func TestScorePointsFixedTwoThreePointers(t *testing.T) {
 		WithArgs(bugType).
 		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(3))
 
-	points, err := scorePoints(msg)
+	points, err := scorePoints(nil, msg)
 	assert.NoError(t, err)
 	assert.Equal(t, 6, points)
 }
 
 func TestScorePointsBonusForNonClassified(t *testing.T) {
 	msg := scoringMessage{TotalFixed: 1}
-	points, err := scorePoints(msg)
+	points, err := scorePoints(nil, msg)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, points)
 }
@@ -1756,7 +1770,7 @@ func TestNewScoreOneAlertScorePointsError(t *testing.T) {
 
 	err = newScore(c)
 	assert.NotNil(t, err)
-	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to Query 'SELECT pointValue FROM bugs"))
+	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to database transaction Begin was not expected"))
 	assert.Equal(t, 0, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }

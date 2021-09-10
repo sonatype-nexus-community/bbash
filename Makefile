@@ -16,7 +16,7 @@ endif
 ifneq ($(shell git status --porcelain),)
 	VERSION := $(VERSION)-dirty
 endif
-GOBUILD_FLAGS=-ldflags "-X 'github.com/sonatype-nexus-community/bbash/buildversion.BuildVersion=$(VERSION)' \
+GOBUILD_FLAGS=-ldflags="-X 'github.com/sonatype-nexus-community/bbash/buildversion.BuildVersion=$(VERSION)' \
 	   -X 'github.com/sonatype-nexus-community/bbash/buildversion.BuildTime=$(DATE)' \
 	   -X 'github.com/sonatype-nexus-community/bbash/buildversion.BuildCommit=$(COMMIT)'"
 

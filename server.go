@@ -354,13 +354,14 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 }
 
 var ParticipatingOrgs = map[string]bool{
-	"thanos-io":          true,
-	"serverlessworkflow": true,
-	"chaos-mesh":         true,
-	"cri-o":              true,
-	"openebs":            true,
-	"buildpacks":         true,
-	"schemahero":         true,
+	"thanos-io":                true,
+	"serverlessworkflow":       true,
+	"chaos-mesh":               true,
+	"cri-o":                    true,
+	"openebs":                  true,
+	"buildpacks":               true,
+	"schemahero":               true,
+	"sonatype-nexus-community": true,
 }
 
 const sqlSelectParticipantId = `SELECT
@@ -368,9 +369,10 @@ const sqlSelectParticipantId = `SELECT
 		FROM participants
 		WHERE participants.GitHubName = $1`
 
-func validScore(owner string, user string) bool {
+func validScore(c echo.Context, owner string, user string) bool {
 	// check if repo is in participating set
 	if !ParticipatingOrgs[owner] {
+		c.Logger().Debugf("score is not valid due to missing ParticipatingOrg. owner: %s, user: %s", owner, user)
 		return false
 	}
 
@@ -379,15 +381,14 @@ func validScore(owner string, user string) bool {
 	var id string
 	err := row.Scan(&id)
 	if err != nil {
-		return false
+		c.Logger().Debugf("score is not valid due to missing participant. err: %v", err)
 	}
-
-	return true
+	return err == nil
 }
 
 const sqlSelectPointValue = `SELECT pointValue FROM bugs WHERE category = $1`
 
-func scorePoints(msg scoringMessage) (points int, err error) {
+func scorePoints(c echo.Context, msg scoringMessage) (points int, err error) {
 	points = 0
 	scored := 0
 
@@ -395,7 +396,9 @@ func scorePoints(msg scoringMessage) (points int, err error) {
 		row := db.QueryRow(sqlSelectPointValue, bugType)
 		var value = 1
 		if err = row.Scan(&value); err != nil {
-			return
+			// ignore (and clear return) error from scan operation
+			c.Logger().Debugf("ignoring missing pointValue. err: %+v, msg: %+v", err, msg)
+			err = nil
 		}
 
 		points += count * value
@@ -453,23 +456,30 @@ func newScore(c echo.Context) (err error) {
 		var msg scoringMessage
 		err = json.Unmarshal([]byte(rawMsg), &msg)
 		if err != nil {
+			c.Logger().Debugf("error unmarshalling scoringMessage, err: %+v, rawMsg: %s", err, rawMsg)
 			return
 		}
-		c.Logger().Debug(msg)
+		c.Logger().Debugf("scoringMessage: %+v", msg)
 
 		// if this particular entry is not valid, ignore it and continue processing
-		if !validScore(msg.RepoOwner, msg.TriggerUser) {
-			c.Logger().Debug("Score is not valid!")
+		if !validScore(c, msg.RepoOwner, msg.TriggerUser) {
+			c.Logger().Debugf("Score is not valid! owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
 			continue
 		}
+		// @todo remove this
+		c.Logger().Debugf("score is valid. scoringMessage: %+v", msg)
 
-		newPoints, err := scorePoints(msg)
+		newPoints, err := scorePoints(c, msg)
 		if err != nil {
+			c.Logger().Debugf("scorePoints badness: %+v", err)
 			return err
 		}
+		// @todo remove this
+		c.Logger().Debugf("newPoints: %d scoringMessage: %+v", newPoints, msg)
 
 		tx, err := db.Begin()
 		if err != nil {
+			c.Logger().Debugf("tx begin badness: err: %+v, scoringMessage: %+v", err, msg)
 			return err
 		}
 
@@ -478,7 +488,7 @@ func newScore(c echo.Context) (err error) {
 		err = row.Scan(&oldPoints)
 		if err != nil {
 			// ignore error case from scan when no row exists, will occur when this is a new score event
-			c.Logger().Debug(err)
+			c.Logger().Debugf("ignoring likely new score event. err: %+v, scoringMessage: %+v", err, msg)
 		}
 
 		_, err = db.Exec(sqlInsertScoringEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
@@ -498,7 +508,11 @@ func newScore(c echo.Context) (err error) {
 			c.Logger().Debug(err)
 			return err
 		}
+
+		c.Logger().Debugf("score updated. msg: %+v", msg)
 	}
+
+	c.Logger().Debugf("newScore alert completed. alert: %+v", alert)
 
 	return c.NoContent(http.StatusAccepted)
 }
