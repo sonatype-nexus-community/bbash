@@ -1791,36 +1791,6 @@ func TestNewScoreOneAlertScorePointsMissingPointValue(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlertScorePointsError(t *testing.T) {
-	githubName := "myGithubName"
-	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, BugCounts: map[string]int{"myBugType": 1}})
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
-
-	dbMock, mock := newMockDb(t)
-	defer func() {
-		_ = dbMock.Close()
-	}()
-	origDb := db
-	defer func() {
-		db = origDb
-	}()
-	db = dbMock
-
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
-		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
-
-	err = newScore(c)
-	assert.NotNil(t, err)
-	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to database transaction Begin was not expected"))
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
 func TestNewScoreOneAlertHandleBeginTransactionError(t *testing.T) {
 	githubName := "myGithubName"
 	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName})
