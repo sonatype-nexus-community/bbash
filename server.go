@@ -457,7 +457,7 @@ func newScore(c echo.Context) (err error) {
 		return
 	}
 
-	c.Logger().Debugf("scoringAlert: %+v", alert)
+	//c.Logger().Debugf("scoringAlert: %+v", alert)
 
 	for _, rawMsg := range alert.RecentHits {
 		var msg scoringMessage
@@ -507,7 +507,7 @@ func newScore(c echo.Context) (err error) {
 		c.Logger().Debugf("score updated. scoringMessage: %+v", msg)
 	}
 
-	c.Logger().Debugf("scoringAlert completed: %+v", alert)
+	//c.Logger().Debugf("scoringAlert completed: %+v", alert)
 
 	return c.NoContent(http.StatusAccepted)
 }
