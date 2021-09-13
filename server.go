@@ -221,7 +221,7 @@ func main() {
 	// Scoring related endpoints and group
 	scoreGroup := e.Group(ScoreEvent)
 
-	scoreGroup.POST(New, newScore)
+	scoreGroup.POST(New, logNewScore)
 
 	routes := e.Routes()
 
@@ -431,6 +431,14 @@ func updateParticipantScore(c echo.Context, username string, delta int) (err err
 	return
 }
 
+// was not seeing enough detail when newScore() returns error, so capturing such cases in the log.
+func logNewScore(c echo.Context) (err error) {
+	if err = newScore(c); err != nil {
+		c.Logger().Errorf("error calling newScore. err: %+v", err)
+	}
+	return
+}
+
 const sqlScoreQuery = `SELECT points
 			FROM scoring_events
 			WHERE repoOwner = $1
@@ -466,16 +474,12 @@ func newScore(c echo.Context) (err error) {
 			c.Logger().Debugf("Score is not valid! owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
 			continue
 		}
-		// @todo remove this
-		c.Logger().Debugf("score is valid. scoringMessage: %+v", msg)
 
 		newPoints, err := scorePoints(c, msg)
 		if err != nil {
 			c.Logger().Debugf("scorePoints badness: %+v", err)
 			return err
 		}
-		// @todo remove this
-		c.Logger().Debugf("newPoints: %d scoringMessage: %+v", newPoints, msg)
 
 		tx, err := db.Begin()
 		if err != nil {

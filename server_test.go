@@ -1552,17 +1552,17 @@ func TestDeleteParticipant(t *testing.T) {
 }
 
 func TestValidScoreUnknownOwner(t *testing.T) {
-	c := setupMockContext()
+	c, _ := setupMockContext()
 
 	assert.False(t, validScore(c, "", ""))
 }
 
-func setupMockContext() echo.Context {
+func setupMockContext() (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-	return c
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
 }
 
 const testOrgValid = "thanos-io"
@@ -1583,7 +1583,7 @@ func TestValidScoreParticipantNotRegistered(t *testing.T) {
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}))
 
-	c := setupMockContext()
+	c, _ := setupMockContext()
 
 	assert.False(t, validScore(c, testOrgValid, "unregisteredUser"))
 }
@@ -1630,7 +1630,7 @@ func TestScorePointsScanError(t *testing.T) {
 		WithArgs("unexpectedBugType").
 		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(1))
 
-	c := setupMockContext()
+	c, _ := setupMockContext()
 
 	points, err := scorePoints(c, msg)
 	assert.NoError(t, err)
@@ -1664,6 +1664,22 @@ func TestScorePointsBonusForNonClassified(t *testing.T) {
 	points, err := scorePoints(nil, msg)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, points)
+}
+
+func TestLogNewScoreWithError(t *testing.T) {
+	c, rec := setupMockContext()
+	err := logNewScore(c)
+	assert.EqualError(t, err, "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestLogNewScoreNoError(t *testing.T) {
+	c, rec := setupMockContextNewScore(t, scoringAlert{})
+	err := logNewScore(c)
+	assert.Nil(t, err)
+	assert.Equal(t, http.StatusAccepted, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
 }
 
 func setupMockContextNewScore(t *testing.T, alert scoringAlert) (c echo.Context, rec *httptest.ResponseRecorder) {
