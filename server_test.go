@@ -1609,8 +1609,7 @@ func TestValidScoreParticipant(t *testing.T) {
 
 func TestScorePointsNothing(t *testing.T) {
 	msg := scoringMessage{}
-	points, err := scorePoints(nil, msg)
-	assert.NoError(t, err)
+	points := scorePoints(nil, msg)
 	assert.Equal(t, 0, points)
 }
 
@@ -1632,8 +1631,7 @@ func TestScorePointsScanError(t *testing.T) {
 
 	c, _ := setupMockContext()
 
-	points, err := scorePoints(c, msg)
-	assert.NoError(t, err)
+	points := scorePoints(c, msg)
 	assert.Equal(t, 1, points)
 }
 
@@ -1654,15 +1652,13 @@ func TestScorePointsFixedTwoThreePointers(t *testing.T) {
 		WithArgs(bugType).
 		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(3))
 
-	points, err := scorePoints(nil, msg)
-	assert.NoError(t, err)
+	points := scorePoints(nil, msg)
 	assert.Equal(t, 6, points)
 }
 
 func TestScorePointsBonusForNonClassified(t *testing.T) {
 	msg := scoringMessage{TotalFixed: 1}
-	points, err := scorePoints(nil, msg)
-	assert.NoError(t, err)
+	points := scorePoints(nil, msg)
 	assert.Equal(t, 1, points)
 }
 
@@ -1762,6 +1758,36 @@ func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
 	err = newScore(c)
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusAccepted, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlertScorePointsMissingPointValue(t *testing.T) {
+	githubName := "myGithubName"
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, BugCounts: map[string]int{"myBugType": 1}})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	err = newScore(c)
+	assert.NotNil(t, err)
+	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to database transaction Begin was not expected"))
+	assert.Equal(t, 0, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
 
