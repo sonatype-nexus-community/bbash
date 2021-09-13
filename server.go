@@ -472,8 +472,7 @@ func newScore(c echo.Context) (err error) {
 			continue
 		}
 
-		var newPoints int
-		newPoints = scorePoints(c, msg)
+		newPoints := scorePoints(c, msg)
 
 		var tx *sql.Tx
 		tx, err = db.Begin()
