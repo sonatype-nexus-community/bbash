@@ -381,7 +381,7 @@ func validScore(c echo.Context, owner string, user string) bool {
 	var id string
 	err := row.Scan(&id)
 	if err != nil {
-		c.Logger().Debugf("score is not valid due to missing participant. err: %v", err)
+		c.Logger().Debugf("score is not valid due to missing participant. owner: %s, user: %s, err: %v", owner, user, err)
 	}
 	return err == nil
 }
@@ -397,7 +397,7 @@ func scorePoints(c echo.Context, msg scoringMessage) (points int) {
 		var value = 1
 		if err := row.Scan(&value); err != nil {
 			// ignore (and clear return) error from scan operation
-			c.Logger().Debugf("ignoring missing pointValue. err: %+v, msg: %+v", err, msg)
+			c.Logger().Debugf("ignoring missing pointValue. bugType: %s, err: %+v, msg: %+v", bugType, err, msg)
 		}
 
 		points += count * value
@@ -503,7 +503,7 @@ func newScore(c echo.Context) (err error) {
 			return
 		}
 
-		c.Logger().Debugf("score updated. scoringMessage: %+v", msg)
+		c.Logger().Debugf("score updated. newPoints: %d, oldPoints: %d, scoringMessage: %+v", newPoints, oldPoints, msg)
 	}
 
 	//c.Logger().Debugf("scoringAlert completed: %+v", alert)
