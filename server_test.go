@@ -85,7 +85,7 @@ func TestMigrateDBErrorMigrateUp(t *testing.T) {
 }
 
 //goland:noinspection GoUnusedFunction
-func xxxTestMigrateDB(t *testing.T) {
+func xxxIgnore_TestMigrateDB(t *testing.T) {
 	dbMock, mock := newMockDb(t)
 	defer func() {
 		_ = dbMock.Close()
