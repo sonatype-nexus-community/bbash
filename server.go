@@ -221,7 +221,7 @@ func main() {
 	// Scoring related endpoints and group
 	scoreGroup := e.Group(ScoreEvent)
 
-	scoreGroup.POST(New, newScore)
+	scoreGroup.POST(New, logNewScore)
 
 	routes := e.Routes()
 
@@ -372,7 +372,7 @@ const sqlSelectParticipantId = `SELECT
 func validScore(c echo.Context, owner string, user string) bool {
 	// check if repo is in participating set
 	if !ParticipatingOrgs[owner] {
-		c.Logger().Debugf("score is not valid due to missing ParticipatingOrg. owner: %s, user: %s", owner, user)
+		c.Logger().Debugf("score not valid, missing ParticipatingOrg. owner: %s, user: %s", owner, user)
 		return false
 	}
 
@@ -388,17 +388,16 @@ func validScore(c echo.Context, owner string, user string) bool {
 
 const sqlSelectPointValue = `SELECT pointValue FROM bugs WHERE category = $1`
 
-func scorePoints(c echo.Context, msg scoringMessage) (points int, err error) {
+func scorePoints(c echo.Context, msg scoringMessage) (points int) {
 	points = 0
 	scored := 0
 
 	for bugType, count := range msg.BugCounts {
 		row := db.QueryRow(sqlSelectPointValue, bugType)
 		var value = 1
-		if err = row.Scan(&value); err != nil {
+		if err := row.Scan(&value); err != nil {
 			// ignore (and clear return) error from scan operation
 			c.Logger().Debugf("ignoring missing pointValue. err: %+v, msg: %+v", err, msg)
-			err = nil
 		}
 
 		points += count * value
@@ -431,6 +430,14 @@ func updateParticipantScore(c echo.Context, username string, delta int) (err err
 	return
 }
 
+// was not seeing enough detail when newScore() returns error, so capturing such cases in the log.
+func logNewScore(c echo.Context) (err error) {
+	if err = newScore(c); err != nil {
+		c.Logger().Errorf("error calling newScore. err: %+v", err)
+	}
+	return
+}
+
 const sqlScoreQuery = `SELECT points
 			FROM scoring_events
 			WHERE repoOwner = $1
@@ -450,7 +457,7 @@ func newScore(c echo.Context) (err error) {
 		return
 	}
 
-	c.Logger().Debug(alert)
+	//c.Logger().Debugf("scoringAlert: %+v", alert)
 
 	for _, rawMsg := range alert.RecentHits {
 		var msg scoringMessage
@@ -459,28 +466,18 @@ func newScore(c echo.Context) (err error) {
 			c.Logger().Debugf("error unmarshalling scoringMessage, err: %+v, rawMsg: %s", err, rawMsg)
 			return
 		}
-		c.Logger().Debugf("scoringMessage: %+v", msg)
 
 		// if this particular entry is not valid, ignore it and continue processing
 		if !validScore(c, msg.RepoOwner, msg.TriggerUser) {
-			c.Logger().Debugf("Score is not valid! owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
 			continue
 		}
-		// @todo remove this
-		c.Logger().Debugf("score is valid. scoringMessage: %+v", msg)
 
-		newPoints, err := scorePoints(c, msg)
-		if err != nil {
-			c.Logger().Debugf("scorePoints badness: %+v", err)
-			return err
-		}
-		// @todo remove this
-		c.Logger().Debugf("newPoints: %d scoringMessage: %+v", newPoints, msg)
+		newPoints := scorePoints(c, msg)
 
-		tx, err := db.Begin()
+		var tx *sql.Tx
+		tx, err = db.Begin()
 		if err != nil {
-			c.Logger().Debugf("tx begin badness: err: %+v, scoringMessage: %+v", err, msg)
-			return err
+			return
 		}
 
 		row := db.QueryRow(sqlScoreQuery, msg.RepoOwner, msg.RepoName, msg.PullRequest)
@@ -493,26 +490,23 @@ func newScore(c echo.Context) (err error) {
 
 		_, err = db.Exec(sqlInsertScoringEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
 		if err != nil {
-			c.Logger().Debug(err)
-			return err
+			return
 		}
 
 		err = updateParticipantScore(c, msg.TriggerUser, newPoints-oldPoints)
 		if err != nil {
-			c.Logger().Debug(err)
-			return err
+			return
 		}
 
 		err = tx.Commit()
 		if err != nil {
-			c.Logger().Debug(err)
-			return err
+			return
 		}
 
-		c.Logger().Debugf("score updated. msg: %+v", msg)
+		c.Logger().Debugf("score updated. scoringMessage: %+v", msg)
 	}
 
-	c.Logger().Debugf("newScore alert completed. alert: %+v", alert)
+	//c.Logger().Debugf("scoringAlert completed: %+v", alert)
 
 	return c.NoContent(http.StatusAccepted)
 }
