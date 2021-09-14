@@ -503,7 +503,7 @@ func newScore(c echo.Context) (err error) {
 			return
 		}
 
-		c.Logger().Debugf("score updated. scoringMessage: %+v", msg)
+		c.Logger().Debugf("score updated. newPoints: %d, oldPoints: %d, scoringMessage: %+v", newPoints, oldPoints, msg)
 	}
 
 	//c.Logger().Debugf("scoringAlert completed: %+v", alert)
