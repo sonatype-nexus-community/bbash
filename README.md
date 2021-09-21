@@ -120,6 +120,10 @@ Replace the stuff in the `<>` with your values (and remove the `<>` characters i
 
 After you have done this, you SHOULD have a running service, somewhere in AWS :)
 
+With all the above configured, here's the deployment command in full:
+
+    make && make docker && ./docker.sh
+
 ### Helpful Links:
 
 [Echo](https://echo.labstack.com) web framework. [repo](https://github.com/labstack/echo)
