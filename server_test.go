@@ -84,7 +84,7 @@ func TestMigrateDBErrorMigrateUp(t *testing.T) {
 	assert.EqualError(t, migrateDB(dbMock), "try lock failed in line 0: SELECT pg_advisory_lock($1) (details: all expectations were already fulfilled, call to ExecQuery 'SELECT pg_advisory_lock($1)' with args [{Name: Ordinal:1 Value:1014225327}] was not expected)")
 }
 
-//goland:noinspection GoUnusedFunction
+//goland:noinspection GoUnusedFunction,GoSnakeCaseUsage
 func xxxIgnore_TestMigrateDB(t *testing.T) {
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -498,6 +498,55 @@ func TestAddParticipant(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Score", "JoinedAt"}).AddRow(participantID, 0, time.Time{}))
 
 	assert.NoError(t, addParticipant(c))
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.True(t, strings.HasPrefix(rec.Body.String(), `{"guid":"`+participantID+`","endpoints":{"participantDetail"`), rec.Body.String())
+	assert.True(t, strings.Contains(rec.Body.String(), `"gitHubName":"`+participantName+`"`), rec.Body.String())
+}
+
+func TestLogAddParticipantWithError(t *testing.T) {
+	c, rec := setupMockContext()
+	err := logAddParticipant(c)
+	assert.EqualError(t, err, "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestLogAddParticipantNoError(t *testing.T) {
+	participantName := "partName"
+	participantJson := `{"gitHubName": "` + participantName + `"}`
+	c, rec := setupMockContextParticipant(participantJson)
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+	testId := "testNewWebflowParticipantId"
+	ts := setupMockWebflowUserCreate(t, testId)
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	participantID := "participantUUId"
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
+		WithArgs(participantName, "", "", 0, testId, "").
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "Score", "JoinedAt"}).AddRow(participantID, 0, time.Time{}))
+
+	err := logAddParticipant(c)
+	assert.Nil(t, err)
 	assert.Equal(t, http.StatusCreated, c.Response().Status)
 	assert.True(t, strings.HasPrefix(rec.Body.String(), `{"guid":"`+participantID+`","endpoints":{"participantDetail"`), rec.Body.String())
 	assert.True(t, strings.Contains(rec.Body.String(), `"gitHubName":"`+participantName+`"`), rec.Body.String())

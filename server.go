@@ -190,7 +190,7 @@ func main() {
 		getParticipantsList).Name = "participant-list"
 
 	participantGroup.POST(Update, updateParticipant).Name = "participant-update"
-	participantGroup.PUT(Add, addParticipant).Name = "participant-add"
+	participantGroup.PUT(Add, logAddParticipant).Name = "participant-add"
 	participantGroup.DELETE(
 		fmt.Sprintf("%s/:%s", Delete, ParamGithubName),
 		deleteParticipant,
@@ -289,6 +289,8 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 		return
 	}
 	id = response.Id
+
+	c.Logger().Debugf("created new upstream user: leaderboardItem: %+v", item)
 	return
 }
 
@@ -654,6 +656,14 @@ const sqlInsertParticipant = `INSERT INTO participants
 		(GithubName, Email, DisplayName, Score, UpstreamId, Campaign) 
 		VALUES ($1, $2, $3, $4, $5, (SELECT Id FROM campaigns WHERE CampaignName = $6))
 		RETURNING Id, Score, JoinedAt`
+
+// was not seeing enough detail when newScore() returns error, so capturing such cases in the log.
+func logAddParticipant(c echo.Context) (err error) {
+	if err = addParticipant(c); err != nil {
+		c.Logger().Errorf("error calling addParticipant. err: %+v", err)
+	}
+	return
+}
 
 func addParticipant(c echo.Context) (err error) {
 	participant := participant{}
