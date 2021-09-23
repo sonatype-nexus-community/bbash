@@ -503,6 +503,30 @@ func TestAddParticipant(t *testing.T) {
 	assert.True(t, strings.Contains(rec.Body.String(), `"gitHubName":"`+participantName+`"`), rec.Body.String())
 }
 
+func TestMockWebflow_WithServer(t *testing.T) {
+	participantName := "partName"
+	participantJson := `{"gitHubName": "` + participantName + `"}`
+	//c, rec := setupMockContextParticipant(participantJson)
+	setupMockContextParticipant(participantJson)
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+	testId := "testNewWebflowParticipantId"
+	ts := setupMockWebflowUserCreate(t, testId)
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	// uncomment 'main90' below for local testing with a mocked Webflow endpoint.
+	//main()
+}
+
 func TestLogAddParticipantWithError(t *testing.T) {
 	c, rec := setupMockContext()
 	err := logAddParticipant(c)

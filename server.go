@@ -688,6 +688,7 @@ func addParticipant(c echo.Context) (err error) {
 		webflowId,
 		participant.CampaignName).Scan(&guid, &participant.Score, &participant.JoinedAt)
 	if err != nil {
+		c.Logger().Errorf("error inserting participant: %+v, err: %+v", participant, err)
 		return
 	}
 
