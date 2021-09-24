@@ -26,3 +26,6 @@ docker.sh
 
 # air / build
 tmp/
+
+# Environments
+scripts/.venv
