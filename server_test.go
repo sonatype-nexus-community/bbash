@@ -1638,7 +1638,7 @@ func TestValidScoreUnknownOwner(t *testing.T) {
 	db = dbMock
 
 	orgName := "myOrgName"
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
 		WithArgs(orgName).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
@@ -1648,6 +1648,14 @@ func TestValidScoreUnknownOwner(t *testing.T) {
 func setupMockContext() (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec = httptest.NewRecorder()
+	c = e.NewContext(req, rec)
+	return
+}
+
+func setupMockContextWithBody(method string, body string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	e := echo.New()
+	req := httptest.NewRequest(method, "/", strings.NewReader(body))
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	return
@@ -1700,7 +1708,7 @@ func TestValidScoreParticipant(t *testing.T) {
 }
 
 func setupMockDBOrgValid(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
-	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
 		WithArgs(testOrgValid).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 }
@@ -1772,7 +1780,7 @@ func TestValidOrganizationFalse(t *testing.T) {
 	db = dbMock
 
 	orgName := "myOrgName"
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
 		WithArgs(orgName).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
@@ -1792,7 +1800,7 @@ func TestValidOrganizationError(t *testing.T) {
 
 	orgName := "myOrgName"
 	forcedError := fmt.Errorf("forced query error")
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
 		WithArgs(orgName).
 		WillReturnError(forcedError)
 
@@ -1814,7 +1822,7 @@ func TestValidOrganization(t *testing.T) {
 	db = dbMock
 
 	orgName := "myOrgName"
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
 		WithArgs(orgName).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
@@ -1897,7 +1905,7 @@ func TestNewScoreOneAlertInvalidScore(t *testing.T) {
 	db = dbMock
 
 	orgName := ""
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
 		WithArgs(orgName).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
@@ -2321,5 +2329,193 @@ func TestNewScoreOneAlert(t *testing.T) {
 	err = newScore(c)
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusAccepted, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestGetOrganizationsError(t *testing.T) {
+	c, rec := setupMockContext()
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedErr := fmt.Errorf("forced org list error")
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+		WillReturnError(forcedErr)
+
+	err := getOrganizations(c)
+	assert.EqualError(t, err, forcedErr.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestGetOrganizationsScanError(t *testing.T) {
+	c, rec := setupMockContext()
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+		WillReturnRows(sqlmock.NewRows([]string{}).AddRow())
+
+	err := getOrganizations(c)
+	assert.EqualError(t, err, "sql: expected 0 destination arguments in Scan, not 2")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestGetOrganizations(t *testing.T) {
+	c, rec := setupMockContext()
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "Org"}).AddRow("someId", "someOrg"))
+
+	err := getOrganizations(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, c.Response().Status)
+	assert.Equal(t, "[{\"guid\":\"someId\",\"organization\":\"someOrg\"}]\n", rec.Body.String())
+}
+
+func TestAddOrganizationBodyBad(t *testing.T) {
+	c, rec := setupMockContext()
+
+	err := addOrganization(c)
+	assert.EqualError(t, err, "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddOrganizationInsertError(t *testing.T) {
+	c, rec := setupMockContextWithBody(http.MethodPut, "{\"organization\":\"myOrganizationName\"}")
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced org add error")
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlAddOrganization)).
+		WillReturnError(forcedError)
+
+	err := addOrganization(c)
+	assert.EqualError(t, err, forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestAddOrganization(t *testing.T) {
+	c, rec := setupMockContextWithBody(http.MethodPut, "{\"organization\":\"myOrganizationName\"}")
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlAddOrganization)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	err := addOrganization(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.Equal(t, "someId", rec.Body.String())
+}
+
+func TestDeleteOrganizationDeleteError(t *testing.T) {
+	c, rec := setupMockContext()
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced org delete error")
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlDeleteOrganization)).
+		WillReturnError(forcedError)
+
+	err := deleteOrganization(c)
+	assert.EqualError(t, err, forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestDeleteOrganizationNotFound(t *testing.T) {
+	c, rec := setupMockContext()
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlDeleteOrganization)).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+
+	err := deleteOrganization(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, c.Response().Status)
+	assert.Equal(t, "\"no organization: \"\n", rec.Body.String())
+}
+
+func TestDeleteOrganization(t *testing.T) {
+	c, rec := setupMockContext()
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlDeleteOrganization)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err := deleteOrganization(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }

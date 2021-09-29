@@ -38,6 +38,11 @@ import (
 
 var db *sql.DB
 
+type organization struct {
+	ID           string `json:"guid"`
+	Organization string `json:"organization"`
+}
+
 type participant struct {
 	ID           string `json:"guid"`
 	GitHubName   string `json:"gitHubName"`
@@ -102,24 +107,26 @@ type leaderboardResponse struct {
 }
 
 const (
-	ParamGithubName   string = "gitHubName"
-	ParamCampaignName string = "campaignName"
-	ParamTeamName     string = "teamName"
-	ParamBugCategory  string = "bugCategory"
-	ParamPointValue   string = "pointValue"
-	Participant       string = "/participant"
-	Detail            string = "/detail"
-	List              string = "/list"
-	Update            string = "/update"
-	Delete            string = "/delete"
-	Team              string = "/team"
-	Add               string = "/add"
-	Person            string = "/person"
-	Bug               string = "/bug"
-	Campaign          string = "/campaign"
-	ScoreEvent        string = "/scoring"
-	New               string = "/new"
-	WebflowApiBase    string = "https://api.webflow.com"
+	ParamGithubName       string = "gitHubName"
+	ParamCampaignName     string = "campaignName"
+	ParamTeamName         string = "teamName"
+	ParamBugCategory      string = "bugCategory"
+	ParamPointValue       string = "pointValue"
+	ParamOrganizationName string = "organizationName"
+	Organization          string = "/organization"
+	Participant           string = "/participant"
+	Detail                string = "/detail"
+	List                  string = "/list"
+	Update                string = "/update"
+	Delete                string = "/delete"
+	Team                  string = "/team"
+	Add                   string = "/add"
+	Person                string = "/person"
+	Bug                   string = "/bug"
+	Campaign              string = "/campaign"
+	ScoreEvent            string = "/scoring"
+	New                   string = "/new"
+	WebflowApiBase        string = "https://api.webflow.com"
 )
 
 // variable allows for changes to url for testing
@@ -176,6 +183,19 @@ func main() {
 	e.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, fmt.Sprintf("I am ALIVE. %s", buildInfoMessage))
 	})
+
+	// Organization related endpoints
+	organizationGroup := e.Group(Organization)
+
+	organizationGroup.GET(
+		fmt.Sprintf("%s", List),
+		getOrganizations).Name = "organization-list"
+	organizationGroup.PUT(
+		fmt.Sprintf("%s", Add),
+		addOrganization).Name = "organization-add"
+	organizationGroup.DELETE(
+		fmt.Sprintf("%s/:%s", Delete, ParamOrganizationName),
+		deleteOrganization).Name = "organization-delete"
 
 	// Participant related endpoints and group
 
@@ -316,6 +336,70 @@ func (e *ParticipantUpdateError) Error() string {
 	return fmt.Sprintf("could not update score. response status: %s", e.Status)
 }
 
+const sqlAddOrganization = `INSERT INTO organizations
+		(organization)
+		VALUES ($1)
+		RETURNING Id`
+
+func addOrganization(c echo.Context) (err error) {
+	organization := organization{}
+
+	err = json.NewDecoder(c.Request().Body).Decode(&organization)
+	if err != nil {
+		return
+	}
+
+	var guid string
+	err = db.QueryRow(sqlAddOrganization, organization.Organization).
+		Scan(&guid)
+	if err != nil {
+		c.Logger().Errorf("error inserting organization: %+v, err: %+v", organization, err)
+		return
+	}
+
+	return c.String(http.StatusCreated, guid)
+}
+
+const sqlSelectOrganization = `SELECT
+		organizations.Id,
+        organizations.Organization
+		FROM organizations`
+
+func getOrganizations(c echo.Context) (err error) {
+	rows, err := db.Query(sqlSelectOrganization)
+	if err != nil {
+		return
+	}
+
+	var orgs []organization
+	for rows.Next() {
+		org := organization{}
+		err = rows.Scan(&org.ID, &org.Organization)
+		if err != nil {
+			return
+		}
+		orgs = append(orgs, org)
+	}
+
+	return c.JSON(http.StatusOK, orgs)
+}
+
+const sqlDeleteOrganization = `DELETE FROM organizations WHERE organization = $1`
+
+func deleteOrganization(c echo.Context) (err error) {
+	orgName := c.Param(ParamOrganizationName)
+	res, err := db.Exec(sqlDeleteOrganization, orgName)
+	if err != nil {
+		return
+	}
+	rowsAffected, err := res.RowsAffected()
+	c.Logger().Infof("delete organization: %s, rowsAffected: %d", orgName, rowsAffected)
+	if rowsAffected > 0 {
+		return c.NoContent(http.StatusNoContent)
+	}
+	return c.JSON(http.StatusNotFound, fmt.Sprintf("no organization: %s", orgName))
+}
+
 func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error) {
 
 	var payload struct {
@@ -355,7 +439,7 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 	return
 }
 
-const sqlSelectOrganization = `SELECT EXISTS(
+const sqlSelectOrganizationExists = `SELECT EXISTS(
 		SELECT
 		organizations.Id
 		FROM organizations
@@ -363,7 +447,7 @@ const sqlSelectOrganization = `SELECT EXISTS(
 
 // check if repo is in participating set
 func validOrganization(c echo.Context, organizationName string) (orgExists bool) {
-	row := db.QueryRow(sqlSelectOrganization, organizationName)
+	row := db.QueryRow(sqlSelectOrganizationExists, organizationName)
 	err := row.Scan(&orgExists)
 	if err != nil {
 		c.Logger().Debugf("organization is not valid. organizationName: %s, err: %v", organizationName, err)
