@@ -355,15 +355,21 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 	return
 }
 
-var ParticipatingOrgs = map[string]bool{
-	"thanos-io":                true,
-	"serverlessworkflow":       true,
-	"chaos-mesh":               true,
-	"cri-o":                    true,
-	"openebs":                  true,
-	"buildpacks":               true,
-	"schemahero":               true,
-	"sonatype-nexus-community": true,
+const sqlSelectOrganization = `SELECT EXISTS(
+		SELECT
+		organizations.Id
+		FROM organizations
+		WHERE organizations.Organization = $1)`
+
+// check if repo is in participating set
+func validOrganization(c echo.Context, organizationName string) (orgExists bool) {
+	row := db.QueryRow(sqlSelectOrganization, organizationName)
+	err := row.Scan(&orgExists)
+	if err != nil {
+		c.Logger().Debugf("organization is not valid. organizationName: %s, err: %v", organizationName, err)
+		return
+	}
+	return
 }
 
 const sqlSelectParticipantId = `SELECT
@@ -373,7 +379,7 @@ const sqlSelectParticipantId = `SELECT
 
 func validScore(c echo.Context, owner string, user string) bool {
 	// check if repo is in participating set
-	if !ParticipatingOrgs[owner] {
+	if !validOrganization(c, owner) {
 		c.Logger().Debugf("skip score missing ParticipatingOrg. owner: %s, user: %s", owner, user)
 		return false
 	}

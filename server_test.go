@@ -1627,7 +1627,22 @@ func TestDeleteParticipant(t *testing.T) {
 func TestValidScoreUnknownOwner(t *testing.T) {
 	c, _ := setupMockContext()
 
-	assert.False(t, validScore(c, "", ""))
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	orgName := "myOrgName"
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+		WithArgs(orgName).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	assert.False(t, validScore(c, orgName, ""))
 }
 
 func setupMockContext() (c echo.Context, rec *httptest.ResponseRecorder) {
@@ -1672,12 +1687,22 @@ func TestValidScoreParticipant(t *testing.T) {
 	}()
 	db = dbMock
 
+	setupMockDBOrgValid(mock)
+
 	githubName := "myGithubName"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
-	assert.True(t, validScore(nil, testOrgValid, githubName))
+	c, _ := setupMockContext()
+
+	assert.True(t, validScore(c, testOrgValid, githubName))
+}
+
+func setupMockDBOrgValid(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
+	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+		WithArgs(testOrgValid).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 }
 
 func TestScorePointsNothing(t *testing.T) {
@@ -1733,6 +1758,67 @@ func TestScorePointsBonusForNonClassified(t *testing.T) {
 	msg := scoringMessage{TotalFixed: 1}
 	points := scorePoints(nil, msg)
 	assert.Equal(t, 1, points)
+}
+
+func TestValidOrganizationFalse(t *testing.T) {
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	orgName := "myOrgName"
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+		WithArgs(orgName).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	assert.False(t, validOrganization(nil, orgName))
+}
+
+func TestValidOrganizationError(t *testing.T) {
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	orgName := "myOrgName"
+	forcedError := fmt.Errorf("forced query error")
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+		WithArgs(orgName).
+		WillReturnError(forcedError)
+
+	c, rec := setupMockContext()
+	assert.False(t, validOrganization(c, orgName))
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestValidOrganization(t *testing.T) {
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	orgName := "myOrgName"
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+		WithArgs(orgName).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	assert.True(t, validOrganization(nil, orgName))
 }
 
 func TestLogNewScoreWithError(t *testing.T) {
@@ -1799,6 +1885,22 @@ func TestNewScoreOneAlertInvalidScore(t *testing.T) {
 	c, rec := setupMockContextNewScore(t, scoringAlert{
 		RecentHits: []string{scoringMsgJson},
 	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	orgName := ""
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
+		WithArgs(orgName).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
 	err = newScore(c)
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusAccepted, c.Response().Status)
@@ -1853,6 +1955,8 @@ func TestNewScoreOneAlertScorePointsMissingPointValue(t *testing.T) {
 	}()
 	db = dbMock
 
+	setupMockDBOrgValid(mock)
+
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
@@ -1883,6 +1987,8 @@ func TestNewScoreOneAlertHandleBeginTransactionError(t *testing.T) {
 	}()
 	db = dbMock
 
+	setupMockDBOrgValid(mock)
+
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
@@ -1911,6 +2017,8 @@ func TestNewScoreOneAlertScoreQueryErrorIgnored(t *testing.T) {
 		db = origDb
 	}()
 	db = dbMock
+
+	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
 		WithArgs(githubName).
@@ -1949,6 +2057,8 @@ func TestNewScoreOneAlertInsertScoringEventErrorNotIgnored(t *testing.T) {
 	}()
 	db = dbMock
 
+	setupMockDBOrgValid(mock)
+
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
 		WithArgs(githubName).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
@@ -1986,6 +2096,8 @@ func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
 		db = origDb
 	}()
 	db = dbMock
+
+	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
 		WithArgs(githubName).
@@ -2028,6 +2140,8 @@ func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
 		db = origDb
 	}()
 	db = dbMock
+
+	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
 		WithArgs(githubName).
@@ -2094,6 +2208,8 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 		db = origDb
 	}()
 	db = dbMock
+
+	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
 		WithArgs(githubName).
