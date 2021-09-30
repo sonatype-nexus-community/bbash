@@ -464,7 +464,7 @@ const sqlSelectParticipantId = `SELECT
 func validScore(c echo.Context, owner string, user string) bool {
 	// check if repo is in participating set
 	if !validOrganization(c, owner) {
-		c.Logger().Debugf("skip score missing ParticipatingOrg. owner: %s, user: %s", owner, user)
+		c.Logger().Debugf("skip score-missing organization. owner: %s, user: %s", owner, user)
 		return false
 	}
 
@@ -473,7 +473,7 @@ func validScore(c echo.Context, owner string, user string) bool {
 	var id string
 	err := row.Scan(&id)
 	if err != nil {
-		c.Logger().Debugf("score is not valid due to missing participant. owner: %s, user: %s, err: %v", owner, user, err)
+		c.Logger().Debugf("skip score-missing participant. owner: %s, user: %s, err: %v", owner, user, err)
 	}
 	return err == nil
 }
