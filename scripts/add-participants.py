@@ -7,7 +7,7 @@ import requests
 BASE_URL = "https://bug-bash.innovations-sandbox.sonatype.dev"
 # BASE_URL = "http://localhost:7777"
 
-CAMPAIGN_NAME = "cncf"
+CAMPAIGN_NAME = "cncf-2021-10-11"
 
 if len(sys.argv) != 2:
     print("Usage: ./participants.py CSV")
