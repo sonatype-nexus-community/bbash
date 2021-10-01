@@ -1661,7 +1661,7 @@ func setupMockContextWithBody(method string, body string) (c echo.Context, rec *
 	return
 }
 
-const testOrgValid = "thanos-io"
+const testOrgValid = "myValidTestOrganization"
 
 func TestValidScoreParticipantNotRegistered(t *testing.T) {
 	dbMock, mock := newMockDb(t)
