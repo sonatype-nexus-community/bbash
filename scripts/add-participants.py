@@ -7,6 +7,7 @@ import requests
 BASE_URL = "https://bug-bash.innovations-sandbox.sonatype.dev"
 #BASE_URL = "http://localhost:7777"
 
+# CAMPAIGN_NAME = "cncf"
 CAMPAIGN_NAME = "cncf-2021-10-11"
 
 # CSV_COLUMN_NAME_GITHUB_ID = "GitHub ID"
