@@ -40,6 +40,9 @@ with open(sys.argv[1], newline='') as csvfile:
         if "/" in participant[CSV_COLUMN_NAME_GITHUB_ID]:
             participant[CSV_COLUMN_NAME_GITHUB_ID] = os.path.basename(participant[CSV_COLUMN_NAME_GITHUB_ID])
 
+        # make sure github id is lower case
+        participant[CSV_COLUMN_NAME_GITHUB_ID] = participant[CSV_COLUMN_NAME_GITHUB_ID].lower()
+
         send = {
             'campaignName': CAMPAIGN_NAME,
             'GithubName': participant[CSV_COLUMN_NAME_GITHUB_ID],
@@ -51,11 +54,15 @@ with open(sys.argv[1], newline='') as csvfile:
             count_skipped += 1
             print("Participant already exists, skipping")
         else:
-            count_added += 1
             print(f"Adding participant: {participant[CSV_COLUMN_NAME_GITHUB_ID]}")
             r = requests.request('PUT', f"{BASE_URL}/participant/add", json=send)
             print(r)
             print(r.text)
+            if r.status_code != 200 or r.status_code != 201:
+                count_error += 1
+            else:
+                count_added += 1
+
     print(f"done processing {len(rows)} participants")
     print(f"added {count_added}")
     print(f"skipped {count_skipped}")
