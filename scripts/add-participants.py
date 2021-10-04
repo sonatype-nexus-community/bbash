@@ -58,7 +58,7 @@ with open(sys.argv[1], newline='') as csvfile:
             r = requests.request('PUT', f"{BASE_URL}/participant/add", json=send)
             print(r)
             print(r.text)
-            if r.status_code != 200 or r.status_code != 201:
+            if r.status_code != 200 and r.status_code != 201:
                 count_error += 1
             else:
                 count_added += 1
