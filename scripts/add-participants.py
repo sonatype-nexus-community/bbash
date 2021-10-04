@@ -4,8 +4,8 @@ import sys
 import csv
 import requests
 
-#BASE_URL = "https://bug-bash.innovations-sandbox.sonatype.dev"
-BASE_URL = "http://localhost:7777"
+BASE_URL = "https://bug-bash.innovations-sandbox.sonatype.dev"
+#BASE_URL = "http://localhost:7777"
 
 CAMPAIGN_NAME = "cncf-2021-10-11"
 
