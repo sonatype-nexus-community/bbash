@@ -980,6 +980,10 @@ func putBugs(c echo.Context) (err error) {
 	}
 	var inserted []bug
 	for _, bug := range bugs {
+		if err = validateBug(c, bug); err != nil {
+			return
+		}
+
 		err = db.QueryRow(sqlInsertBug, bug.Category, bug.PointValue).Scan(&bug.Id)
 		if err != nil {
 			c.Logger().Errorf("error inserting bug: %+v, err: %+v", bug, err)

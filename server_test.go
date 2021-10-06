@@ -1576,6 +1576,25 @@ func TestPutBugsCommitTxError(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
+func TestPutBugsOneBugInvalidBug(t *testing.T) {
+	c, rec := setupMockContextPutBugs(`[{}]`)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectBegin()
+
+	assert.EqualError(t, putBugs(c), "bug is not valid, empty category: bug: {Id: Category: PointValue:0}")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
 func TestPutBugsOneBug(t *testing.T) {
 	c, rec := setupMockContextPutBugs(`[{}]`)
 
