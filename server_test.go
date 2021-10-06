@@ -523,7 +523,7 @@ func TestMockWebflow_WithServer(t *testing.T) {
 	}()
 	webflowBaseAPI = ts.URL
 
-	// uncomment 'main90' below for local testing with a mocked Webflow endpoint.
+	// uncomment 'main()' below for local testing with a mocked Webflow endpoint.
 	//main()
 }
 

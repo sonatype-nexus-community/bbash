@@ -877,12 +877,14 @@ func addBug(c echo.Context) (err error) {
 
 	err = json.NewDecoder(c.Request().Body).Decode(&bug)
 	if err != nil {
+		c.Logger().Errorf("error decoding bug. body: err: %+v", err)
 		return
 	}
 
 	var guid string
 	err = db.QueryRow(sqlInsertBug, bug.Category, bug.PointValue).Scan(&guid)
 	if err != nil {
+		c.Logger().Errorf("error inserting bug: %+v, err: %+v", bug, err)
 		return
 	}
 	bug.Id = guid
@@ -948,6 +950,7 @@ func putBugs(c echo.Context) (err error) {
 	var bugs []bug
 	err = json.NewDecoder(c.Request().Body).Decode(&bugs)
 	if err != nil {
+		c.Logger().Errorf("error decoding bug. body: err: %+v", err)
 		return
 	}
 
@@ -959,6 +962,7 @@ func putBugs(c echo.Context) (err error) {
 	for _, bug := range bugs {
 		err = db.QueryRow(sqlInsertBug, bug.Category, bug.PointValue).Scan(&bug.Id)
 		if err != nil {
+			c.Logger().Errorf("error inserting bug: %+v, err: %+v", bug, err)
 			return
 		}
 		inserted = append(inserted, bug)
