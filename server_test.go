@@ -1185,6 +1185,14 @@ func TestGetParticipantsList(t *testing.T) {
 	assert.True(t, strings.HasSuffix(rec.Body.String(), `","campaignName":"`+campaignName+`"}]`+"\n"), rec.Body.String())
 }
 
+func TestValidateBug(t *testing.T) {
+	c, _ := setupMockContext()
+	assert.EqualError(t, validateBug(c, bug{}), "bug is not valid, empty category: bug: {Id: Category: PointValue:0}")
+	assert.EqualError(t, validateBug(c, bug{Category: ""}), "bug is not valid, empty category: bug: {Id: Category: PointValue:0}")
+	assert.EqualError(t, validateBug(c, bug{Category: "myCategory", PointValue: -1}), "bug is not valid, negative PointValue: bug: {Id: Category:myCategory PointValue:-1}")
+	assert.NoError(t, validateBug(c, bug{Category: "myCategory", PointValue: 0}))
+}
+
 func setupMockContextAddBug(bugJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
 	req := httptest.NewRequest("", "/", strings.NewReader(bugJson))
@@ -1225,6 +1233,23 @@ func TestAddBugScanError(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
+func TestAddBugInvalidBug(t *testing.T) {
+	c, rec := setupMockContextAddBug(`{}`)
+
+	dbMock, _ := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	assert.EqualError(t, addBug(c), "bug is not valid, empty category: bug: {Id: Category: PointValue:0}")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
 func TestAddBug(t *testing.T) {
 	category := "myCategory"
 	pointValue := 9
@@ -1342,6 +1367,24 @@ func TestUpdateBugRowsAffectedZero(t *testing.T) {
 	assert.NoError(t, updateBug(c))
 	assert.Equal(t, http.StatusNotFound, c.Response().Status)
 	assert.Equal(t, "Bug Category not found", rec.Body.String())
+}
+
+func TestUpdateBugInvalidBug(t *testing.T) {
+	c, rec := setupMockContextUpdateBug("myCategory", "-1")
+
+	dbMock, _ := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	assert.EqualError(t, updateBug(c), "bug is not valid, negative PointValue: bug: {Id: Category:myCategory PointValue:-1}")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
 }
 
 func TestUpdateBug(t *testing.T) {

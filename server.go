@@ -867,6 +867,18 @@ func addPersonToTeam(c echo.Context) (err error) {
 	}
 }
 
+func validateBug(c echo.Context, bugToValidate bug) (err error) {
+	if len(bugToValidate.Category) == 0 {
+		err = fmt.Errorf("bug is not valid, empty category: bug: %+v", bugToValidate)
+	} else if bugToValidate.PointValue < 0 {
+		err = fmt.Errorf("bug is not valid, negative PointValue: bug: %+v", bugToValidate)
+	}
+	if err != nil {
+		c.Logger().Error(err)
+	}
+	return
+}
+
 const sqlInsertBug = `INSERT INTO bugs
 		(category, pointValue)
 		VALUES ($1, $2)
@@ -878,6 +890,10 @@ func addBug(c echo.Context) (err error) {
 	err = json.NewDecoder(c.Request().Body).Decode(&bug)
 	if err != nil {
 		c.Logger().Errorf("error decoding bug. body: err: %+v", err)
+		return
+	}
+
+	if err = validateBug(c, bug); err != nil {
 		return
 	}
 
@@ -904,6 +920,10 @@ func updateBug(c echo.Context) (err error) {
 	category := c.Param(ParamBugCategory)
 	pointValue, err := strconv.Atoi(c.Param(ParamPointValue))
 	if err != nil {
+		return
+	}
+
+	if err = validateBug(c, bug{Category: category, PointValue: pointValue}); err != nil {
 		return
 	}
 
