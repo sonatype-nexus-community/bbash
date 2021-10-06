@@ -42,6 +42,9 @@ b6ac8769bab3b19b3e5818e726272bcee6957863b9a7af4261a0ae29ec5bc68e...
 Then run [server.go](./server.go) in debug mode in your favorite IDE, and enjoy break points activating when you connect to 
 endpoints. Wee!
 
+For full round trip testing with a local environment, (debug) run the test: [server_test.go->TestMockWebflow_WithServer](./server_test.go#L506).
+Don't forget to temporarily uncomment the call to [main()](./server_test.go#L527).
+
 ## Deployment
 
 #### App environment configuration
