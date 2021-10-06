@@ -1527,7 +1527,7 @@ func TestPutBugsBeginTxError(t *testing.T) {
 }
 
 func TestPutBugsScanError(t *testing.T) {
-	c, rec := setupMockContextPutBugs(`[{}]`)
+	c, rec := setupMockContextPutBugs(`[{"category":"bugCat2", "pointvalue":5}]`)
 
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -1542,7 +1542,7 @@ func TestPutBugsScanError(t *testing.T) {
 	mock.ExpectBegin()
 	forcedError := fmt.Errorf("forced Scan error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
-		WithArgs("", 0).
+		WithArgs("bugCat2", 5).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, putBugs(c), forcedError.Error())
@@ -1551,7 +1551,7 @@ func TestPutBugsScanError(t *testing.T) {
 }
 
 func TestPutBugsCommitTxError(t *testing.T) {
-	c, rec := setupMockContextPutBugs(`[{}]`)
+	c, rec := setupMockContextPutBugs(`[{"category":"bugCat2", "pointvalue":5}]`)
 
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -1565,7 +1565,7 @@ func TestPutBugsCommitTxError(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
-		WithArgs("", 0).
+		WithArgs("bugCat2", 5).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(""))
 	forcedError := fmt.Errorf("forced Commit Txn error")
@@ -1596,7 +1596,7 @@ func TestPutBugsOneBugInvalidBug(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 func TestPutBugsOneBug(t *testing.T) {
-	c, rec := setupMockContextPutBugs(`[{}]`)
+	c, rec := setupMockContextPutBugs(`[{"category":"bugCat2", "pointvalue":5}]`)
 
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -1611,18 +1611,18 @@ func TestPutBugsOneBug(t *testing.T) {
 	mock.ExpectBegin()
 	bugId := "myBugId"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
-		WithArgs("", 0).
+		WithArgs("bugCat2", 5).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId))
 	mock.ExpectCommit()
 
 	assert.NoError(t, putBugs(c))
 	assert.Equal(t, http.StatusCreated, c.Response().Status)
-	assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","category":"","pointValue":0}]}`+"\n", rec.Body.String())
+	assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","category":"bugCat2","pointValue":5}]}`+"\n", rec.Body.String())
 }
 
 func TestPutBugsMultipleBugs(t *testing.T) {
-	c, rec := setupMockContextPutBugs(`[{}, {}]`)
+	c, rec := setupMockContextPutBugs(`[{"category":"bugCat2", "pointvalue":5}, {"category":"bugCat3", "pointvalue":9}]`)
 
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -1637,20 +1637,20 @@ func TestPutBugsMultipleBugs(t *testing.T) {
 	mock.ExpectBegin()
 	bugId := "myBugId"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
-		WithArgs("", 0).
+		WithArgs("bugCat2", 5).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId))
 
 	bugId2 := "secondBugId"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
-		WithArgs("", 0).
+		WithArgs("bugCat3", 9).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).
 			AddRow(bugId2))
 	mock.ExpectCommit()
 
 	assert.NoError(t, putBugs(c))
 	assert.Equal(t, http.StatusCreated, c.Response().Status)
-	assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","category":"","pointValue":0},{"guid":"`+bugId2+`","category":"","pointValue":0}]}`+"\n", rec.Body.String())
+	assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","category":"bugCat2","pointValue":5},{"guid":"`+bugId2+`","category":"bugCat3","pointValue":9}]}`+"\n", rec.Body.String())
 }
 
 func setupMockContextParticipantDelete(githubName string) (c echo.Context, rec *httptest.ResponseRecorder) {
