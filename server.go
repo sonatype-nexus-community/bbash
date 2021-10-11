@@ -461,19 +461,19 @@ const sqlSelectParticipantId = `SELECT
 		FROM participants
 		WHERE participants.GitHubName = $1`
 
-func validScore(c echo.Context, owner string, user string) bool {
+func validScore(c echo.Context, msg scoringMessage) bool {
 	// check if repo is in participating set
-	if !validOrganization(c, owner) {
-		c.Logger().Debugf("skip score-missing organization. owner: %s, user: %s", owner, user)
+	if !validOrganization(c, msg.RepoOwner) {
+		c.Logger().Debugf("skip score-missing organization. owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
 		return false
 	}
 
 	// Check if participant is registered
-	row := db.QueryRow(sqlSelectParticipantId, user)
+	row := db.QueryRow(sqlSelectParticipantId, msg.TriggerUser)
 	var id string
 	err := row.Scan(&id)
 	if err != nil {
-		c.Logger().Debugf("skip score-missing participant. owner: %s, user: %s, err: %v", owner, user, err)
+		c.Logger().Debugf("skip score-missing participant. msg: %+v, err: %v", msg, err)
 	}
 	return err == nil
 }
@@ -562,7 +562,7 @@ func newScore(c echo.Context) (err error) {
 		msg.TriggerUser = strings.ToLower(msg.TriggerUser)
 
 		// if this particular entry is not valid, ignore it and continue processing
-		if !validScore(c, msg.RepoOwner, msg.TriggerUser) {
+		if !validScore(c, msg) {
 			continue
 		}
 

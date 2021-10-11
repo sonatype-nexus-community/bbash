@@ -1704,7 +1704,8 @@ func TestValidScoreUnknownOwner(t *testing.T) {
 		WithArgs(orgName).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	assert.False(t, validScore(c, orgName, ""))
+	msg := scoringMessage{RepoOwner: orgName}
+	assert.False(t, validScore(c, msg))
 }
 
 func setupMockContext() (c echo.Context, rec *httptest.ResponseRecorder) {
@@ -1743,7 +1744,8 @@ func TestValidScoreParticipantNotRegistered(t *testing.T) {
 
 	c, _ := setupMockContext()
 
-	assert.False(t, validScore(c, testOrgValid, "unregisteredUser"))
+	msg := scoringMessage{RepoOwner: testOrgValid, TriggerUser: "unregisteredUser"}
+	assert.False(t, validScore(c, msg))
 }
 
 func TestValidScoreParticipant(t *testing.T) {
@@ -1766,7 +1768,8 @@ func TestValidScoreParticipant(t *testing.T) {
 
 	c, _ := setupMockContext()
 
-	assert.True(t, validScore(c, testOrgValid, githubName))
+	msg := scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName}
+	assert.True(t, validScore(c, msg))
 }
 
 func setupMockDBOrgValid(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
