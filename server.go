@@ -558,6 +558,8 @@ func newScore(c echo.Context) (err error) {
 			c.Logger().Debugf("error unmarshalling scoringMessage, err: %+v, rawMsg: %s", err, rawMsg)
 			return
 		}
+		// force triggerUser to lower case to match database/webflow values
+		msg.TriggerUser = strings.ToLower(msg.TriggerUser)
 
 		// if this particular entry is not valid, ignore it and continue processing
 		if !validScore(c, msg.RepoOwner, msg.TriggerUser) {

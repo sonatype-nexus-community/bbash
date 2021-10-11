@@ -2028,7 +2028,7 @@ func TestNewScoreOneAlertScorePointsMissingPointValue(t *testing.T) {
 	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
+		WithArgs(strings.ToLower(githubName)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
 	err = newScore(c)
@@ -2060,7 +2060,7 @@ func TestNewScoreOneAlertHandleBeginTransactionError(t *testing.T) {
 	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
+		WithArgs(strings.ToLower(githubName)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
 	err = newScore(c)
@@ -2091,7 +2091,7 @@ func TestNewScoreOneAlertScoreQueryErrorIgnored(t *testing.T) {
 	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
+		WithArgs(strings.ToLower(githubName)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
 	mock.ExpectBegin()
@@ -2130,7 +2130,7 @@ func TestNewScoreOneAlertInsertScoringEventErrorNotIgnored(t *testing.T) {
 	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
+		WithArgs(strings.ToLower(githubName)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
 	mock.ExpectBegin()
@@ -2170,7 +2170,7 @@ func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
 	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
+		WithArgs(strings.ToLower(githubName)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
 	mock.ExpectBegin()
@@ -2180,7 +2180,7 @@ func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(testOrgValid, githubRepoName, githubPrId, githubName, 0).
+		WithArgs(testOrgValid, githubRepoName, githubPrId, strings.ToLower(githubName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	err = newScore(c)
@@ -2214,7 +2214,7 @@ func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
 	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
+		WithArgs(strings.ToLower(githubName)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
 	mock.ExpectBegin()
@@ -2224,16 +2224,16 @@ func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(testOrgValid, githubRepoName, githubPrId, githubName, 0).
+		WithArgs(testOrgValid, githubRepoName, githubPrId, strings.ToLower(githubName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(8, githubName).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(githubName, 0))
+		WithArgs(8, strings.ToLower(githubName)).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(strings.ToLower(githubName), 0))
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, githubName), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, strings.ToLower(githubName)), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
@@ -2282,7 +2282,7 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
+		WithArgs(strings.ToLower(githubName)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
 
 	mock.ExpectBegin()
@@ -2292,16 +2292,16 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(testOrgValid, githubRepoName, githubPrId, githubName, 0).
+		WithArgs(testOrgValid, githubRepoName, githubPrId, strings.ToLower(githubName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(8, githubName).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(githubName, 0))
+		WithArgs(8, strings.ToLower(githubName)).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(strings.ToLower(githubName), 0))
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, githubName), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, strings.ToLower(githubName)), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
@@ -2323,6 +2323,79 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 	err = newScore(c)
 	assert.EqualError(t, err, "all expectations were already fulfilled, call to Commit transaction was not expected")
 	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
+	githubName := "MYGithubName"
+	githubNameLowerCase := strings.ToLower(githubName)
+	githubRepoName := "myRepoName"
+	githubPrId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, RepoName: githubRepoName, PullRequest: githubPrId})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
+		WithArgs(testOrgValid).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(githubNameLowerCase).
+		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+
+	mock.ExpectBegin()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId).
+		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
+
+	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
+		WithArgs(testOrgValid, githubRepoName, githubPrId, githubNameLowerCase, 0).
+		WillReturnResult(sqlmock.NewResult(0, -1))
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
+		WithArgs(8, githubNameLowerCase).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(githubNameLowerCase, 0))
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, githubNameLowerCase), r.URL.EscapedPath())
+
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	origWebflowBaseAPI := webflowBaseAPI
+	defer func() {
+		webflowBaseAPI = origWebflowBaseAPI
+	}()
+	webflowBaseAPI = ts.URL
+
+	origWebflowToken := webflowToken
+	defer func() {
+		webflowToken = origWebflowToken
+	}()
+	webflowToken = "testWfToken"
+
+	mock.ExpectCommit()
+
+	err = newScore(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
 
