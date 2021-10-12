@@ -28,9 +28,13 @@ def get_github_user(user):
     if res.status_code == 200:
         return res.json()
     else:
-        print(f"\n*** invalid github user: {user}. status code: {r.status_code} ***")
-        if r.status_code == 500 and username == default_gh_username:
+        print(f"\n*** invalid github user: {user}. status code: {res.status_code} ***")
+        if res.status_code == 500 and username == default_gh_username:
             print(f"\n*** did you forget to set the GITHUB_USERNAME environment variable? ***\n")
+        strContent = str(res.content)
+        if "rate limit exceeded" in strContent:
+            print(f"\n*** github API rate limit exceeded. try again. ***\n")
+
         return
 
 
@@ -76,6 +80,16 @@ with open(sys.argv[1], newline='') as csvfile:
             count_skipped += 1
             print(f"Participant already exists, skipping. participant: {participant}")
         else:
+            if participant[''] == 'not a valid id':
+                # skip this user because we know it is no a valid id on github and have said so in the spreadsheet
+                # by adding 'not a valid id' in column C.
+                msg = f"\n*** flagged as not a valid Github ID. Skipping participant. participant: {participant}. ***\n"
+                summary_error_message.append(msg)
+                print(msg)
+                count_error += 1
+                exitCode = 1
+                continue
+
             gh_user = get_github_user(participant[CSV_COLUMN_NAME_GITHUB_ID])
             if gh_user is None:
                 if username == default_gh_username:
