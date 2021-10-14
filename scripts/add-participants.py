@@ -50,20 +50,24 @@ with open(sys.argv[1], newline='') as csvfile:
     count_skipped = 0
     count_error = 0
     exitCode = 0
+    summary_error_likely_email = []
+    summary_error_bad_username = []
+    summary_error_short_username = []
+    summary_error_nonexistent_username = []
     summary_error_message = []
     for participant in rows:
 
         # detect email instead of required github ID
         if "@" in participant[CSV_COLUMN_NAME_GITHUB_ID]:
-            msg = f"\n*** invalid Github ID detected. Skipping participant. participant: {participant}. ***\n"
-            summary_error_message.append(msg)
+            msg = f"invalid Github ID detected. Skipping participant. participant: {participant}"
+            summary_error_likely_email.append(msg)
             print(msg)
             count_error += 1
             exitCode = 1
             continue
 
         # use suffix of github url if github ID is a urllib3
-        if "/" in participant[CSV_COLUMN_NAME_GITHUB_ID]:
+        if "github.com/" in participant[CSV_COLUMN_NAME_GITHUB_ID]:
             participant[CSV_COLUMN_NAME_GITHUB_ID] = os.path.basename(participant[CSV_COLUMN_NAME_GITHUB_ID])
 
         # make sure github id is lower case
@@ -80,12 +84,20 @@ with open(sys.argv[1], newline='') as csvfile:
             count_skipped += 1
             print(f"Participant already exists, skipping. participant: {participant}")
         else:
-            if participant[''] == 'not a valid id':
+            if participant['Note'] == 'not a valid id':
                 # skip this user because we know it is no a valid id on github and have said so in the spreadsheet
                 # by adding 'not a valid id' in column C.
-                msg = f"\n*** flagged as not a valid Github ID. Skipping participant. participant: {participant}. ***\n"
-                summary_error_message.append(msg)
+                msg = f"flagged as not a valid Github ID. Skipping participant. participant: {participant}"
+                summary_error_bad_username.append(msg)
                 print(msg)
+                count_error += 1
+                exitCode = 1
+                continue
+
+            rawUserName = participant[CSV_COLUMN_NAME_GITHUB_ID]
+            if len(rawUserName) <= 3:
+                msg = f"username too short. participant: {participant} Check for 'n/a' in data"
+                summary_error_short_username.append(msg)
                 count_error += 1
                 exitCode = 1
                 continue
@@ -95,8 +107,8 @@ with open(sys.argv[1], newline='') as csvfile:
                 if username == default_gh_username:
                     msg = f"\n*** did you forget to set the GITHUB_USERNAME environment variable? ***"
                     summary_error_message.append(msg)
-                msg = f"\n*** non-existent github id, error. participant: {participant} ***\n"
-                summary_error_message.append(msg)
+                msg = f"non-existent github id, error. participant: {participant}"
+                summary_error_nonexistent_username.append(msg)
                 count_error += 1
                 exitCode = 1
                 continue
@@ -112,7 +124,21 @@ with open(sys.argv[1], newline='') as csvfile:
             else:
                 count_added += 1
 
-    print(f"done processing {len(rows)} participants")
+    print(f"\n\ndone processing {len(rows)} participants")
+
+    msg_summary = "\n\t".join(summary_error_likely_email)
+    print(f"Likely Email instead of Username: \n\t{msg_summary}")
+
+    msg_summary = "\n\t".join(summary_error_bad_username)
+    print(f"Flagged as bad username: \n\t{msg_summary}")
+
+    msg_summary = "\n\t".join(summary_error_short_username)
+    print(f"Short username: \n\t{msg_summary}")
+
+    msg_summary = "\n\t".join(summary_error_nonexistent_username)
+    print(f"Non-existent username: \n\t{msg_summary}")
+
+    print("****************")
     msg_summary = "\n".join(summary_error_message)
     print(f"errors: {msg_summary}")
     print(f"added {count_added}")
