@@ -134,11 +134,26 @@ var webflowBaseAPI = WebflowApiBase
 var webflowToken string
 var webflowCollection string
 
-func main() {
+const envPGHost = "PG_HOST"
+const envPGPort = "PG_PORT"
 
+var errRecovered error
+
+func main() {
 	e := echo.New()
 	e.Debug = true
 	e.Logger.SetLevel(log.INFO)
+
+	defer func() {
+		if r := recover(); r != nil {
+			err, ok := r.(error)
+			if !ok {
+				err = fmt.Errorf("pkg: %v", r)
+			}
+			errRecovered = err
+			e.Logger.Error(err)
+		}
+	}()
 
 	buildInfoMessage := fmt.Sprintf("BuildVersion: %s, BuildTime: %s, BuildCommit: %s",
 		buildversion.BuildVersion, buildversion.BuildTime, buildversion.BuildCommit)
@@ -150,8 +165,8 @@ func main() {
 		e.Logger.Error(err)
 	}
 
-	host := os.Getenv("PG_HOST")
-	port, _ := strconv.Atoi(os.Getenv("PG_PORT"))
+	host := os.Getenv(envPGHost)
+	port, _ := strconv.Atoi(os.Getenv(envPGPort))
 	user := os.Getenv("PG_USERNAME")
 	password := os.Getenv("PG_PASSWORD")
 	dbname := os.Getenv("PG_DB_NAME")
@@ -165,6 +180,7 @@ func main() {
 	db, err = sql.Open("postgres", psqlInfo)
 	if err != nil {
 		e.Logger.Error(err)
+		panic(fmt.Errorf("failed to load database driver. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
 	}
 	defer func() {
 		_ = db.Close()
@@ -173,11 +189,13 @@ func main() {
 	err = db.Ping()
 	if err != nil {
 		e.Logger.Error(err)
+		panic(fmt.Errorf("failed to ping database. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
 	}
 
 	err = migrateDB(db)
 	if err != nil {
 		e.Logger.Error(err)
+		panic(fmt.Errorf("failed to migrate database. err: %+v", err))
 	}
 
 	e.GET("/", func(c echo.Context) error {

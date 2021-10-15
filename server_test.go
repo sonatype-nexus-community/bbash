@@ -25,8 +25,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"html/template"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	url2 "net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -41,6 +44,75 @@ func newMockDb(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	}
 
 	return db, mock
+}
+
+func resetEnvVar(t *testing.T, envVarName, origValue string) {
+	if origValue != "" {
+		assert.NoError(t, os.Setenv(envVarName, origValue))
+	} else {
+		assert.NoError(t, os.Unsetenv(envVarName))
+	}
+}
+
+func resetEnvVarPGHost(t *testing.T, origEnvPGHost string) {
+	resetEnvVar(t, envPGHost, origEnvPGHost)
+}
+
+func TestMainDBPingError(t *testing.T) {
+	errRecovered = nil
+	origEnvPGHost := os.Getenv(envPGHost)
+	defer func() {
+		resetEnvVarPGHost(t, origEnvPGHost)
+	}()
+	assert.NoError(t, os.Setenv(envPGHost, "bogus-db-hostname"))
+
+	defer func() {
+		errRecovered = nil
+	}()
+
+	main()
+
+	assert.True(t, strings.HasPrefix(errRecovered.Error(), "failed to ping database. host: bogus-db-hostname, port: "))
+}
+
+func TestMainDBMigrateError(t *testing.T) {
+	errRecovered = nil
+	origEnvPGHost := os.Getenv(envPGHost)
+	defer func() {
+		resetEnvVarPGHost(t, origEnvPGHost)
+	}()
+	assert.NoError(t, os.Setenv(envPGHost, "localhost"))
+
+	// setup mock db endpoint
+	l, err := net.Listen("tcp", "localhost:0")
+	assert.NoError(t, err)
+	defer func(l net.Listener) {
+		_ = l.Close()
+	}(l)
+	u, err := url2.Parse("http://" + l.Addr().String())
+	assert.NoError(t, err)
+	freeLocalPort := u.Port()
+	assert.NoError(t, os.Setenv(envPGPort, freeLocalPort))
+	go func() {
+		conn, err := l.Accept()
+		assert.NoError(t, err)
+		defer func(conn net.Conn) {
+			_ = conn.Close()
+		}(conn)
+		b := make([]byte, 0, 512)
+		count, err := conn.Read(b)
+		_, _ = conn.Write(b)
+		assert.NoError(t, err)
+		assert.Equal(t, count, 0)
+	}()
+
+	defer func() {
+		errRecovered = nil
+	}()
+
+	main()
+
+	assert.True(t, strings.HasPrefix(errRecovered.Error(), "failed to ping database. host: localhost, port: "+freeLocalPort), errRecovered.Error())
 }
 
 func TestMigrateDBErrorPostgresWithInstance(t *testing.T) {
