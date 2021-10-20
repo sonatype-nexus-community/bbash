@@ -476,7 +476,7 @@ func deleteOrganization(c echo.Context) (err error) {
 	if err != nil {
 		return
 	}
-	rowsAffected, err := res.RowsAffected()
+	rowsAffected, _ := res.RowsAffected()
 	c.Logger().Infof("delete organization: scpName: %s, name: %s, rowsAffected: %d", scpName, orgName, rowsAffected)
 	if rowsAffected > 0 {
 		return c.NoContent(http.StatusNoContent)
