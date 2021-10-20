@@ -38,26 +38,43 @@ import (
 
 var db *sql.DB
 
+type campaignStruct struct {
+	ID           string         `json:"guid"`
+	Name         string         `json:"name"`
+	CreatedOn    time.Time      `json:"createdOn"`
+	CreatedOrder int            `json:"createdOrder"`
+	Active       bool           `json:"active"`
+	Note         sql.NullString `json:"note"`
+}
+
+type sourceControlProvider struct {
+	ID      string `json:"guid"`
+	SCPName string `json:"scpName"`
+	Url     string `json:"url"`
+}
+
 type organization struct {
 	ID           string `json:"guid"`
+	SCPName      string `json:"scpName"`
 	Organization string `json:"organization"`
 }
 
 type participant struct {
 	ID           string `json:"guid"`
-	GitHubName   string `json:"gitHubName"`
+	CampaignName string `json:"campaignName"`
+	ScpName      string `json:"scpName"`
+	LoginName    string `json:"loginName"`
 	Email        string `json:"email"`
 	DisplayName  string `json:"displayName"`
 	Score        int    `json:"score"`
 	fkTeam       sql.NullString
 	JoinedAt     time.Time `json:"joinedAt"`
-	CampaignName string    `json:"campaignName"`
 }
 
 type team struct {
-	Id           string         `json:"guid"`
-	TeamName     string         `json:"teamName"`
-	Organization sql.NullString `json:"organization"`
+	Id       string `json:"guid"`
+	Campaign string `json:"campaign"`
+	TeamName string `json:"teamName"`
 }
 
 type creationResponse struct {
@@ -73,6 +90,7 @@ type endpointDetail struct {
 
 type bug struct {
 	Id         string `json:"guid"`
+	Campaign   string `json:"campaign"`
 	Category   string `json:"category"`
 	PointValue int    `json:"pointValue"`
 }
@@ -82,6 +100,7 @@ type scoringAlert struct {
 }
 
 type scoringMessage struct {
+	EventSource string         `json:"eventSource"`
 	RepoOwner   string         `json:"repositoryOwner"`
 	RepoName    string         `json:"repositoryName"`
 	TriggerUser string         `json:"triggerUser"`
@@ -107,12 +126,14 @@ type leaderboardResponse struct {
 }
 
 const (
-	ParamGithubName       string = "gitHubName"
+	ParamScpName          string = "scpName"
+	ParamLoginName        string = "loginName"
 	ParamCampaignName     string = "campaignName"
 	ParamTeamName         string = "teamName"
 	ParamBugCategory      string = "bugCategory"
 	ParamPointValue       string = "pointValue"
 	ParamOrganizationName string = "organizationName"
+	SourceControlProvider string = "/scp"
 	Organization          string = "/organization"
 	Participant           string = "/participant"
 	Detail                string = "/detail"
@@ -136,6 +157,10 @@ var webflowCollection string
 
 const envPGHost = "PG_HOST"
 const envPGPort = "PG_PORT"
+const envPGUsername = "PG_USERNAME"
+const envPGPassword = "PG_PASSWORD"
+const envPGDBName = "PG_DB_NAME"
+const envSSLMode = "SSL_MODE"
 
 var errRecovered error
 
@@ -165,23 +190,10 @@ func main() {
 		e.Logger.Error(err)
 	}
 
-	host := os.Getenv(envPGHost)
-	port, _ := strconv.Atoi(os.Getenv(envPGPort))
-	user := os.Getenv("PG_USERNAME")
-	password := os.Getenv("PG_PASSWORD")
-	dbname := os.Getenv("PG_DB_NAME")
-	sslMode := os.Getenv("SSL_MODE")
 	webflowToken = os.Getenv("WEBFLOW_TOKEN")
 	webflowCollection = os.Getenv("WEBFLOW_COLLECTION_ID")
 
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
-		"password=%s dbname=%s sslmode=%s",
-		host, port, user, password, dbname, sslMode)
-	db, err = sql.Open("postgres", psqlInfo)
-	if err != nil {
-		e.Logger.Error(err)
-		panic(fmt.Errorf("failed to load database driver. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
-	}
+	host, port, dbname, _, err := openDB(e)
 	defer func() {
 		_ = db.Close()
 	}()
@@ -202,6 +214,12 @@ func main() {
 		return c.String(http.StatusOK, fmt.Sprintf("I am ALIVE. %s", buildInfoMessage))
 	})
 
+	// Source Control Provider endpoints
+	scpGroup := e.Group(SourceControlProvider)
+	scpGroup.GET(
+		fmt.Sprintf("%s", List),
+		getSourceControlProviders).Name = "scp-list"
+
 	// Organization related endpoints
 	organizationGroup := e.Group(Organization)
 
@@ -212,7 +230,7 @@ func main() {
 		fmt.Sprintf("%s", Add),
 		addOrganization).Name = "organization-add"
 	organizationGroup.DELETE(
-		fmt.Sprintf("%s/:%s", Delete, ParamOrganizationName),
+		fmt.Sprintf("%s/:%s/:%s", Delete, ParamScpName, ParamOrganizationName),
 		deleteOrganization).Name = "organization-delete"
 
 	// Participant related endpoints and group
@@ -220,7 +238,7 @@ func main() {
 	participantGroup := e.Group(Participant)
 
 	participantGroup.GET(
-		fmt.Sprintf("%s/:%s", Detail, ParamGithubName),
+		fmt.Sprintf("%s/:%s/:%s/:%s", Detail, ParamCampaignName, ParamScpName, ParamLoginName),
 		getParticipantDetail).Name = "participant-detail"
 
 	participantGroup.GET(
@@ -230,7 +248,7 @@ func main() {
 	participantGroup.POST(Update, updateParticipant).Name = "participant-update"
 	participantGroup.PUT(Add, logAddParticipant).Name = "participant-add"
 	participantGroup.DELETE(
-		fmt.Sprintf("%s/:%s", Delete, ParamGithubName),
+		fmt.Sprintf("%s/:%s/:%s", Delete, ParamScpName, ParamLoginName),
 		deleteParticipant,
 	)
 
@@ -239,14 +257,14 @@ func main() {
 	teamGroup := e.Group(Team)
 
 	teamGroup.PUT(Add, addTeam)
-	teamGroup.PUT(fmt.Sprintf("%s/:%s/:%s", Person, ParamGithubName, ParamTeamName), addPersonToTeam)
+	teamGroup.PUT(fmt.Sprintf("%s/:%s/:%s/:%s/:%s", Person, ParamCampaignName, ParamScpName, ParamLoginName, ParamTeamName), addPersonToTeam)
 
 	// Bug related endpoints and group
 
 	bugGroup := e.Group(Bug)
 
 	bugGroup.PUT(Add, addBug)
-	bugGroup.POST(fmt.Sprintf("%s/:%s/:%s", Update, ParamBugCategory, ParamPointValue), updateBug)
+	bugGroup.POST(fmt.Sprintf("%s/:%s/:%s/:%s", Update, ParamCampaignName, ParamBugCategory, ParamPointValue), updateBug)
 	bugGroup.GET(List, getBugs)
 	bugGroup.PUT(List, putBugs)
 
@@ -254,6 +272,8 @@ func main() {
 
 	campaignGroup := e.Group(Campaign)
 
+	campaignGroup.GET(fmt.Sprintf("%s", List), getCampaigns)
+	campaignGroup.GET(fmt.Sprintf("%s", "/current"), getCurrentCampaignEcho)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Add, ParamCampaignName), addCampaign)
 
 	// Scoring related endpoints and group
@@ -273,6 +293,25 @@ func main() {
 	}
 }
 
+func openDB(e *echo.Echo) (host string, port int, dbname, sslMode string, err error) {
+	host = os.Getenv(envPGHost)
+	port, _ = strconv.Atoi(os.Getenv(envPGPort))
+	user := os.Getenv(envPGUsername)
+	password := os.Getenv(envPGPassword)
+	dbname = os.Getenv(envPGDBName)
+	sslMode = os.Getenv(envSSLMode)
+
+	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=%s",
+		host, port, user, password, dbname, sslMode)
+	db, err = sql.Open("postgres", psqlInfo)
+	if err != nil {
+		e.Logger.Error(err)
+		panic(fmt.Errorf("failed to load database driver. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
+	}
+	return
+}
+
 type ParticipantCreateError struct {
 	Status string
 }
@@ -283,8 +322,8 @@ func (e *ParticipantCreateError) Error() string {
 
 func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
 	item := leaderboardItem{}
-	item.UserName = p.GitHubName
-	item.Slug = p.GitHubName
+	item.UserName = p.LoginName
+	item.Slug = p.LoginName
 	item.Score = 0
 	item.Archived = false
 	item.Draft = false
@@ -354,9 +393,30 @@ func (e *ParticipantUpdateError) Error() string {
 	return fmt.Sprintf("could not update score. response status: %s", e.Status)
 }
 
-const sqlAddOrganization = `INSERT INTO organizations
-		(organization)
-		VALUES ($1)
+const sqlSelectSourceControlProvider = `SELECT * FROM source_control_provider`
+
+func getSourceControlProviders(c echo.Context) (err error) {
+	rows, err := db.Query(sqlSelectSourceControlProvider)
+	if err != nil {
+		return
+	}
+
+	var scps []sourceControlProvider
+	for rows.Next() {
+		scp := sourceControlProvider{}
+		err = rows.Scan(&scp.ID, &scp.SCPName, &scp.Url)
+		if err != nil {
+			return
+		}
+		scps = append(scps, scp)
+	}
+
+	return c.JSON(http.StatusOK, scps)
+}
+
+const sqlAddOrganization = `INSERT INTO organization
+		(fk_scp, organization)
+		VALUES ((SELECT id FROM source_control_provider WHERE name = $1), $2)
 		RETURNING Id`
 
 func addOrganization(c echo.Context) (err error) {
@@ -368,20 +428,23 @@ func addOrganization(c echo.Context) (err error) {
 	}
 
 	var guid string
-	err = db.QueryRow(sqlAddOrganization, organization.Organization).
+	err = db.QueryRow(sqlAddOrganization, organization.SCPName, organization.Organization).
 		Scan(&guid)
 	if err != nil {
 		c.Logger().Errorf("error inserting organization: %+v, err: %+v", organization, err)
 		return
 	}
 
+	c.Logger().Debugf("added organization: %+v", organization)
 	return c.String(http.StatusCreated, guid)
 }
 
 const sqlSelectOrganization = `SELECT
-		organizations.Id,
-        organizations.Organization
-		FROM organizations`
+		organization.Id,
+        Name,
+        Organization
+		FROM organization
+		INNER JOIN source_control_provider ON fk_scp = source_control_provider.Id`
 
 func getOrganizations(c echo.Context) (err error) {
 	rows, err := db.Query(sqlSelectOrganization)
@@ -392,7 +455,7 @@ func getOrganizations(c echo.Context) (err error) {
 	var orgs []organization
 	for rows.Next() {
 		org := organization{}
-		err = rows.Scan(&org.ID, &org.Organization)
+		err = rows.Scan(&org.ID, &org.SCPName, &org.Organization)
 		if err != nil {
 			return
 		}
@@ -402,20 +465,23 @@ func getOrganizations(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, orgs)
 }
 
-const sqlDeleteOrganization = `DELETE FROM organizations WHERE organization = $1`
+const sqlDeleteOrganization = `DELETE FROM organization 
+	WHERE fk_scp = (SELECT id from source_control_provider WHERE name = $1) 
+	AND organization = $2`
 
 func deleteOrganization(c echo.Context) (err error) {
+	scpName := c.Param(ParamScpName)
 	orgName := c.Param(ParamOrganizationName)
-	res, err := db.Exec(sqlDeleteOrganization, orgName)
+	res, err := db.Exec(sqlDeleteOrganization, scpName, orgName)
 	if err != nil {
 		return
 	}
 	rowsAffected, err := res.RowsAffected()
-	c.Logger().Infof("delete organization: %s, rowsAffected: %d", orgName, rowsAffected)
+	c.Logger().Infof("delete organization: scpName: %s, name: %s, rowsAffected: %d", scpName, orgName, rowsAffected)
 	if rowsAffected > 0 {
 		return c.NoContent(http.StatusNoContent)
 	}
-	return c.JSON(http.StatusNotFound, fmt.Sprintf("no organization: %s", orgName))
+	return c.JSON(http.StatusNotFound, fmt.Sprintf("no organization: scpName: %s, name: %s", scpName, orgName))
 }
 
 func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error) {
@@ -458,54 +524,68 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 }
 
 const sqlSelectOrganizationExists = `SELECT EXISTS(
-		SELECT
-		organizations.Id
-		FROM organizations
-		WHERE organizations.Organization = $1)`
+		SELECT Id FROM organization
+		WHERE fk_scp = (SELECT id from source_control_provider WHERE LOWER(name) = $1) AND Organization = $2)`
 
 // check if repo is in participating set
-func validOrganization(c echo.Context, organizationName string) (orgExists bool) {
-	row := db.QueryRow(sqlSelectOrganizationExists, organizationName)
+func validOrganization(c echo.Context, msg scoringMessage) (orgExists bool) {
+	row := db.QueryRow(sqlSelectOrganizationExists, msg.EventSource, msg.RepoOwner)
 	err := row.Scan(&orgExists)
 	if err != nil {
-		c.Logger().Debugf("organization is not valid. organizationName: %s, err: %v", organizationName, err)
+		c.Logger().Debugf("organization is not valid. scp: %s, organization: %s, err: %v", msg.EventSource, msg.RepoOwner, err)
 		return
 	}
 	return
 }
 
 const sqlSelectParticipantId = `SELECT
-		participants.Id
-		FROM participants
-		WHERE participants.GitHubName = $1`
+		participant.Id,
+       	source_control_provider.name
+		FROM participant
+		INNER JOIN campaign ON campaign.Id = fk_campaign
+		INNER JOIN source_control_provider ON source_control_provider.Id = fk_scp
+		WHERE campaign.name = $1 
+		    AND LOWER(source_control_provider.name) = $2 
+			AND login_name = $3`
 
-func validScore(c echo.Context, msg scoringMessage) bool {
+func validScore(c echo.Context, msg scoringMessage) (isValidScore bool, campaign campaignStruct, scpName string) {
 	// check if repo is in participating set
-	if !validOrganization(c, msg.RepoOwner) {
+	if !validOrganization(c, msg) {
 		c.Logger().Debugf("skip score-missing organization. owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
-		return false
+		return
+	}
+
+	// find current campaign
+	campaign, err := getCurrentCampaign()
+	if err != nil {
+		c.Logger().Errorf("error reading current campaign. msg: %+v, error: %+v", msg, err)
+		return
 	}
 
 	// Check if participant is registered
-	row := db.QueryRow(sqlSelectParticipantId, msg.TriggerUser)
+	row := db.QueryRow(sqlSelectParticipantId, campaign.Name, msg.EventSource, msg.TriggerUser)
 	var id string
-	err := row.Scan(&id)
+	err = row.Scan(&id, &scpName) // this reads the db (capitalized) scpName
 	if err != nil {
-		c.Logger().Debugf("skip score-missing participant. msg: %+v, err: %v", msg, err)
+		c.Logger().Errorf("skip score-missing participant. msg: %+v, campaign: %+v, err: %v", msg, campaign, err)
+		return
 	}
-	return err == nil
+	isValidScore = true
+	return
 }
 
-const sqlSelectPointValue = `SELECT pointValue FROM bugs WHERE category = $1`
+const sqlSelectPointValue = `SELECT pointValue, campaign.name FROM bug 
+	INNER JOIN campaign ON campaign.Id = bug.fk_campaign	
+	WHERE category = $1`
 
-func scorePoints(c echo.Context, msg scoringMessage) (points int) {
+func scorePoints(c echo.Context, msg scoringMessage) (points int, campaignName string) {
 	points = 0
 	scored := 0
 
 	for bugType, count := range msg.BugCounts {
 		row := db.QueryRow(sqlSelectPointValue, bugType)
 		var value = 1
-		if err := row.Scan(&value); err != nil {
+		if err := row.Scan(&value, &campaignName); err != nil {
 			// ignore (and clear return) error from scan operation
 			c.Logger().Debugf("ignoring missing pointValue. bugType: %s, err: %+v, msg: %+v", bugType, err, msg)
 		}
@@ -522,15 +602,17 @@ func scorePoints(c echo.Context, msg scoringMessage) (points int) {
 	return
 }
 
-const sqlUpdateParticipantScore = `UPDATE participants 
+const sqlUpdateParticipantScore = `UPDATE participant 
 		SET Score = Score + $1 
-		WHERE GitHubName = $2 
+		WHERE fk_campaign = (SELECT id FROM campaign WHERE name = $2)
+		      AND fk_scp = (SELECT id FROM source_control_provider WHERE name = $3)
+		      AND login_name = $4 
 		RETURNING UpstreamId, Score`
 
-func updateParticipantScore(c echo.Context, username string, delta int) (err error) {
+func updateParticipantScore(c echo.Context, campaign, scpName, loginName string, delta int) (err error) {
 	var id string
 	var score int
-	row := db.QueryRow(sqlUpdateParticipantScore, delta, username)
+	row := db.QueryRow(sqlUpdateParticipantScore, delta, campaign, scpName, loginName)
 	err = row.Scan(&id, &score)
 	if err != nil {
 		return
@@ -549,16 +631,20 @@ func logNewScore(c echo.Context) (err error) {
 }
 
 const sqlScoreQuery = `SELECT points
-			FROM scoring_events
-			WHERE repoOwner = $1
-				AND repoName = $2
-				AND pr = $3`
+			FROM scoring_event
+			WHERE fk_campaign = (SELECT id FROM campaign WHERE name = $1)
+			    AND fk_scp = (SELECT id FROM source_control_provider WHERE name = $2)
+			    AND repoOwner = $3
+				AND repoName = $4
+				AND pr = $5`
 
-const sqlInsertScoringEvent = `INSERT INTO scoring_events
-			(repoOwner, repoName, pr, username, points)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (repoOwner, repoName, pr) DO
-				UPDATE SET points = $5`
+const sqlInsertScoringEvent = `INSERT INTO scoring_event
+			(fk_campaign, fk_scp, repoOwner, repoName, pr, username, points)
+			VALUES ((SELECT id FROM campaign WHERE name = $1), 
+			        (SELECT id FROM source_control_provider WHERE name = $2),
+			        $3, $4, $5, $6, $7)
+			ON CONFLICT (fk_campaign, fk_scp, repoOwner, repoName, pr) DO
+				UPDATE SET points = $7`
 
 func newScore(c echo.Context) (err error) {
 	var alert scoringAlert
@@ -580,11 +666,22 @@ func newScore(c echo.Context) (err error) {
 		msg.TriggerUser = strings.ToLower(msg.TriggerUser)
 
 		// if this particular entry is not valid, ignore it and continue processing
-		if !validScore(c, msg) {
+		isValidScore, campaign, scpName := validScore(c, msg)
+		if !isValidScore {
 			continue
 		}
+		if campaign.Name == "" {
+			err = fmt.Errorf("empty current campaign name. campaign: %+v", campaign)
+			return
+		}
+		campaignName := campaign.Name
+		if scpName == "" {
+			err = fmt.Errorf("empty db scpName. campaign: %+v", campaign)
+			return
+		}
 
-		newPoints := scorePoints(c, msg)
+		//newPoints, campaignName := scorePoints(c, msg)
+		newPoints, _ := scorePoints(c, msg)
 
 		var tx *sql.Tx
 		tx, err = db.Begin()
@@ -592,7 +689,7 @@ func newScore(c echo.Context) (err error) {
 			return
 		}
 
-		row := db.QueryRow(sqlScoreQuery, msg.RepoOwner, msg.RepoName, msg.PullRequest)
+		row := db.QueryRow(sqlScoreQuery, campaignName, scpName, msg.RepoOwner, msg.RepoName, msg.PullRequest)
 		oldPoints := 0
 		err = row.Scan(&oldPoints)
 		if err != nil {
@@ -600,12 +697,12 @@ func newScore(c echo.Context) (err error) {
 			c.Logger().Debugf("ignoring likely new score event. err: %+v, scoringMessage: %+v", err, msg)
 		}
 
-		_, err = db.Exec(sqlInsertScoringEvent, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
+		_, err = db.Exec(sqlInsertScoringEvent, campaignName, scpName, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
 		if err != nil {
 			return
 		}
 
-		err = updateParticipantScore(c, msg.TriggerUser, newPoints-oldPoints)
+		err = updateParticipantScore(c, campaignName, scpName, msg.TriggerUser, newPoints-oldPoints)
 		if err != nil {
 			return
 		}
@@ -624,27 +721,33 @@ func newScore(c echo.Context) (err error) {
 }
 
 const sqlSelectParticipantDetail = `SELECT 
-		participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName 
-		FROM participants
-		LEFT JOIN teams ON teams.Id = participants.fk_team
-		INNER JOIN campaigns ON campaigns.Id = participants.Campaign
-		WHERE participants.GitHubName = $1`
+		participant.Id, campaign.name, source_control_provider.name, login_name, Email, DisplayName, Score, team.TeamName, JoinedAt
+		FROM participant
+		LEFT JOIN team ON team.Id = participant.fk_team
+		INNER JOIN campaign ON campaign.Id = participant.fk_campaign
+		INNER JOIN source_control_provider ON participant.fk_scp = source_control_provider.Id
+		WHERE campaign.name = $1
+		  AND source_control_provider.name = $2 
+		  AND participant.login_name = $3`
 
 func getParticipantDetail(c echo.Context) (err error) {
-	gitHubName := c.Param(ParamGithubName)
-	c.Logger().Debug("Getting detail for ", gitHubName)
+	campaignName := c.Param(ParamCampaignName)
+	scpName := c.Param(ParamScpName)
+	loginName := c.Param(ParamLoginName)
+	c.Logger().Debugf("Getting detail for campaignName: %s, scpName: %s, loginName: %s", campaignName, scpName, loginName)
 
-	row := db.QueryRow(sqlSelectParticipantDetail, gitHubName)
+	row := db.QueryRow(sqlSelectParticipantDetail, campaignName, scpName, loginName)
 
 	participant := new(participant)
 	err = row.Scan(&participant.ID,
-		&participant.GitHubName,
+		&participant.CampaignName,
+		&participant.ScpName,
+		&participant.LoginName,
 		&participant.Email,
 		&participant.DisplayName,
 		&participant.Score,
 		&participant.fkTeam,
 		&participant.JoinedAt,
-		&participant.CampaignName,
 	)
 
 	if err != nil {
@@ -656,11 +759,12 @@ func getParticipantDetail(c echo.Context) (err error) {
 }
 
 const sqlSelectParticipantsByCampaign = `SELECT
-		participants.Id, GitHubName, Email, DisplayName, Score, teams.TeamName, JoinedAt, campaigns.CampaignName 
-		FROM participants
-		LEFT JOIN teams ON participants.fk_team = teams.Id
-		INNER JOIN campaigns ON participants.Campaign = campaigns.Id
-		WHERE campaigns.CampaignName = $1`
+		participant.Id, campaign.name, source_control_provider.name, login_name, Email, DisplayName, Score, team.TeamName, JoinedAt 
+		FROM participant
+		LEFT JOIN team ON participant.fk_team = team.Id
+		INNER JOIN campaign ON participant.fk_campaign = campaign.Id
+		INNER JOIN source_control_provider ON participant.fk_scp = source_control_provider.Id
+		WHERE campaign.name = $1`
 
 func getParticipantsList(c echo.Context) (err error) {
 	campaignName := c.Param(ParamCampaignName)
@@ -676,13 +780,14 @@ func getParticipantsList(c echo.Context) (err error) {
 		participant := new(participant)
 		err = rows.Scan(
 			&participant.ID,
-			&participant.GitHubName,
+			&participant.CampaignName,
+			&participant.ScpName,
+			&participant.LoginName,
 			&participant.Email,
 			&participant.DisplayName,
 			&participant.Score,
 			&participant.fkTeam,
 			&participant.JoinedAt,
-			&participant.CampaignName,
 		)
 		if err != nil {
 			return
@@ -693,15 +798,16 @@ func getParticipantsList(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, participants)
 }
 
-const sqlUpdateParticipant = `UPDATE participants 
+const sqlUpdateParticipant = `UPDATE participant 
 		SET 
-		    GithubName = $1,
-		    Email = $2,
-		    DisplayName = $3,
-		    Score = $4,
-		    Campaign = (SELECT Id FROM campaigns WHERE CampaignName = $5),
-		    fk_team = $6		    
-		WHERE Id = $7`
+		    fk_campaign = (SELECT Id FROM campaign WHERE name = $1),
+		    fk_scp = (SELECT Id FROM source_control_provider WHERE name = $2),
+		    login_name = $3,
+		    Email = $4,
+		    DisplayName = $5,
+		    Score = $6,
+		    fk_team = $7		    
+		WHERE Id = $8`
 
 func updateParticipant(c echo.Context) (err error) {
 	participant := participant{}
@@ -713,11 +819,12 @@ func updateParticipant(c echo.Context) (err error) {
 
 	res, err := db.Exec(
 		sqlUpdateParticipant,
-		participant.GitHubName,
+		participant.CampaignName,
+		participant.ScpName,
+		participant.LoginName,
 		participant.Email,
 		participant.DisplayName,
 		participant.Score,
-		participant.CampaignName,
 		participant.fkTeam,
 		participant.ID,
 	)
@@ -729,24 +836,24 @@ func updateParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	err = updateParticipantScore(c, participant.GitHubName, 0)
+	err = updateParticipantScore(c, participant.CampaignName, participant.ScpName, participant.LoginName, 0)
 	if err != nil {
 		return
 	}
 
 	if rows == 1 {
 		c.Logger().Infof(
-			"Success, huzzah! Participant updated, ID: %s, gitHubName: %s",
+			"Success, huzzah! Participant updated, ID: %s, loginName: %s",
 			participant.ID,
-			participant.GitHubName,
+			participant.LoginName,
 		)
 
 		return c.NoContent(http.StatusNoContent)
 	} else {
 		c.Logger().Errorf(
-			"No row was updated, something goofy has occurred, ID: %s, gitHubName: %s, rows: %s",
+			"No row was updated, something goofy has occurred, ID: %s, loginName: %s, rows: %s",
 			participant.ID,
-			participant.GitHubName,
+			participant.LoginName,
 			rows,
 		)
 
@@ -754,20 +861,35 @@ func updateParticipant(c echo.Context) (err error) {
 	}
 }
 
-const sqlDeleteParticipant = `DELETE FROM participants WHERE GithubName = $1`
+const sqlDeleteParticipant = `DELETE FROM participant WHERE 
+                              fk_scp = (SELECT id from source_control_provider where name =$1)
+                          AND login_name = $2`
 
 func deleteParticipant(c echo.Context) (err error) {
-	githubName := c.Param(ParamGithubName)
-	_, err = db.Exec(sqlDeleteParticipant, githubName)
-	return
+	scpName := c.Param(ParamScpName)
+	loginName := c.Param(ParamLoginName)
+	result, err := db.Exec(sqlDeleteParticipant, scpName, loginName)
+	if err != nil {
+		c.Logger().Debugf("error deleting participant: scpName: %s, loginName %s, err: %+v", scpName, loginName, err)
+		return
+	}
+	rowsAffected, err := result.RowsAffected()
+	// ignore any error retrieving rows affected for now
+	c.Logger().Debugf("delete participant: scpName: %s, loginName %s, rows affected: %d, err: %+v", scpName, loginName, err)
+	if rowsAffected > 0 {
+		return c.NoContent(http.StatusNoContent)
+	}
+	return c.JSON(http.StatusNotFound, fmt.Sprintf("no participant: scpName: %s, loginName: %s", scpName, loginName))
 }
 
-const sqlInsertParticipant = `INSERT INTO participants 
-		(GithubName, Email, DisplayName, Score, UpstreamId, Campaign) 
-		VALUES ($1, $2, $3, $4, $5, (SELECT Id FROM campaigns WHERE CampaignName = $6))
+const sqlInsertParticipant = `INSERT INTO participant 
+		(fk_scp, fk_campaign, login_name, Email, DisplayName, Score, UpstreamId) 
+		VALUES ((SELECT Id FROM source_control_provider WHERE Name = $1),
+		        (SELECT Id FROM campaign WHERE name = $2),
+		        $3, $4, $5, $6, $7)
 		RETURNING Id, Score, JoinedAt`
 
-// was not seeing enough detail when newScore() returns error, so capturing such cases in the log.
+// was not seeing enough detail when addParticipant() returns error, so capturing such cases in the log.
 func logAddParticipant(c echo.Context) (err error) {
 	if err = addParticipant(c); err != nil {
 		c.Logger().Errorf("error calling addParticipant. err: %+v", err)
@@ -791,12 +913,13 @@ func addParticipant(c echo.Context) (err error) {
 	var guid string
 	err = db.QueryRow(
 		sqlInsertParticipant,
-		participant.GitHubName,
+		participant.ScpName,
+		participant.CampaignName,
+		participant.LoginName,
 		participant.Email,
 		participant.DisplayName,
 		0,
-		webflowId,
-		participant.CampaignName).Scan(&guid, &participant.Score, &participant.JoinedAt)
+		webflowId).Scan(&guid, &participant.Score, &participant.JoinedAt)
 	if err != nil {
 		c.Logger().Errorf("error inserting participant: %+v, err: %+v", participant, err)
 		return
@@ -804,7 +927,7 @@ func addParticipant(c echo.Context) (err error) {
 
 	participant.ID = guid
 
-	detailUri := c.Echo().Reverse("participant-detail", participant.GitHubName)
+	detailUri := c.Echo().Reverse("participant-detail", participant.LoginName)
 	updateUri := c.Echo().Reverse("participant-update")
 	endpoints := make(map[string]interface{})
 	endpoints["participantDetail"] = endpointDetail{URI: detailUri, Verb: "GET"}
@@ -819,9 +942,9 @@ func addParticipant(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, creation)
 }
 
-const sqlInsertTeam = `INSERT INTO teams
-		(TeamName, Organization)
-		VALUES ($1, $2)
+const sqlInsertTeam = `INSERT INTO team
+		(fk_campaign, TeamName)
+		VALUES ((SELECT id FROM campaign WHERE name = $1), $2)
 		RETURNING Id`
 
 func addTeam(c echo.Context) (err error) {
@@ -835,8 +958,8 @@ func addTeam(c echo.Context) (err error) {
 	var guid string
 	err = db.QueryRow(
 		sqlInsertTeam,
-		team.TeamName,
-		team.Organization).Scan(&guid)
+		team.Campaign,
+		team.TeamName).Scan(&guid)
 	if err != nil {
 		return
 	}
@@ -844,22 +967,28 @@ func addTeam(c echo.Context) (err error) {
 	return c.String(http.StatusCreated, guid)
 }
 
-const sqlUpdateParticipantTeam = `UPDATE participants 
-		SET fk_team = (SELECT Id FROM teams WHERE TeamName = $1)
-		WHERE GitHubName = $2`
+const sqlUpdateParticipantTeam = `UPDATE participant 
+		SET fk_team = (SELECT Id FROM team WHERE TeamName = $1)
+		WHERE fk_campaign = (SELECT id FROM campaign WHERE name = $2)
+		 AND fk_scp = (SELECT id FROM source_control_provider WHERE name = $3)
+		 AND login_name = $4`
 
 func addPersonToTeam(c echo.Context) (err error) {
 	teamName := c.Param(ParamTeamName)
-	gitHubName := c.Param(ParamGithubName)
+	campaignName := c.Param(ParamCampaignName)
+	scpName := c.Param(ParamScpName)
+	loginName := c.Param(ParamLoginName)
 
-	if teamName == "" || gitHubName == "" {
+	if teamName == "" || campaignName == "" || scpName == "" || loginName == "" {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
 	res, err := db.Exec(
 		sqlUpdateParticipantTeam,
 		teamName,
-		gitHubName)
+		campaignName,
+		scpName,
+		loginName)
 	if err != nil {
 		return
 	}
@@ -870,17 +999,15 @@ func addPersonToTeam(c echo.Context) (err error) {
 
 	if rows > 0 {
 		c.Logger().Infof(
-			"Success, huzzah! Row updated, teamName: %s, gitHubName: %s",
-			teamName,
-			gitHubName,
+			"Success, huzzah! Row updated, teamName: %s, campaignName: %s, scpName: %s, login_name: %s",
+			teamName, campaignName, scpName, loginName,
 		)
 
 		return c.NoContent(http.StatusNoContent)
 	} else {
 		c.Logger().Errorf(
-			"No row was updated, something goofy has occurred, teamName: %s, gitHubName: %s",
-			teamName,
-			gitHubName,
+			"No row was updated, something goofy has occurred, teamName: %s, campaignName: %s, scpName: %s, login_name: %s",
+			teamName, campaignName, scpName, loginName,
 		)
 
 		return c.NoContent(http.StatusBadRequest)
@@ -888,7 +1015,9 @@ func addPersonToTeam(c echo.Context) (err error) {
 }
 
 func validateBug(c echo.Context, bugToValidate bug) (err error) {
-	if len(bugToValidate.Category) == 0 {
+	if len(bugToValidate.Campaign) == 0 {
+		err = fmt.Errorf("bug is not valid, empty campaign: bug: %+v", bugToValidate)
+	} else if len(bugToValidate.Category) == 0 {
 		err = fmt.Errorf("bug is not valid, empty category: bug: %+v", bugToValidate)
 	} else if bugToValidate.PointValue < 0 {
 		err = fmt.Errorf("bug is not valid, negative PointValue: bug: %+v", bugToValidate)
@@ -899,9 +1028,9 @@ func validateBug(c echo.Context, bugToValidate bug) (err error) {
 	return
 }
 
-const sqlInsertBug = `INSERT INTO bugs
-		(category, pointValue)
-		VALUES ($1, $2)
+const sqlInsertBug = `INSERT INTO bug
+		(fk_campaign, category, pointValue)
+		VALUES ((SELECT id FROM campaign WHERE name = $1), $2, $3)
 		RETURNING ID`
 
 func addBug(c echo.Context) (err error) {
@@ -918,7 +1047,7 @@ func addBug(c echo.Context) (err error) {
 	}
 
 	var guid string
-	err = db.QueryRow(sqlInsertBug, bug.Category, bug.PointValue).Scan(&guid)
+	err = db.QueryRow(sqlInsertBug, bug.Campaign, bug.Category, bug.PointValue).Scan(&guid)
 	if err != nil {
 		c.Logger().Errorf("error inserting bug: %+v, err: %+v", bug, err)
 		return
@@ -931,25 +1060,25 @@ func addBug(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, creation)
 }
 
-const sqlUpdateBug = `UPDATE bugs
+const sqlUpdateBug = `UPDATE bug
 		SET pointValue = $1
-		WHERE category = $2`
+		WHERE fk_campaign = (SELECT id FROM campaign WHERE name = $2) AND category = $3`
 
 func updateBug(c echo.Context) (err error) {
-
+	campaign := c.Param(ParamCampaignName)
 	category := c.Param(ParamBugCategory)
 	pointValue, err := strconv.Atoi(c.Param(ParamPointValue))
 	if err != nil {
 		return
 	}
 
-	if err = validateBug(c, bug{Category: category, PointValue: pointValue}); err != nil {
+	if err = validateBug(c, bug{Campaign: campaign, Category: category, PointValue: pointValue}); err != nil {
 		return
 	}
 
 	c.Logger().Debug(category)
 
-	res, err := db.Exec(sqlUpdateBug, pointValue, category)
+	res, err := db.Exec(sqlUpdateBug, pointValue, campaign, category)
 	if err != nil {
 		return
 	}
@@ -964,7 +1093,8 @@ func updateBug(c echo.Context) (err error) {
 	return c.String(http.StatusOK, "Success")
 }
 
-const sqlSelectBug = `SELECT * FROM bugs`
+const sqlSelectBug = `SELECT bug.id, campaign.name, category, pointvalue FROM bug
+		INNER JOIN campaign ON fk_campaign = campaign.Id`
 
 func getBugs(c echo.Context) (err error) {
 
@@ -976,7 +1106,7 @@ func getBugs(c echo.Context) (err error) {
 	var bugs []bug
 	for rows.Next() {
 		bug := bug{}
-		err = rows.Scan(&bug.Id, &bug.Category, &bug.PointValue)
+		err = rows.Scan(&bug.Id, &bug.Campaign, &bug.Category, &bug.PointValue)
 		if err != nil {
 			return
 		}
@@ -1004,7 +1134,7 @@ func putBugs(c echo.Context) (err error) {
 			return
 		}
 
-		err = db.QueryRow(sqlInsertBug, bug.Category, bug.PointValue).Scan(&bug.Id)
+		err = db.QueryRow(sqlInsertBug, bug.Campaign, bug.Category, bug.PointValue).Scan(&bug.Id)
 		if err != nil {
 			c.Logger().Errorf("error inserting bug: %+v, err: %+v", bug, err)
 			return
@@ -1024,8 +1154,53 @@ func putBugs(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, response)
 }
 
-const sqlInsertCampaign = `INSERT INTO campaigns 
-		(CampaignName) 
+const sqlSelectCampaign = `SELECT * FROM campaign`
+
+func getCampaigns(c echo.Context) (err error) {
+	rows, err := db.Query(
+		sqlSelectCampaign)
+	if err != nil {
+		return
+	}
+
+	var campaigns []campaignStruct
+	for rows.Next() {
+		campaign := campaignStruct{}
+		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.Active, &campaign.Note)
+		if err != nil {
+			return
+		}
+		campaigns = append(campaigns, campaign)
+	}
+
+	return c.JSON(http.StatusOK, campaigns)
+}
+
+const sqlSelectCurrentCampaign = `SELECT * FROM campaign
+		WHERE campaign.active = true
+		ORDER BY campaign.create_order DESC`
+
+func getCurrentCampaign() (current campaignStruct, err error) {
+	err = db.QueryRow(
+		sqlSelectCurrentCampaign).Scan(&current.ID, &current.Name, &current.CreatedOn, &current.CreatedOrder, &current.Active, &current.Note)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func getCurrentCampaignEcho(c echo.Context) (err error) {
+	current, err := getCurrentCampaign()
+	if err != nil {
+		return c.String(http.StatusBadRequest, err.Error())
+	}
+
+	return c.JSON(http.StatusOK, current)
+}
+
+const sqlInsertCampaign = `INSERT INTO campaign 
+		(name) 
 		VALUES ($1)
 		RETURNING Id`
 
@@ -1049,17 +1224,42 @@ func addCampaign(c echo.Context) (err error) {
 	return c.String(http.StatusCreated, guid)
 }
 
-func migrateDB(db *sql.DB) (err error) {
+func migratePrep(db *sql.DB) (m *migrate.Migrate, err error) {
 	driver, err := postgres.WithInstance(db, &postgres.Config{})
 	if err != nil {
 		return
 	}
 
-	m, err := migrate.NewWithDatabaseInstance(
-		"file://db/migrations",
+	m, err = migrate.NewWithDatabaseInstance(
+		"file://db/migrations/v2",
 		"postgres", driver)
-
 	if migrateErrorApplicable(err) {
+		return
+	}
+	return
+}
+
+func downgradeDB(db *sql.DB) (err error) {
+	// Don't run this, will delete db stuff, for use in testing only
+	m, err := migratePrep(db)
+	if err != nil {
+		return
+	}
+
+	if err = m.Down(); err != nil {
+		if migrateErrorApplicable(err) {
+			return
+		} else {
+			err = nil
+		}
+	}
+
+	return
+}
+
+func migrateDB(db *sql.DB) (err error) {
+	m, err := migratePrep(db)
+	if err != nil {
 		return
 	}
 
