@@ -193,7 +193,11 @@ func main() {
 	webflowToken = os.Getenv("WEBFLOW_TOKEN")
 	webflowCollection = os.Getenv("WEBFLOW_COLLECTION_ID")
 
-	host, port, dbname, _, err := openDB(e)
+	host, port, dbname, _, err := openDB()
+	if err != nil {
+		e.Logger.Error(err)
+		panic(fmt.Errorf("failed to load database driver. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
+	}
 	defer func() {
 		_ = db.Close()
 	}()
@@ -293,7 +297,7 @@ func main() {
 	}
 }
 
-func openDB(e *echo.Echo) (host string, port int, dbname, sslMode string, err error) {
+func openDB() (host string, port int, dbname, sslMode string, err error) {
 	host = os.Getenv(envPGHost)
 	port, _ = strconv.Atoi(os.Getenv(envPGPort))
 	user := os.Getenv(envPGUsername)
@@ -305,10 +309,6 @@ func openDB(e *echo.Echo) (host string, port int, dbname, sslMode string, err er
 		"password=%s dbname=%s sslmode=%s",
 		host, port, user, password, dbname, sslMode)
 	db, err = sql.Open("postgres", psqlInfo)
-	if err != nil {
-		e.Logger.Error(err)
-		panic(fmt.Errorf("failed to load database driver. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
-	}
 	return
 }
 

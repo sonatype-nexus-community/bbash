@@ -788,8 +788,7 @@ func xxxTestDropDB_DO_NOT_RUN_THIS(t *testing.T) {
 	}()
 	assert.NoError(t, os.Setenv(envSSLMode, "disable"))
 
-	e := echo.New()
-	host, port, dbname, sslMode, err := openDB(e)
+	host, port, dbname, sslMode, err := openDB()
 	defer func() {
 		_ = db.Close()
 	}()
