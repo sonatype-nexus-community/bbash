@@ -220,19 +220,13 @@ func main() {
 
 	// Source Control Provider endpoints
 	scpGroup := e.Group(SourceControlProvider)
-	scpGroup.GET(
-		fmt.Sprintf("%s", List),
-		getSourceControlProviders).Name = "scp-list"
+	scpGroup.GET(List, getSourceControlProviders).Name = "scp-list"
 
 	// Organization related endpoints
 	organizationGroup := e.Group(Organization)
 
-	organizationGroup.GET(
-		fmt.Sprintf("%s", List),
-		getOrganizations).Name = "organization-list"
-	organizationGroup.PUT(
-		fmt.Sprintf("%s", Add),
-		addOrganization).Name = "organization-add"
+	organizationGroup.GET(List, getOrganizations).Name = "organization-list"
+	organizationGroup.PUT(Add, addOrganization).Name = "organization-add"
 	organizationGroup.DELETE(
 		fmt.Sprintf("%s/:%s/:%s", Delete, ParamScpName, ParamOrganizationName),
 		deleteOrganization).Name = "organization-delete"
@@ -276,8 +270,8 @@ func main() {
 
 	campaignGroup := e.Group(Campaign)
 
-	campaignGroup.GET(fmt.Sprintf("%s", List), getCampaigns)
-	campaignGroup.GET(fmt.Sprintf("%s", "/current"), getCurrentCampaignEcho)
+	campaignGroup.GET(List, getCampaigns)
+	campaignGroup.GET("/current", getCurrentCampaignEcho)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Add, ParamCampaignName), addCampaign)
 
 	// Scoring related endpoints and group
