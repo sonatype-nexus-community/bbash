@@ -109,12 +109,32 @@ type scoringMessage struct {
 	PullRequest int            `json:"pullRequestId"`
 }
 
+type leaderboardCampaign struct {
+	CampaignName string `json:"campaign_name"`
+	Slug         string `json:"slug"`
+	CampaignId   string `json:"campaign_id"`
+	CreateOrder  int    `json:"create_order"`
+	Active       bool   `json:"active"`
+	Note         string `json:"note"`
+	Archived     bool   `json:"_archived"`
+	Draft        bool   `json:"_draft"`
+}
+
+type leaderboardCampaignPayload struct {
+	Fields leaderboardCampaign `json:"fields"`
+}
+
+type leaderboardCampaignResponse struct {
+	Id string `json:"_id"`
+}
+
 type leaderboardItem struct {
-	UserName string `json:"name"`
-	Slug     string `json:"slug"`
-	Score    int    `json:"score"`
-	Archived bool   `json:"_archived"`
-	Draft    bool   `json:"_draft"`
+	UserName     string `json:"name"`
+	Slug         string `json:"slug"`
+	Score        int    `json:"score"`
+	CampaignName string `json:"score"`
+	Archived     bool   `json:"_archived"`
+	Draft        bool   `json:"_draft"`
 }
 
 type leaderboardPayload struct {
@@ -150,10 +170,17 @@ const (
 	WebflowApiBase        string = "https://api.webflow.com"
 )
 
-// variable allows for changes to url for testing
-var webflowBaseAPI = WebflowApiBase
-var webflowToken string
-var webflowCollection string
+type webflowConfig struct {
+	// variable baseAPI allows for changes to url for testing
+	baseAPI               string // typically default to: WebflowApiBase
+	token                 string
+	campaignCollection    string
+	participantCollection string
+}
+
+var upstreamConfig = webflowConfig{
+	baseAPI: WebflowApiBase,
+}
 
 const envPGHost = "PG_HOST"
 const envPGPort = "PG_PORT"
@@ -190,8 +217,9 @@ func main() {
 		e.Logger.Error(err)
 	}
 
-	webflowToken = os.Getenv("WEBFLOW_TOKEN")
-	webflowCollection = os.Getenv("WEBFLOW_COLLECTION_ID")
+	upstreamConfig.token = os.Getenv("WEBFLOW_TOKEN")
+	upstreamConfig.campaignCollection = os.Getenv("WEBFLOW_CAMPAIGN_COLLECTION_ID")
+	upstreamConfig.participantCollection = os.Getenv("WEBFLOW_COLLECTION_ID")
 
 	host, port, dbname, _, err := openDB()
 	if err != nil {
@@ -306,12 +334,82 @@ func openDB() (host string, port int, dbname, sslMode string, err error) {
 	return
 }
 
-type ParticipantCreateError struct {
-	Status string
+type CreateError struct {
+	MsgPattern string
+	Status     string
 }
 
-func (e *ParticipantCreateError) Error() string {
-	return fmt.Sprintf("could not create upstream participant. response status: %s", e.Status)
+func (e *CreateError) Error() string {
+	return fmt.Sprintf(e.MsgPattern, e.Status)
+}
+
+const msgPatternCreateErrorCampaign = "could not create upstream campaign. response status: %s"
+const msgPatternCreateErrorParticipant = "could not create upstream campaign. response status: %s"
+
+func doUpstreamRequest(c echo.Context, req *http.Request, errMsgPattern string) (res *http.Response, err error) {
+	requestHeaderSetup(req)
+
+	res, err = getNetClient().Do(req)
+	if err != nil {
+		return
+	}
+
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		c.Logger().Debug(req)
+		var responseBody []byte
+		_, _ = res.Body.Read(responseBody)
+		c.Logger().Debug(responseBody)
+		// return a real error to the caller to indicate failure
+		err = &CreateError{MsgPattern: errMsgPattern, Status: res.Status}
+		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
+			err = errContext
+		}
+		return
+	}
+	return
+}
+
+func upstreamNewCampaign(c echo.Context, newCampaign campaignStruct) (id string, err error) {
+	item := leaderboardCampaign{
+		CampaignName: newCampaign.Name,
+		Slug:         newCampaign.Name,
+		CampaignId:   newCampaign.ID,
+		CreateOrder:  newCampaign.CreatedOrder,
+		Active:       newCampaign.Active,
+		Note:         "",
+		Archived:     false,
+		Draft:        false,
+	}
+
+	payload := leaderboardCampaignPayload{
+		Fields: item,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", upstreamConfig.baseAPI, upstreamConfig.campaignCollection), bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+
+	var res *http.Response
+	res, err = doUpstreamRequest(c, req, msgPatternCreateErrorCampaign)
+	if err != nil {
+		return
+	}
+
+	var response leaderboardCampaignResponse
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return
+	}
+	id = response.Id
+
+	c.Logger().Debugf("created new upstream campaign: leaderboardCampaign: %+v", item)
+	return
 }
 
 func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
@@ -330,27 +428,14 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 		return
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", webflowBaseAPI, webflowCollection), bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-	requestHeaderSetup(req)
-
-	res, err := getNetClient().Do(req)
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", upstreamConfig.baseAPI, upstreamConfig.participantCollection), bytes.NewReader(body))
 	if err != nil {
 		return
 	}
 
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		c.Logger().Debug(req)
-		var responseBody []byte
-		_, _ = res.Body.Read(responseBody)
-		c.Logger().Debug(responseBody)
-		// return a real error to the caller to indicate failure
-		err = &ParticipantCreateError{res.Status}
-		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
-			err = errContext
-		}
+	var res *http.Response
+	res, err = doUpstreamRequest(c, req, msgPatternCreateErrorParticipant)
+	if err != nil {
 		return
 	}
 
@@ -374,7 +459,7 @@ func getNetClient() (netClient *http.Client) {
 }
 
 func requestHeaderSetup(req *http.Request) {
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", webflowToken))
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", upstreamConfig.token))
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("accept-version", "1.0.0")
 }
@@ -492,7 +577,7 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 		return
 	}
 
-	url := fmt.Sprintf("%s/collections/%s/items/%s?live=true", webflowBaseAPI, webflowCollection, webflowId)
+	url := fmt.Sprintf("%s/collections/%s/items/%s?live=true", upstreamConfig.baseAPI, upstreamConfig.participantCollection, webflowId)
 	req, err := http.NewRequest("PATCH", url, bytes.NewReader(body))
 	if err != nil {
 		return
@@ -1194,8 +1279,8 @@ func getCurrentCampaignEcho(c echo.Context) (err error) {
 }
 
 const sqlInsertCampaign = `INSERT INTO campaign 
-		(name) 
-		VALUES ($1)
+		(name, upstream_id) 
+		VALUES ($1, $2)
 		RETURNING Id`
 
 func addCampaign(c echo.Context) (err error) {
@@ -1207,10 +1292,18 @@ func addCampaign(c echo.Context) (err error) {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 
+	campaign := campaignStruct{Name: campaignName}
+	webflowId, err := upstreamNewCampaign(c, campaign)
+	if err != nil {
+		return
+	}
+
 	var guid string
 	err = db.QueryRow(
 		sqlInsertCampaign,
-		campaignName).Scan(&guid)
+		campaignName,
+		webflowId,
+	).Scan(&guid)
 	if err != nil {
 		return
 	}

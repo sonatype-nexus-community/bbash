@@ -9,6 +9,7 @@ CREATE TABLE campaign(
     created_on timestamp NOT NULL DEFAULT NOW(),
     create_order SERIAL,
     active boolean DEFAULT true,
+    upstream_id varchar(250) NOT NULL,
     note TEXT
 );
 

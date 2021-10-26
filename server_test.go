@@ -411,7 +411,34 @@ func TestGetCurrentCampaignEcho(t *testing.T) {
 	assert.Equal(t, "{\"guid\":\"myCampaignId\",\"name\":\"myCampaignName\",\"createdOn\":\"0001-01-01T00:00:00Z\",\"createdOrder\":0,\"active\":true,\"note\":{\"String\":\"\",\"Valid\":false}}\n", rec.Body.String())
 }
 
-func TestAddCampaignScanError(t *testing.T) {
+func TestAddCampaignUpstreamAddError(t *testing.T) {
+	origCampaignCollection := upstreamConfig.campaignCollection
+	defer func() {
+		upstreamConfig.campaignCollection = origCampaignCollection
+	}()
+	upstreamConfig.campaignCollection = "testWfCollection"
+	origToken := upstreamConfig.token
+	defer func() {
+		upstreamConfig.token = origToken
+	}()
+	upstreamConfig.token = "testWfToken"
+	testId := "testNewWebflowCampaignId"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.campaignCollection), r.URL.EscapedPath())
+
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+
+	defer ts.Close()
+	origBaseAPI := upstreamConfig.baseAPI
+	defer func() {
+		upstreamConfig.baseAPI = origBaseAPI
+	}()
+	upstreamConfig.baseAPI = ts.URL
+
 	c, rec := setupMockContextCampaign(campaign)
 
 	dbMock, mock := newMockDb(t)
@@ -426,7 +453,50 @@ func TestAddCampaignScanError(t *testing.T) {
 
 	forcedError := fmt.Errorf("forced Scan error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign).
+		WithArgs(campaign, testId).
+		WillReturnError(forcedError)
+
+	expectedError := CreateError{msgPatternCreateErrorCampaign, "500 Internal Server Error"}
+	assert.EqualError(t, addCampaign(c), expectedError.Error())
+	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
+	assert.Equal(t, expectedError.Error(), rec.Body.String())
+}
+
+func TestAddCampaignScanError(t *testing.T) {
+	origCampaignCollection := upstreamConfig.campaignCollection
+	defer func() {
+		upstreamConfig.campaignCollection = origCampaignCollection
+	}()
+	upstreamConfig.campaignCollection = "testWfCollection"
+	origToken := upstreamConfig.token
+	defer func() {
+		upstreamConfig.token = origToken
+	}()
+	upstreamConfig.token = "testWfToken"
+	testId := "testNewWebflowCampaignId"
+	ts := setupMockWebflowCampaignCreate(t, testId)
+	defer ts.Close()
+	origBaseAPI := upstreamConfig.baseAPI
+	defer func() {
+		upstreamConfig.baseAPI = origBaseAPI
+	}()
+	upstreamConfig.baseAPI = ts.URL
+
+	c, rec := setupMockContextCampaign(campaign)
+
+	dbMock, mock := newMockDb(t)
+	defer func() {
+		_ = dbMock.Close()
+	}()
+	origDb := db
+	defer func() {
+		db = origDb
+	}()
+	db = dbMock
+
+	forcedError := fmt.Errorf("forced Scan error")
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
+		WithArgs(campaign, testId).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addCampaign(c), forcedError.Error())
@@ -435,6 +505,25 @@ func TestAddCampaignScanError(t *testing.T) {
 }
 
 func TestAddCampaign(t *testing.T) {
+	origCampaignCollection := upstreamConfig.campaignCollection
+	defer func() {
+		upstreamConfig.campaignCollection = origCampaignCollection
+	}()
+	upstreamConfig.campaignCollection = "testWfCollection"
+	origToken := upstreamConfig.token
+	defer func() {
+		upstreamConfig.token = origToken
+	}()
+	upstreamConfig.token = "testWfToken"
+	testId := "testNewWebflowCampaignId"
+	ts := setupMockWebflowCampaignCreate(t, testId)
+	defer ts.Close()
+	origBaseAPI := upstreamConfig.baseAPI
+	defer func() {
+		upstreamConfig.baseAPI = origBaseAPI
+	}()
+	upstreamConfig.baseAPI = ts.URL
+
 	c, rec := setupMockContextCampaign(campaign)
 
 	dbMock, mock := newMockDb(t)
@@ -449,7 +538,7 @@ func TestAddCampaign(t *testing.T) {
 
 	campaignUUID := "campaignId"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign).
+		WithArgs(campaign, testId).
 		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignUUID))
 
 	assert.NoError(t, addCampaign(c))
@@ -480,61 +569,61 @@ func TestRequestHeaderSetup(t *testing.T) {
 }
 
 func verifyRequestHeaders(t *testing.T, req *http.Request) {
-	assert.Equal(t, fmt.Sprintf("Bearer %s", webflowToken), req.Header.Get("Authorization"))
+	assert.Equal(t, fmt.Sprintf("Bearer %s", upstreamConfig.token), req.Header.Get("Authorization"))
 	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
 	assert.Equal(t, "1.0.0", req.Header.Get("accept-version"))
 }
 
-func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
-	origWebflowCollection := webflowCollection
+func TestUpstreamNewCampaignWebflowErrorNotFound(t *testing.T) {
+	origCampaignCollection := upstreamConfig.participantCollection
 	defer func() {
-		webflowCollection = origWebflowCollection
+		upstreamConfig.campaignCollection = origCampaignCollection
 	}()
-	webflowCollection = "testWfCollection"
-	origWebflowToken := webflowToken
+	upstreamConfig.campaignCollection = "testWfCampaignCollection"
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.campaignCollection), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextWebflow()
 
-	id, err := upstreamNewParticipant(c, participant{})
+	id, err := upstreamNewCampaign(c, campaignStruct{})
 	assert.Equal(t, "", id)
-	expectedErr := &ParticipantCreateError{"404 Not Found"}
+	expectedErr := &CreateError{msgPatternCreateErrorCampaign, "404 Not Found"}
 	assert.EqualError(t, err, expectedErr.Error())
 	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
 	assert.Equal(t, expectedErr.Error(), rec.Body.String())
 }
 
-func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
-	origWebflowCollection := webflowCollection
+func TestUpstreamNewCampaignWebflowIDDecodeError(t *testing.T) {
+	origCampaignCollection := upstreamConfig.participantCollection
 	defer func() {
-		webflowCollection = origWebflowCollection
+		upstreamConfig.campaignCollection = origCampaignCollection
 	}()
-	webflowCollection = "testWfCollection"
-	origWebflowToken := webflowToken
+	upstreamConfig.campaignCollection = "testWfCollection"
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.campaignCollection), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
@@ -542,11 +631,131 @@ func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
 		_, _ = w.Write([]byte("bad json text"))
 	}))
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
+
+	c, rec := setupMockContextWebflow()
+
+	id, err := upstreamNewCampaign(c, campaignStruct{})
+	assert.Equal(t, "", id)
+	assert.EqualError(t, err, "invalid character 'b' looking for beginning of value")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func setupMockWebflowCampaignCreate(t *testing.T, testId string) *httptest.Server {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.campaignCollection), r.URL.EscapedPath())
+
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusOK)
+		lbResponse := leaderboardCampaignResponse{Id: testId}
+		respBytes, err := json.Marshal(lbResponse)
+		assert.NoError(t, err)
+		tmpl, err := template.New("MockWebflowCampaignCreateResponse").Parse(string(respBytes))
+		assert.NoError(t, err)
+		err = tmpl.Execute(w, nil)
+		assert.NoError(t, err)
+	}))
+	return ts
+}
+
+func TestUpstreamNewCampaignWebflowValidID(t *testing.T) {
+	origCampaignCollection := upstreamConfig.campaignCollection
+	defer func() {
+		upstreamConfig.campaignCollection = origCampaignCollection
+	}()
+	upstreamConfig.campaignCollection = "testWfCollection"
+	origToken := upstreamConfig.token
+	defer func() {
+		upstreamConfig.token = origToken
+	}()
+	upstreamConfig.token = "testWfToken"
+	testId := "testNewWebflowCampaignId"
+	ts := setupMockWebflowCampaignCreate(t, testId)
+	defer ts.Close()
+	origBaseAPI := upstreamConfig.baseAPI
+	defer func() {
+		upstreamConfig.baseAPI = origBaseAPI
+	}()
+	upstreamConfig.baseAPI = ts.URL
+
+	c, rec := setupMockContextWebflow()
+
+	id, err := upstreamNewCampaign(c, campaignStruct{})
+	assert.Equal(t, testId, id)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
+	origParticipantCollection := upstreamConfig.participantCollection
+	defer func() {
+		upstreamConfig.participantCollection = origParticipantCollection
+	}()
+	upstreamConfig.participantCollection = "testWfCollection"
+	origToken := upstreamConfig.token
+	defer func() {
+		upstreamConfig.token = origToken
+	}()
+	upstreamConfig.token = "testWfToken"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.participantCollection), r.URL.EscapedPath())
+
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+	origBaseAPI := upstreamConfig.baseAPI
+	defer func() {
+		upstreamConfig.baseAPI = origBaseAPI
+	}()
+	upstreamConfig.baseAPI = ts.URL
+
+	c, rec := setupMockContextWebflow()
+
+	id, err := upstreamNewParticipant(c, participant{})
+	assert.Equal(t, "", id)
+	expectedErr := &CreateError{msgPatternCreateErrorParticipant, "404 Not Found"}
+	assert.EqualError(t, err, expectedErr.Error())
+	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
+	assert.Equal(t, expectedErr.Error(), rec.Body.String())
+}
+
+func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
+	origParticipantCollection := upstreamConfig.participantCollection
+	defer func() {
+		upstreamConfig.participantCollection = origParticipantCollection
+	}()
+	upstreamConfig.participantCollection = "testWfCollection"
+	origToken := upstreamConfig.token
+	defer func() {
+		upstreamConfig.token = origToken
+	}()
+	upstreamConfig.token = "testWfToken"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.participantCollection), r.URL.EscapedPath())
+
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("bad json text"))
+	}))
+	defer ts.Close()
+	origBaseAPI := upstreamConfig.baseAPI
+	defer func() {
+		upstreamConfig.baseAPI = origBaseAPI
+	}()
+	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextWebflow()
 
@@ -560,7 +769,7 @@ func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
 func setupMockWebflowUserCreate(t *testing.T, testId string) *httptest.Server {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.participantCollection), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
@@ -577,24 +786,24 @@ func setupMockWebflowUserCreate(t *testing.T, testId string) *httptest.Server {
 }
 
 func TestUpstreamNewParticipantWebflowValidID(t *testing.T) {
-	origWebflowCollection := webflowCollection
+	origParticipantCollection := upstreamConfig.participantCollection
 	defer func() {
-		webflowCollection = origWebflowCollection
+		upstreamConfig.participantCollection = origParticipantCollection
 	}()
-	webflowCollection = "testWfCollection"
-	origWebflowToken := webflowToken
+	upstreamConfig.participantCollection = "testWfCollection"
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 	testId := "testNewWebflowParticipantId"
 	ts := setupMockWebflowUserCreate(t, testId)
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextWebflow()
 
@@ -625,27 +834,27 @@ func TestAddParticipantWebflowError(t *testing.T) {
 	participantJson := `{"loginName": "` + loginName + `"}`
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", webflowCollection), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.participantCollection), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
-	expectedErr := &ParticipantCreateError{"404 Not Found"}
+	expectedErr := &CreateError{msgPatternCreateErrorParticipant, "404 Not Found"}
 	assert.EqualError(t, addParticipant(c), expectedErr.Error())
 	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
 	assert.Equal(t, expectedErr.Error(), rec.Body.String())
@@ -655,19 +864,19 @@ func TestAddParticipantCampaignMissing(t *testing.T) {
 	participantJson := `{"loginName": "` + loginName + `"}`
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 	testId := "testNewWebflowParticipantId"
 	ts := setupMockWebflowUserCreate(t, testId)
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -692,19 +901,19 @@ func TestAddParticipant(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"scpName": "%s","loginName": "%s"}`, scpName, loginName)
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 	testId := "testNewWebflowParticipantId"
 	ts := setupMockWebflowUserCreate(t, testId)
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -732,19 +941,19 @@ func TestMockWebflow_WithServer(t *testing.T) {
 	//c, rec := setupMockContextParticipant(participantJson)
 	setupMockContextParticipant(participantJson)
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 	testId := "testNewWebflowParticipantId"
 	ts := setupMockWebflowUserCreate(t, testId)
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
 	// uncomment 'main()' below for local testing with a mocked Webflow endpoint.
 	//main()
@@ -814,19 +1023,19 @@ func TestLogAddParticipantNoError(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"scpName": "%s","loginName": "%s"}`, scpName, loginName)
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 	testId := "testNewWebflowParticipantId"
 	ts := setupMockWebflowUserCreate(t, testId)
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
 	dbMock, mock := newMockDb(t)
 	defer func() {
@@ -958,24 +1167,24 @@ func setupMockContextUpstreamUpdateScore() (c echo.Context, rec *httptest.Respon
 func TestUpstreamUpdateScoreStatusError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/", webflowCollection), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/", upstreamConfig.participantCollection), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 
 	c, rec := setupMockContextUpstreamUpdateScore()
 
@@ -988,7 +1197,7 @@ func TestUpstreamUpdateScoreStatusError(t *testing.T) {
 func setupMockWebflowUserUpdate(t *testing.T, webflowId string) *httptest.Server {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, webflowId), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, webflowId), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
@@ -1000,17 +1209,17 @@ func setupMockWebflowUserUpdate(t *testing.T, webflowId string) *httptest.Server
 func TestUpstreamUpdateScore(t *testing.T) {
 	ts := setupMockWebflowUserUpdate(t, "")
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 
 	c, rec := setupMockContextUpstreamUpdateScore()
 
@@ -1042,17 +1251,17 @@ func TestUpdateParticipantNoRowsUpdated(t *testing.T) {
 
 	ts := setupMockWebflowUserUpdate(t, participantID)
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 
 	assert.NoError(t, updateParticipant(c))
 	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
@@ -1082,17 +1291,17 @@ func TestUpdateParticipant(t *testing.T) {
 
 	ts := setupMockWebflowUserUpdate(t, participantID)
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 
 	assert.NoError(t, updateParticipant(c))
 	assert.Equal(t, http.StatusNoContent, c.Response().Status)
@@ -2694,24 +2903,24 @@ func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, strings.ToLower(loginName)), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, strings.ToLower(loginName)), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusBadRequest)
 	}))
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 
 	err = newScore(c)
 	assert.EqualError(t, err, "could not update score. response status: 400 Bad Request")
@@ -2763,24 +2972,24 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, strings.ToLower(loginName)), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, strings.ToLower(loginName)), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 
 	err = newScore(c)
 	assert.EqualError(t, err, "all expectations were already fulfilled, call to Commit transaction was not expected")
@@ -2834,24 +3043,24 @@ func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, githubNameLowerCase), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, githubNameLowerCase), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 
 	mock.ExpectCommit()
 
@@ -2902,24 +3111,24 @@ func TestNewScoreOneAlert(t *testing.T) {
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", webflowCollection, githubName), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, githubName), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
-	origWebflowBaseAPI := webflowBaseAPI
+	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
-		webflowBaseAPI = origWebflowBaseAPI
+		upstreamConfig.baseAPI = origBaseAPI
 	}()
-	webflowBaseAPI = ts.URL
+	upstreamConfig.baseAPI = ts.URL
 
-	origWebflowToken := webflowToken
+	origToken := upstreamConfig.token
 	defer func() {
-		webflowToken = origWebflowToken
+		upstreamConfig.token = origToken
 	}()
-	webflowToken = "testWfToken"
+	upstreamConfig.token = "testWfToken"
 
 	mock.ExpectCommit()
 
