@@ -110,10 +110,9 @@ type scoringMessage struct {
 }
 
 type leaderboardCampaign struct {
-	CampaignName string `json:"campaign_name"`
+	CampaignName string `json:"name"`
 	Slug         string `json:"slug"`
-	CampaignId   string `json:"campaign_id"`
-	CreateOrder  int    `json:"create_order"`
+	CreateOrder  int    `json:"create-order"`
 	Active       bool   `json:"active"`
 	Note         string `json:"note"`
 	Archived     bool   `json:"_archived"`
@@ -132,7 +131,7 @@ type leaderboardItem struct {
 	UserName     string `json:"name"`
 	Slug         string `json:"slug"`
 	Score        int    `json:"score"`
-	CampaignName string `json:"score"`
+	CampaignWFID string `json:"campaign-wf-id"`
 	Archived     bool   `json:"_archived"`
 	Draft        bool   `json:"_draft"`
 }
@@ -355,7 +354,8 @@ func doUpstreamRequest(c echo.Context, req *http.Request, errMsgPattern string) 
 	}
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		c.Logger().Debug(req)
+		defer res.Body.Close()
+		c.Logger().Debug(res)
 		var responseBody []byte
 		_, _ = res.Body.Read(responseBody)
 		c.Logger().Debug(responseBody)
@@ -373,7 +373,6 @@ func upstreamNewCampaign(c echo.Context, newCampaign campaignStruct) (id string,
 	item := leaderboardCampaign{
 		CampaignName: newCampaign.Name,
 		Slug:         newCampaign.Name,
-		CampaignId:   newCampaign.ID,
 		CreateOrder:  newCampaign.CreatedOrder,
 		Active:       newCampaign.Active,
 		Note:         "",
@@ -414,6 +413,8 @@ func upstreamNewCampaign(c echo.Context, newCampaign campaignStruct) (id string,
 
 func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
 	item := leaderboardItem{}
+	//start here!!!
+	item.CampaignWFID = p.CampaignName // lookup this the webflow Upstream_id of the campaign
 	item.UserName = p.LoginName
 	item.Slug = p.LoginName
 	item.Score = 0
@@ -1260,8 +1261,9 @@ const sqlSelectCurrentCampaign = `SELECT * FROM campaign
 		ORDER BY campaign.create_order DESC`
 
 func getCurrentCampaign() (current campaignStruct, err error) {
+	var upstreamId string
 	err = db.QueryRow(
-		sqlSelectCurrentCampaign).Scan(&current.ID, &current.Name, &current.CreatedOn, &current.CreatedOrder, &current.Active, &current.Note)
+		sqlSelectCurrentCampaign).Scan(&current.ID, &current.Name, &current.CreatedOn, &current.CreatedOrder, &current.Active, &upstreamId, &current.Note)
 	if err != nil {
 		return
 	}

@@ -334,9 +334,9 @@ func TestGetCurrentCampaignScanError(t *testing.T) {
 	db = dbMock
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "note"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstreamId", "note"}).
 			// force scan error due to time.Time type mismatch at CreatedOn column
-			AddRow(campaignId, campaign, "badness", 0, true, sql.NullString{}))
+			AddRow(campaignId, campaign, "badness", 0, true, "myUpstreamId", sql.NullString{}))
 
 	currentCampaign, err := getCurrentCampaign()
 	assert.EqualError(t, err, `sql: Scan error on column index 2, name "createdOn": unsupported Scan, storing driver.Value type string into type *time.Time`)
@@ -363,8 +363,8 @@ func TestGetCurrentCampaign(t *testing.T) {
 
 func mockCurrentCampaign(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "note"}).
-			AddRow(campaignId, campaign, time.Time{}, 0, true, sql.NullString{}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstreamId", "note"}).
+			AddRow(campaignId, campaign, time.Time{}, 0, true, "myUpstreamId", sql.NullString{}))
 }
 
 func TestGetCurrentCampaignEchoError(t *testing.T) {
@@ -403,8 +403,8 @@ func TestGetCurrentCampaignEcho(t *testing.T) {
 	db = dbMock
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "note"}).
-			AddRow(campaignId, campaign, time.Time{}, 0, true, sql.NullString{}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstreamId", "note"}).
+			AddRow(campaignId, campaign, time.Time{}, 0, true, "myUpstreamId", sql.NullString{}))
 
 	assert.NoError(t, getCurrentCampaignEcho(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
@@ -1551,7 +1551,7 @@ func TestGetParticipantDetail(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantDetail)).
 		WithArgs(campaign, scpName, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "LoginName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt"}).AddRow(participantID, campaign, scpName, loginName, "", "", 0, "", time.Time{}))
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignWFID", "SCPName", "LoginName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt"}).AddRow(participantID, campaign, scpName, loginName, "", "", 0, "", time.Time{}))
 
 	assert.NoError(t, getParticipantDetail(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
@@ -1632,7 +1632,7 @@ func TestGetParticipantsList(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs(campaign).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "LoginName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt"}).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignWFID", "SCPName", "LoginName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt"}).
 			AddRow(participantID, campaign, "", "", "", "", 0, "", time.Time{}))
 
 	assert.NoError(t, getParticipantsList(c))
@@ -2621,10 +2621,10 @@ func TestNewScoreOneAlertScorePointsMissingCampaignName(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	// empty CampaignName is intentionally bad here
+	// empty CampaignWFID is intentionally bad here
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "note"}).
-			AddRow(campaignId, "", time.Time{}, 0, false, sql.NullString{}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstreamId", "note"}).
+			AddRow(campaignId, "", time.Time{}, 0, false, "myUpstreamId", sql.NullString{}))
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
 		WithArgs("", testEventSourceValid, strings.ToLower(loginName)).
