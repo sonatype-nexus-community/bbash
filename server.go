@@ -128,12 +128,12 @@ type leaderboardCampaignResponse struct {
 }
 
 type leaderboardItem struct {
-	UserName     string `json:"name"`
-	Slug         string `json:"slug"`
-	Score        int    `json:"score"`
-	CampaignWFID string `json:"campaign-wf-id"`
-	Archived     bool   `json:"_archived"`
-	Draft        bool   `json:"_draft"`
+	UserName           string `json:"name"`
+	Slug               string `json:"slug"`
+	Score              int    `json:"score"`
+	CampaignUpstreamId string `json:"campaign-reference"`
+	Archived           bool   `json:"_archived"`
+	Draft              bool   `json:"_draft"`
 }
 
 type leaderboardPayload struct {
@@ -173,8 +173,8 @@ type webflowConfig struct {
 	// variable baseAPI allows for changes to url for testing
 	baseAPI               string // typically default to: WebflowApiBase
 	token                 string
-	campaignCollection    string
-	participantCollection string
+	campaignCollection    string // campaign CMS collection id
+	participantCollection string // participant CMS collection id
 }
 
 var upstreamConfig = webflowConfig{
@@ -411,10 +411,28 @@ func upstreamNewCampaign(c echo.Context, newCampaign campaignStruct) (id string,
 	return
 }
 
+const sqlSelectUpstreamIdCampaign = `SELECT upstream_id FROM campaign WHERE name = $1`
+
+// lookup the Upstream_id for the campaign name
+func getCampaignUpstreamId(c echo.Context, p *participant) (campaignUpstreamId string, err error) {
+	err = db.QueryRow(sqlSelectUpstreamIdCampaign, p.CampaignName).
+		Scan(&campaignUpstreamId)
+	if err != nil {
+		c.Logger().Errorf("error reading campaign upstream id: %+v, err: %+v", p, err)
+		return
+	}
+
+	return
+}
+
 func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
+	campaignUpstreamId, err := getCampaignUpstreamId(c, &p)
+	if err != nil {
+		c.Logger().Errorf("error reading campaign upstream id for new participant: %+v", p)
+		return
+	}
 	item := leaderboardItem{}
-	//start here!!!
-	item.CampaignWFID = p.CampaignName // lookup this the webflow Upstream_id of the campaign
+	item.CampaignUpstreamId = campaignUpstreamId
 	item.UserName = p.LoginName
 	item.Slug = p.LoginName
 	item.Score = 0
