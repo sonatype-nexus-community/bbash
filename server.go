@@ -45,6 +45,7 @@ type campaignStruct struct {
 	CreatedOn    time.Time      `json:"createdOn"`
 	CreatedOrder int            `json:"createdOrder"`
 	Active       bool           `json:"active"`
+	UpstreamId   string         `json:"upstreamId"`
 	Note         sql.NullString `json:"note"`
 }
 
@@ -277,7 +278,7 @@ func main() {
 	participantGroup.POST(Update, updateParticipant).Name = "participant-update"
 	participantGroup.PUT(Add, logAddParticipant).Name = "participant-add"
 	participantGroup.DELETE(
-		fmt.Sprintf("%s/:%s/:%s", Delete, ParamScpName, ParamLoginName),
+		fmt.Sprintf("%s/:%s/:%s/:%s", Delete, ParamCampaignName, ParamScpName, ParamLoginName),
 		deleteParticipant,
 	)
 
@@ -304,6 +305,7 @@ func main() {
 	campaignGroup.GET(List, getCampaigns)
 	campaignGroup.GET("/current", getCurrentCampaignEcho)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Add, ParamCampaignName), addCampaign)
+	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Update, ParamCampaignName), activateCampaign)
 
 	// Scoring related endpoints and group
 	scoreGroup := e.Group(ScoreEvent)
@@ -347,7 +349,9 @@ func (e *CreateError) Error() string {
 }
 
 const msgPatternCreateErrorCampaign = "could not create upstream campaign. response status: %s"
-const msgPatternCreateErrorParticipant = "could not create upstream campaign. response status: %s"
+const msgPatternActivateErrorCampaign = "could not activate upstream campaign. response status: %s"
+const msgPatternCreateErrorParticipant = "could not create upstream participant. response status: %s"
+const msgPatternDeleteErrorParticipant = "could not delete upstream participant. response status: %s"
 
 func doUpstreamRequest(c echo.Context, req *http.Request, errMsgPattern string) (res *http.Response, err error) {
 	requestHeaderSetup(req)
@@ -418,11 +422,11 @@ func upstreamNewCampaign(c echo.Context, newCampaign campaignStruct) (id string,
 const sqlSelectUpstreamIdCampaign = `SELECT upstream_id FROM campaign WHERE name = $1`
 
 // lookup the Upstream_id for the campaign name
-func getCampaignUpstreamId(c echo.Context, p *participant) (campaignUpstreamId string, err error) {
-	err = db.QueryRow(sqlSelectUpstreamIdCampaign, p.CampaignName).
+func getCampaignUpstreamId(c echo.Context, campaignName string) (campaignUpstreamId string, err error) {
+	err = db.QueryRow(sqlSelectUpstreamIdCampaign, campaignName).
 		Scan(&campaignUpstreamId)
 	if err != nil {
-		c.Logger().Errorf("error reading campaign upstream id: %+v, err: %+v", p, err)
+		c.Logger().Errorf("error reading campaign upstream id. campaignName: %s, err: %+v", campaignName, err)
 		return
 	}
 
@@ -430,7 +434,7 @@ func getCampaignUpstreamId(c echo.Context, p *participant) (campaignUpstreamId s
 }
 
 func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
-	campaignUpstreamId, err := getCampaignUpstreamId(c, &p)
+	campaignUpstreamId, err := getCampaignUpstreamId(c, p.CampaignName)
 	if err != nil {
 		c.Logger().Errorf("error reading campaign upstream id for new participant: %+v", p)
 		return
@@ -963,25 +967,56 @@ func updateParticipant(c echo.Context) (err error) {
 	}
 }
 
-const sqlDeleteParticipant = `DELETE FROM participant WHERE 
-                              fk_scp = (SELECT id from source_control_provider where name =$1)
-                          AND login_name = $2`
+const sqlDeleteParticipant = `DELETE FROM participant WHERE
+                          fk_campaign = (SELECT id from campaign where name =$1)
+                          AND fk_scp = (SELECT id from source_control_provider where name =$2)
+                          AND login_name = $3
+                          RETURNING upstreamid`
 
 func deleteParticipant(c echo.Context) (err error) {
+	campaign := c.Param(ParamCampaignName)
 	scpName := c.Param(ParamScpName)
 	loginName := c.Param(ParamLoginName)
-	result, err := db.Exec(sqlDeleteParticipant, scpName, loginName)
+
+	var participantUpstreamId string
+	err = db.QueryRow(sqlDeleteParticipant, campaign, scpName, loginName).Scan(&participantUpstreamId)
 	if err != nil {
-		c.Logger().Debugf("error deleting participant: scpName: %s, loginName %s, err: %+v", scpName, loginName, err)
+		c.Logger().Errorf("error deleting participant. campaign: %s, scpName: %s, loginName: %s, err: %+v",
+			campaign, scpName, loginName, err)
 		return
 	}
-	rowsAffected, err := result.RowsAffected()
-	// ignore any error retrieving rows affected for now
-	c.Logger().Debugf("delete participant: scpName: %s, loginName %s, rows affected: %d, err: %+v", scpName, loginName, err)
-	if rowsAffected > 0 {
-		return c.NoContent(http.StatusNoContent)
+
+	// delete from upstream - warning: slugs are cached until webflow republishes site. create, delete, create will complain
+	_, err = upstreamDeleteParticipant(c, participantUpstreamId)
+	if err != nil {
+		return
 	}
-	return c.JSON(http.StatusNotFound, fmt.Sprintf("no participant: scpName: %s, loginName: %s", scpName, loginName))
+	return c.JSON(http.StatusOK, fmt.Sprintf("deleted participant: campaign: %s, scpName: %s, loginName: %s, participantUpstreamId: %s",
+		campaign, scpName, loginName, participantUpstreamId))
+}
+
+func upstreamDeleteParticipant(c echo.Context, participantUpstreamId string) (id string, err error) {
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/collections/%s/items/%s?live=true",
+		upstreamConfig.baseAPI, upstreamConfig.participantCollection, participantUpstreamId), nil)
+	if err != nil {
+		return
+	}
+
+	var res *http.Response
+	res, err = doUpstreamRequest(c, req, msgPatternDeleteErrorParticipant)
+	if err != nil {
+		return
+	}
+
+	var response leaderboardResponse
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return
+	}
+	id = response.Id
+
+	c.Logger().Debugf("deleted upstream user: participantUpstreamId: %s", participantUpstreamId)
+	return
 }
 
 const sqlInsertParticipant = `INSERT INTO participant 
@@ -1006,6 +1041,8 @@ func addParticipant(c echo.Context) (err error) {
 	if err != nil {
 		return
 	}
+
+	// @todo Sanity check the campaign/scp/login doesn't already exist before creating Upstream record
 
 	webflowId, err := upstreamNewParticipant(c, participant)
 	if err != nil {
@@ -1256,11 +1293,11 @@ func putBugs(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, response)
 }
 
-const sqlSelectCampaign = `SELECT * FROM campaign`
+const sqlSelectCampaigns = `SELECT ID, name, created_on, create_order, active, upstream_id, note FROM campaign`
 
 func getCampaigns(c echo.Context) (err error) {
 	rows, err := db.Query(
-		sqlSelectCampaign)
+		sqlSelectCampaigns)
 	if err != nil {
 		return
 	}
@@ -1268,7 +1305,7 @@ func getCampaigns(c echo.Context) (err error) {
 	var campaigns []campaignStruct
 	for rows.Next() {
 		campaign := campaignStruct{}
-		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.Active, &campaign.Note)
+		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.Active, &campaign.UpstreamId, &campaign.Note)
 		if err != nil {
 			return
 		}
@@ -1278,14 +1315,32 @@ func getCampaigns(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, campaigns)
 }
 
+const sqlSelectCampaign = `SELECT ID, name, created_on, create_order, active, upstream_id, note 
+	FROM campaign
+	WHERE name = $1`
+
+func getCampaign(campaignName string) (campaign campaignStruct, err error) {
+	rows, err := db.Query(sqlSelectCampaign, campaignName)
+	if err != nil {
+		return
+	}
+
+	for rows.Next() {
+		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.Active, &campaign.UpstreamId, &campaign.Note)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
 const sqlSelectCurrentCampaign = `SELECT * FROM campaign
 		WHERE campaign.active = true
 		ORDER BY campaign.create_order DESC`
 
 func getCurrentCampaign() (current campaignStruct, err error) {
-	var upstreamId string
 	err = db.QueryRow(
-		sqlSelectCurrentCampaign).Scan(&current.ID, &current.Name, &current.CreatedOn, &current.CreatedOrder, &current.Active, &upstreamId, &current.Note)
+		sqlSelectCurrentCampaign).Scan(&current.ID, &current.Name, &current.CreatedOn, &current.CreatedOrder, &current.Active, &current.UpstreamId, &current.Note)
 	if err != nil {
 		return
 	}
@@ -1327,6 +1382,90 @@ func addCampaign(c echo.Context) (err error) {
 		sqlInsertCampaign,
 		campaignName,
 		webflowId,
+	).Scan(&guid)
+	if err != nil {
+		return
+	}
+
+	return c.String(http.StatusCreated, guid)
+}
+
+func upstreamActivateCampaign(c echo.Context, campaign campaignStruct) (id string, err error) {
+	item := leaderboardCampaign{
+		CampaignName: campaign.Name,
+		Slug:         campaign.Name,
+		CreateOrder:  campaign.CreatedOrder,
+		Active:       campaign.Active,
+	}
+
+	payload := leaderboardCampaignPayload{
+		Fields: item,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+
+	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/collections/%s/items/%s?live=true",
+		upstreamConfig.baseAPI, upstreamConfig.campaignCollection, campaign.UpstreamId), bytes.NewReader(body))
+	if err != nil {
+		return
+	}
+
+	var res *http.Response
+	res, err = doUpstreamRequest(c, req, msgPatternActivateErrorCampaign)
+	if err != nil {
+		return
+	}
+
+	var response leaderboardCampaignResponse
+	err = json.NewDecoder(res.Body).Decode(&response)
+	if err != nil {
+		return
+	}
+	id = response.Id
+
+	c.Logger().Debugf("updated upstream campaign: leaderboardCampaign: %+v", item)
+	return
+}
+
+const sqlActivateCampaign = `UPDATE campaign 
+		SET active = $1
+		WHERE name = $2
+		RETURNING id`
+
+func activateCampaign(c echo.Context) (err error) {
+	campaignName := strings.TrimSpace(c.Param(ParamCampaignName))
+	if len(campaignName) == 0 {
+		err = fmt.Errorf("invalid parameter %s: %s", ParamCampaignName, campaignName)
+		c.Logger().Error(err)
+
+		return c.String(http.StatusBadRequest, err.Error())
+	}
+
+	campaignFromDB, err := getCampaign(campaignName)
+	if err != nil {
+		return
+	}
+
+	campaignFromRequest := campaignStruct{}
+	err = json.NewDecoder(c.Request().Body).Decode(&campaignFromRequest)
+	if err != nil {
+		return
+	}
+	campaignFromDB.Active = campaignFromRequest.Active
+
+	_, err = upstreamActivateCampaign(c, campaignFromDB)
+	if err != nil {
+		return
+	}
+
+	var guid string
+	err = db.QueryRow(
+		sqlActivateCampaign,
+		campaignFromDB.Active,
+		campaignName,
 	).Scan(&guid)
 	if err != nil {
 		return
