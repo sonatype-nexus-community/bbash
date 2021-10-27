@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/sonatype-nexus-community/bbash/buildversion"
 	"net/http"
 	"os"
@@ -192,6 +193,9 @@ var errRecovered error
 
 func main() {
 	e := echo.New()
+	e.Use(
+		middleware.Logger(), // Log everything to stdout
+	)
 	e.Debug = true
 	e.Logger.SetLevel(log.INFO)
 
