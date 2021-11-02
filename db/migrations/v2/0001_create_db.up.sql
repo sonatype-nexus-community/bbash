@@ -8,7 +8,8 @@ CREATE TABLE campaign(
     name varchar(250) NOT NULL UNIQUE,
     created_on timestamp NOT NULL DEFAULT NOW(),
     create_order SERIAL,
-    active boolean DEFAULT false,
+    start_on timestamp NOT NULL DEFAULT NOW(),
+    end_on timestamp NOT NULL DEFAULT NOW(),
     upstream_id varchar(250) NOT NULL,
     note TEXT
 );
@@ -39,8 +40,8 @@ CREATE TABLE organization (
 CREATE TABLE team(
     Id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     fk_campaign UUID references campaign (Id) NOT NULL,
-    TeamName varchar(250) NOT NULL,
-    unique (fk_campaign, TeamName)
+    name varchar(250) NOT NULL,
+    unique (fk_campaign, name)
 );
 
 

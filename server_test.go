@@ -37,6 +37,8 @@ import (
 	"time"
 )
 
+var now = time.Now()
+
 func newMockDb(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
@@ -199,9 +201,29 @@ func xxxIgnore_TestMigrateDB(t *testing.T) {
 	assert.NoError(t, migrateDB(dbMock))
 }
 
+const timeLayout = "2006-01-02T15:04:05.000Z"
+
+var testStartOn time.Time
+var testEndOn time.Time
+
+func init() {
+	var err error
+	testStartOn, err = time.Parse(timeLayout, "2021-11-01T12:00:00.000Z")
+	if err != nil {
+		panic(err)
+	}
+	testEndOn, err = time.Parse(timeLayout, "2021-11-02T12:00:00.000Z")
+	if err != nil {
+		panic(err)
+	}
+}
 func setupMockContextCampaign(campaignName string) (c echo.Context, rec *httptest.ResponseRecorder) {
+	return setupMockContextCampaignWithBody(campaignName, fmt.Sprintf("{ \"startOn\": \"%s\", \"endOn\": \"%s\"}",
+		testStartOn.Format(timeLayout), testEndOn.Format(timeLayout)))
+}
+func setupMockContextCampaignWithBody(campaignName, bodyCampaign string) (c echo.Context, rec *httptest.ResponseRecorder) {
 	e := echo.New()
-	req := httptest.NewRequest("", "/", nil)
+	req := httptest.NewRequest("", "/", strings.NewReader(bodyCampaign))
 	rec = httptest.NewRecorder()
 	c = e.NewContext(req, rec)
 	c.SetParamNames(ParamCampaignName)
@@ -281,9 +303,9 @@ func TestGetCampaignsScanError(t *testing.T) {
 	}()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstream_id", "note"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstream_id", "note"}).
 			// force scan error due to time.Time type mismatch at CreatedOn column
-			AddRow("campaignId", campaign, "badness", 1, true, "", ""))
+			AddRow("campaignId", campaign, "badness", 1, time.Time{}, time.Time{}, "", ""))
 
 	assert.EqualError(t, getCampaigns(c), `sql: Scan error on column index 2, name "createdOn": unsupported Scan, storing driver.Value type string into type *time.Time`)
 	assert.Equal(t, 0, c.Response().Status)
@@ -299,50 +321,59 @@ func TestGetCampaigns(t *testing.T) {
 	}()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstream_id", "note"}).
-			AddRow("campaignId", campaign, time.Time{}, 1, true, campaignUpstreamId, ""))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstream_id", "note"}).
+			AddRow(campaignId, campaign, time.Time{}, 1, now, now, campaignUpstreamId, nil))
 
 	assert.NoError(t, getCampaigns(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
-	assert.Equal(t, "[{\"guid\":\"campaignId\",\"name\":\"myCampaignName\",\"createdOn\":\"0001-01-01T00:00:00Z\",\"createdOrder\":1,\"active\":true,\"upstreamId\":\"myCampaignUpstreamId\",\"note\":{\"String\":\"\",\"Valid\":true}}]\n", rec.Body.String())
-}
-
-func TestGetCurrentCampaignScanError(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstreamId", "note"}).
-			// force scan error due to time.Time type mismatch at CreatedOn column
-			AddRow(campaignId, campaign, "badness", 0, true, "myUpstreamId", sql.NullString{}))
-
-	currentCampaign, err := getCurrentCampaign()
-	assert.EqualError(t, err, `sql: Scan error on column index 2, name "createdOn": unsupported Scan, storing driver.Value type string into type *time.Time`)
-	assert.Equal(t, campaignStruct{ID: campaignId, Name: campaign}, currentCampaign)
-}
-
-func TestGetCurrentCampaign(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	mockCurrentCampaign(mock)
-
-	currentCampaign, err := getCurrentCampaign()
+	expectedCampaigns := []campaignStruct{
+		{ID: campaignId, Name: campaign, CreatedOn: time.Time{}, CreatedOrder: 1, StartOn: now, EndOn: now, UpstreamId: campaignUpstreamId},
+	}
+	jsonExpectedCampaign, err := json.Marshal(expectedCampaigns)
 	assert.NoError(t, err)
-	assert.Equal(t, campaignStruct{ID: campaignId, Name: campaign, Active: true, UpstreamId: campaignUpstreamId}, currentCampaign)
+	assert.Equal(t, string(jsonExpectedCampaign)+"\n", rec.Body.String())
 }
 
-func mockCurrentCampaign(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstreamId", "note"}).
-			AddRow(campaignId, campaign, time.Time{}, 0, true, campaignUpstreamId, sql.NullString{}))
+func TestGetActiveCampaignsScanError(t *testing.T) {
+	mock, dbMock, origDb := setupMockDb(t)
+	defer func() {
+		tearDownMockDbDefer(dbMock, origDb)
+	}()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstreamId", "note"}).
+			// force scan error due to time.Time type mismatch at CreatedOn column
+			AddRow(campaignId, campaign, "badness", 0, now, now, "myUpstreamId", sql.NullString{}))
+
+	activeCampaigns, err := getActiveCampaigns(now)
+	assert.EqualError(t, err, `sql: Scan error on column index 2, name "createdOn": unsupported Scan, storing driver.Value type string into type *time.Time`)
+	var expectedCampaigns []campaignStruct
+	assert.Equal(t, expectedCampaigns, activeCampaigns)
 }
 
-func TestGetCurrentCampaignEchoError(t *testing.T) {
+func TestGetActiveCampaigns(t *testing.T) {
+	mock, dbMock, origDb := setupMockDb(t)
+	defer func() {
+		tearDownMockDbDefer(dbMock, origDb)
+	}()
+
+	mockCurrentCampaigns(mock)
+
+	activeCampaigns, err := getActiveCampaigns(now)
+	assert.NoError(t, err)
+	expectedCampaigns := []campaignStruct{
+		{ID: campaignId, Name: campaign, UpstreamId: campaignUpstreamId, StartOn: now, EndOn: now},
+	}
+	assert.Equal(t, expectedCampaigns, activeCampaigns)
+}
+
+func mockCurrentCampaigns(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstreamId", "note"}).
+			AddRow(campaignId, campaign, time.Time{}, 0, now, now, campaignUpstreamId, sql.NullString{}))
+}
+
+func TestGetActiveCampaignsEchoError(t *testing.T) {
 	c, rec := setupMockContextCampaign(campaign)
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -351,15 +382,15 @@ func TestGetCurrentCampaignEchoError(t *testing.T) {
 	}()
 
 	forcedError := fmt.Errorf("forced campaign error")
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
 		WillReturnError(forcedError)
 
-	assert.NoError(t, getCurrentCampaignEcho(c))
+	assert.NoError(t, getActiveCampaignsEcho(c))
 	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
 	assert.Equal(t, forcedError.Error(), rec.Body.String())
 }
 
-func TestGetCurrentCampaignEcho(t *testing.T) {
+func TestGetActiveCampaignsEcho(t *testing.T) {
 	c, rec := setupMockContextCampaign(campaign)
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -367,13 +398,18 @@ func TestGetCurrentCampaignEcho(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstreamId", "note"}).
-			AddRow(campaignId, campaign, time.Time{}, 0, true, "myUpstreamId", sql.NullString{}))
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstreamId", "note"}).
+			AddRow(campaignId, campaign, time.Time{}, 0, now, now, "myUpstreamId", sql.NullString{}))
 
-	assert.NoError(t, getCurrentCampaignEcho(c))
+	assert.NoError(t, getActiveCampaignsEcho(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
-	assert.Equal(t, "{\"guid\":\"myCampaignId\",\"name\":\"myCampaignName\",\"createdOn\":\"0001-01-01T00:00:00Z\",\"createdOrder\":0,\"active\":true,\"upstreamId\":\"myUpstreamId\",\"note\":{\"String\":\"\",\"Valid\":false}}\n", rec.Body.String())
+	expectedCampaigns := []campaignStruct{
+		{ID: campaignId, Name: campaign, StartOn: now, EndOn: now, UpstreamId: "myUpstreamId"},
+	}
+	jsonExpectedCampaign, err := json.Marshal(expectedCampaigns)
+	assert.NoError(t, err)
+	assert.Equal(t, string(jsonExpectedCampaign)+"\n", rec.Body.String())
 }
 
 func setupMockUpstreamConfig() (origUpstreamConfig webflowConfig) {
@@ -381,7 +417,7 @@ func setupMockUpstreamConfig() (origUpstreamConfig webflowConfig) {
 
 	upstreamConfig.campaignCollection = campaignUpstreamCollection
 	upstreamConfig.token = tokenUpstream
-	upstreamConfig.participantCollection = participantUpstreamId
+	upstreamConfig.participantCollection = participantUpstreamCollection
 	return
 }
 
@@ -452,7 +488,7 @@ func TestAddCampaignScanError(t *testing.T) {
 
 	forcedError := fmt.Errorf("forced Scan error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign, testId).
+		WithArgs(campaign, testId, testStartOn, testEndOn).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addCampaign(c), forcedError.Error())
@@ -483,7 +519,7 @@ func TestAddCampaign(t *testing.T) {
 
 	campaignUUID := "campaignId"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign, testId).
+		WithArgs(campaign, testId, testStartOn, testEndOn).
 		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignUUID))
 
 	assert.NoError(t, addCampaign(c))
@@ -519,6 +555,13 @@ func verifyRequestHeaders(t *testing.T, req *http.Request) {
 	assert.Equal(t, "1.0.0", req.Header.Get("accept-version"))
 }
 
+func TestIsCampaignActive(t *testing.T) {
+	testCampaign := campaignStruct{StartOn: now.Add(-1 * time.Second), EndOn: now.Add(1 * time.Second)}
+	isActive, err := isCampaignActive(testCampaign, now)
+	assert.NoError(t, err)
+	assert.True(t, isActive)
+}
+
 func TestUpstreamNewCampaignWebflowErrorNotFound(t *testing.T) {
 	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
@@ -541,7 +584,7 @@ func TestUpstreamNewCampaignWebflowErrorNotFound(t *testing.T) {
 
 	c, rec := setupMockContextWebflow()
 
-	id, err := upstreamNewCampaign(c, campaignStruct{})
+	id, err := upstreamNewCampaign(c, campaignStruct{}, true)
 	assert.Equal(t, "", id)
 	expectedErr := &CreateError{msgPatternCreateErrorCampaign, "404 Not Found"}
 	assert.EqualError(t, err, expectedErr.Error())
@@ -572,7 +615,7 @@ func TestUpstreamNewCampaignWebflowIDDecodeError(t *testing.T) {
 
 	c, rec := setupMockContextWebflow()
 
-	id, err := upstreamNewCampaign(c, campaignStruct{})
+	id, err := upstreamNewCampaign(c, campaignStruct{}, true)
 	assert.Equal(t, "", id)
 	assert.EqualError(t, err, "invalid character 'b' looking for beginning of value")
 	assert.Equal(t, 0, c.Response().Status)
@@ -614,7 +657,7 @@ func TestUpstreamNewCampaignWebflowValidID(t *testing.T) {
 
 	c, rec := setupMockContextWebflow()
 
-	id, err := upstreamNewCampaign(c, campaignStruct{})
+	id, err := upstreamNewCampaign(c, campaignStruct{}, true)
 	assert.Equal(t, testId, id)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, c.Response().Status)
@@ -953,7 +996,7 @@ func TestMockWebflow_WithServer(t *testing.T) {
 	upstreamConfig.baseAPI = ts.URL
 
 	// uncomment 'main()' below for local testing with a mocked Webflow endpoint.
-	//main()
+	main()
 }
 
 //goland:noinspection GoSnakeCaseUsage,GoUnusedFunction
@@ -1076,6 +1119,7 @@ const campaignUpstreamCollection = "testWfCollectionCampaign"
 const campaignUpstreamId = "myCampaignUpstreamId"
 const scpName = "myScpName"
 const participantID = "participantUUId"
+const participantUpstreamCollection = "testWfCollectionParticipant"
 const participantUpstreamId = "myParticipantUpstreamId"
 const loginName = "loginName"
 const teamName = "myTeamName"
@@ -1091,7 +1135,7 @@ func TestUpdateParticipantMissingParticipantID(t *testing.T) {
 
 	forcedError := fmt.Errorf("forced SQL insert error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
-		WithArgs(campaign, scpName, loginName, "", "", 0, sql.NullString{}, "").
+		WithArgs(campaign, scpName, loginName, "", "", 0, "", "").
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, updateParticipant(c), forcedError.Error())
@@ -1110,7 +1154,7 @@ func TestUpdateParticipantUpdateError(t *testing.T) {
 
 	forcedError := fmt.Errorf("forced SQL insert error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
-		WithArgs(campaign, scpName, loginName, "", "", 0, sql.NullString{}, participantID).
+		WithArgs(campaign, scpName, loginName, "", "", 0, "", participantID).
 		WillReturnResult(sqlmock.NewErrorResult(forcedError))
 
 	assert.EqualError(t, updateParticipant(c), forcedError.Error())
@@ -1128,7 +1172,7 @@ func TestUpdateParticipantScoreError(t *testing.T) {
 	}()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
-		WithArgs(campaign, scpName, loginName, "", "", 0, sql.NullString{}, participantID).
+		WithArgs(campaign, scpName, loginName, "", "", 0, "", participantID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	err := updateParticipant(c)
@@ -1211,7 +1255,7 @@ func TestUpstreamUpdateScore(t *testing.T) {
 }
 
 func TestUpdateParticipantNoRowsUpdated(t *testing.T) {
-	participantJson := fmt.Sprintf(`{"guid": "%s", "campaignName": "%s", "scpName": "%s", "loginName": "%s"}`, participantID, campaign, scpName, loginName)
+	participantJson := fmt.Sprintf(`{"guid": "%s", "campaignName": "%s", "scpName": "%s", "loginName": "%s", "teamName": "%s"}`, participantID, campaign, scpName, loginName, teamName)
 	c, rec := setupMockContextUpdateParticipant(participantJson)
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -1220,10 +1264,10 @@ func TestUpdateParticipantNoRowsUpdated(t *testing.T) {
 	}()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
-		WithArgs(campaign, scpName, loginName, "", "", 0, sql.NullString{}, participantID).
+		WithArgs(campaign, scpName, loginName, "", "", 0, teamName, participantID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(0, campaign, scpName, loginName).
+		WithArgs(0, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(participantID, 0))
 
 	ts := setupMockWebflowUserUpdate(t, participantID)
@@ -1255,10 +1299,10 @@ func TestUpdateParticipant(t *testing.T) {
 	}()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
-		WithArgs(campaign, scpName, loginName, "", "", 0, sql.NullString{}, participantID).
+		WithArgs(campaign, scpName, loginName, "", "", 0, "", participantID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(0, campaign, scpName, loginName).
+		WithArgs(0, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(participantID, 0))
 
 	ts := setupMockWebflowUserUpdate(t, participantID)
@@ -1316,7 +1360,7 @@ func TestAddTeamInsertError(t *testing.T) {
 }
 
 func TestAddTeamEmptyOrganization(t *testing.T) {
-	teamJson := `{"campaign": "` + campaign + `","teamName": "` + teamName + `"}`
+	teamJson := `{"campaignName": "` + campaign + `","name": "` + teamName + `"}`
 	c, rec := setupMockContextTeam(teamJson)
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -1335,7 +1379,7 @@ func TestAddTeamEmptyOrganization(t *testing.T) {
 }
 
 func TestAddTeam(t *testing.T) {
-	teamJson := `{"campaign": "` + campaign + `","teamName":"` + teamName + `"}`
+	teamJson := `{"campaignName": "` + campaign + `","name":"` + teamName + `"}`
 	c, rec := setupMockContextTeam(teamJson)
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -2074,10 +2118,8 @@ func TestValidScoreUnknownOwner(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
 	msg := scoringMessage{RepoOwner: orgName}
-	isValid, campaignCurrent, scpNameOld := validScore(c, msg)
-	assert.False(t, isValid)
-	assert.Equal(t, campaignCurrent.Name, "")
-	assert.Equal(t, scpNameOld, "")
+	activeParticipantsToScore := validScore(c, msg, now)
+	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
 
 func setupMockContext() (c echo.Context, rec *httptest.ResponseRecorder) {
@@ -2113,10 +2155,8 @@ func TestValidScoreParticipantNotRegistered(t *testing.T) {
 	c, _ := setupMockContext()
 
 	msg := scoringMessage{RepoOwner: testOrgValid, TriggerUser: "unregisteredUser"}
-	isValid, campaignCurrent, scpNameOld := validScore(c, msg)
-	assert.False(t, isValid)
-	assert.Equal(t, campaignCurrent.Name, "")
-	assert.Equal(t, scpNameOld, "")
+	activeParticipantsToScore := validScore(c, msg, now)
+	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
 
 func TestValidScoreParticipantCampaignError(t *testing.T) {
@@ -2129,7 +2169,7 @@ func TestValidScoreParticipantCampaignError(t *testing.T) {
 
 	// current campaign error
 	forcedError := fmt.Errorf("forced current campaign read error")
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
 		WillReturnError(forcedError)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
@@ -2139,10 +2179,8 @@ func TestValidScoreParticipantCampaignError(t *testing.T) {
 	c, _ := setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName}
-	isValid, campaignCurrent, scpNameDB := validScore(c, msg)
-	assert.False(t, isValid)
-	assert.Equal(t, campaignCurrent.Name, campaignCurrent.Name)
-	assert.Equal(t, scpNameDB, "")
+	activeParticipantsToScore := validScore(c, msg, now)
+	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
 
 func TestValidScoreParticipantErrorReadingParticipant(t *testing.T) {
@@ -2153,7 +2191,7 @@ func TestValidScoreParticipantErrorReadingParticipant(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	mockCurrentCampaign(mock)
+	mockCurrentCampaigns(mock)
 
 	forcedError := fmt.Errorf("forced current campaign read error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
@@ -2163,10 +2201,8 @@ func TestValidScoreParticipantErrorReadingParticipant(t *testing.T) {
 	c, _ := setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName}
-	isValid, campaignCurrent, scpNameDB := validScore(c, msg)
-	assert.False(t, isValid)
-	assert.Equal(t, campaignCurrent.Name, campaignCurrent.Name)
-	assert.Equal(t, scpNameDB, "")
+	activeParticipantsToScore := validScore(c, msg, now)
+	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
 
 func TestValidScoreParticipant(t *testing.T) {
@@ -2177,19 +2213,20 @@ func TestValidScoreParticipant(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	mockCurrentCampaign(mock)
+	//mockCurrentCampaigns(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", "someSCP"))
+		WithArgs(now, testEventSourceValid, loginName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			AddRow("someId", "someCampaign", "someSCP", "someLoginName", ""))
 
 	c, _ := setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName}
-	isValid, campaignCurrent, scpNameDB := validScore(c, msg)
-	assert.True(t, isValid)
-	assert.Equal(t, campaignCurrent.Name, campaignCurrent.Name)
-	assert.Equal(t, scpNameDB, "someSCP")
+	activeParticipantsToScore := validScore(c, msg, now)
+	assert.Equal(t, 1, len(activeParticipantsToScore))
+	assert.Equal(t, "someCampaign", activeParticipantsToScore[0].CampaignName)
+	assert.Equal(t, "someSCP", activeParticipantsToScore[0].ScpName)
 }
 
 func setupMockDBOrgValid(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
@@ -2200,9 +2237,8 @@ func setupMockDBOrgValid(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
 
 func TestScorePointsNothing(t *testing.T) {
 	msg := scoringMessage{}
-	points, campaignName := scorePoints(nil, msg)
+	points := scorePoints(nil, msg, campaign)
 	assert.Equal(t, 0, points)
-	assert.Equal(t, "", campaignName)
 }
 
 func TestScorePointsScanError(t *testing.T) {
@@ -2218,9 +2254,8 @@ func TestScorePointsScanError(t *testing.T) {
 
 	c, _ := setupMockContext()
 
-	points, campaignName := scorePoints(c, msg)
+	points := scorePoints(c, msg, campaign)
 	assert.Equal(t, 1, points)
-	assert.Equal(t, "", campaignName)
 }
 
 func TestScorePointsFixedTwoThreePointers(t *testing.T) {
@@ -2232,19 +2267,17 @@ func TestScorePointsFixedTwoThreePointers(t *testing.T) {
 	bugType := "threePointBugType"
 	msg := scoringMessage{BugCounts: map[string]int{bugType: 2}}
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectPointValue)).
-		WithArgs(bugType).
-		WillReturnRows(sqlmock.NewRows([]string{"Value", "Campaign"}).AddRow(3, "someCampaign"))
+		WithArgs(campaign, bugType).
+		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(3))
 
-	points, campaignName := scorePoints(nil, msg)
+	points := scorePoints(nil, msg, campaign)
 	assert.Equal(t, 6, points)
-	assert.Equal(t, "someCampaign", campaignName)
 }
 
 func TestScorePointsBonusForNonClassified(t *testing.T) {
 	msg := scoringMessage{TotalFixed: 1}
-	points, campaignName := scorePoints(nil, msg)
+	points := scorePoints(nil, msg, campaign)
 	assert.Equal(t, 1, points)
-	assert.Equal(t, "", campaignName)
 }
 
 func TestValidOrganizationFalse(t *testing.T) {
@@ -2401,91 +2434,6 @@ func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlertScorePointsMissingCampaignName(t *testing.T) {
-	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, BugCounts: map[string]int{"myBugType": 1}})
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	setupMockDBOrgValid(mock)
-
-	// empty CampaignUpstreamId is intentionally bad here
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaign)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "active", "upstreamId", "note"}).
-			AddRow(campaignId, "", time.Time{}, 0, false, campaignUpstreamId, sql.NullString{}))
-
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs("", testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", scpName))
-
-	err = newScore(c)
-	assert.EqualError(t, err, fmt.Sprintf("empty current campaign name. campaign: %+v", campaignStruct{ID: campaignId, UpstreamId: campaignUpstreamId}))
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestNewScoreOneAlertScorePointsMissingSCPName(t *testing.T) {
-	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, BugCounts: map[string]int{"myBugType": 1}})
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	setupMockDBOrgValid(mock)
-
-	mockCurrentCampaign(mock)
-
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", ""))
-
-	err = newScore(c)
-	assert.EqualError(t, err, fmt.Sprintf("empty db scpName. campaign: %+v", campaignStruct{ID: campaignId, Name: campaign, Active: true, UpstreamId: campaignUpstreamId}))
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestNewScoreOneAlertScorePointsMissingPointValue(t *testing.T) {
-	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, BugCounts: map[string]int{"myBugType": 1}})
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	setupMockDBOrgValid(mock)
-
-	mockCurrentCampaign(mock)
-
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", scpName))
-
-	err = newScore(c)
-	assert.NotNil(t, err)
-	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to database transaction Begin was not expected"))
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
 func TestNewScoreOneAlertHandleBeginTransactionError(t *testing.T) {
 	loginName := "myLoginName"
 	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName})
@@ -2502,12 +2450,10 @@ func TestNewScoreOneAlertHandleBeginTransactionError(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	mockCurrentCampaign(mock)
-
-	scpName := "GitHub"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", scpName))
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			AddRow("someId", "someCampaign", testEventSourceValid, "someLoginName", ""))
 
 	err = newScore(c)
 	assert.EqualError(t, err, "all expectations were already fulfilled, call to database transaction Begin was not expected")
@@ -2530,11 +2476,10 @@ func TestNewScoreOneAlertScoreQueryErrorIgnored(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	mockCurrentCampaign(mock)
-
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", scpName))
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			AddRow("someId", "someCampaign", testEventSourceValid, "someLoginName", ""))
 
 	mock.ExpectBegin()
 
@@ -2565,16 +2510,15 @@ func TestNewScoreOneAlertInsertScoringEventErrorNotIgnored(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	mockCurrentCampaign(mock)
-
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", scpName))
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			AddRow("someId", campaign, testEventSourceValid, "someLoginName", ""))
 
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(campaign, scpName, testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	err = newScore(c)
@@ -2601,20 +2545,19 @@ func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	mockCurrentCampaign(mock)
-
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", scpName))
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			AddRow("someId", campaign, testEventSourceValid, "someLoginName", ""))
 
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(campaign, scpName, testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(campaign, scpName, testOrgValid, githubRepoName, githubPrId, strings.ToLower(loginName), 0).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId, strings.ToLower(loginName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	err = newScore(c)
@@ -2641,24 +2584,23 @@ func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	mockCurrentCampaign(mock)
-
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", scpName))
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			AddRow(participantID, campaign, testEventSourceValid, "someLoginName", ""))
 
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(campaign, scpName, testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(campaign, scpName, testOrgValid, githubRepoName, githubPrId, strings.ToLower(loginName), 0).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId, strings.ToLower(loginName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(8, campaign, scpName, strings.ToLower(loginName)).
+		WithArgs(8, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(strings.ToLower(loginName), 0))
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2705,24 +2647,23 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	mockCurrentCampaign(mock)
-
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", scpName))
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			AddRow(participantID, campaign, testEventSourceValid, "someLoginName", ""))
 
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(campaign, scpName, testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(campaign, scpName, testOrgValid, githubRepoName, githubPrId, strings.ToLower(loginName), 0).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId, strings.ToLower(loginName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(8, campaign, scpName, strings.ToLower(loginName)).
+		WithArgs(8, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(strings.ToLower(loginName), 0))
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

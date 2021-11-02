@@ -44,7 +44,8 @@ type campaignStruct struct {
 	Name         string         `json:"name"`
 	CreatedOn    time.Time      `json:"createdOn"`
 	CreatedOrder int            `json:"createdOrder"`
-	Active       bool           `json:"active"`
+	StartOn      time.Time      `json:"startOn"`
+	EndOn        time.Time      `json:"endOn"`
 	UpstreamId   string         `json:"upstreamId"`
 	Note         sql.NullString `json:"note"`
 }
@@ -62,21 +63,21 @@ type organization struct {
 }
 
 type participant struct {
-	ID           string `json:"guid"`
-	CampaignName string `json:"campaignName"`
-	ScpName      string `json:"scpName"`
-	LoginName    string `json:"loginName"`
-	Email        string `json:"email"`
-	DisplayName  string `json:"displayName"`
-	Score        int    `json:"score"`
-	fkTeam       sql.NullString
+	ID           string    `json:"guid"`
+	CampaignName string    `json:"campaignName"`
+	ScpName      string    `json:"scpName"`
+	LoginName    string    `json:"loginName"`
+	Email        string    `json:"email"`
+	DisplayName  string    `json:"displayName"`
+	Score        int       `json:"score"`
+	TeamName     string    `json:"teamName"`
 	JoinedAt     time.Time `json:"joinedAt"`
 }
 
 type team struct {
-	Id       string `json:"guid"`
-	Campaign string `json:"campaign"`
-	TeamName string `json:"teamName"`
+	Id           string `json:"guid"`
+	CampaignName string `json:"campaignName"`
+	Name         string `json:"name"`
 }
 
 type creationResponse struct {
@@ -303,9 +304,9 @@ func main() {
 	campaignGroup := e.Group(Campaign)
 
 	campaignGroup.GET(List, getCampaigns)
-	campaignGroup.GET("/current", getCurrentCampaignEcho)
+	campaignGroup.GET("/active", getActiveCampaignsEcho)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Add, ParamCampaignName), addCampaign)
-	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Update, ParamCampaignName), activateCampaign)
+	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Update, ParamCampaignName), updateCampaign)
 
 	// Scoring related endpoints and group
 	scoreGroup := e.Group(ScoreEvent)
@@ -377,12 +378,12 @@ func doUpstreamRequest(c echo.Context, req *http.Request, errMsgPattern string) 
 	return
 }
 
-func upstreamNewCampaign(c echo.Context, newCampaign campaignStruct) (id string, err error) {
+func upstreamNewCampaign(c echo.Context, newCampaign campaignStruct, isActive bool) (id string, err error) {
 	item := leaderboardCampaign{
 		CampaignName: newCampaign.Name,
 		Slug:         newCampaign.Name,
 		CreateOrder:  newCampaign.CreatedOrder,
-		Active:       newCampaign.Active,
+		Active:       isActive,
 		Note:         "",
 		Archived:     false,
 		Draft:        false,
@@ -646,52 +647,62 @@ func validOrganization(c echo.Context, msg scoringMessage) (orgExists bool) {
 
 const sqlSelectParticipantId = `SELECT
 		participant.Id,
-       	source_control_provider.name
+        campaign.name,
+       	source_control_provider.name,
+        participant.login_name,
+        team.name
 		FROM participant
 		INNER JOIN campaign ON campaign.Id = fk_campaign
 		INNER JOIN source_control_provider ON source_control_provider.Id = fk_scp
-		WHERE campaign.name = $1 
+		LEFT JOIN team ON team.Id = participant.fk_team
+		WHERE $1 >= campaign.start_on
+			AND $1 < campaign.end_on
 		    AND LOWER(source_control_provider.name) = $2 
 			AND login_name = $3`
 
-func validScore(c echo.Context, msg scoringMessage) (isValidScore bool, campaign campaignStruct, scpName string) {
+func validScore(c echo.Context, msg scoringMessage, now time.Time) (participantsToScore []participant) {
 	// check if repo is in participating set
 	if !validOrganization(c, msg) {
 		c.Logger().Debugf("skip score-missing organization. owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
 		return
 	}
 
-	// find current campaign
-	campaign, err := getCurrentCampaign()
+	// Check if participant is registered for an active campaign
+	rows, err := db.Query(sqlSelectParticipantId, now, msg.EventSource, msg.TriggerUser)
 	if err != nil {
-		c.Logger().Errorf("error reading current campaign. msg: %+v, error: %+v", msg, err)
+		c.Logger().Errorf("skip score-error reading participant. msg: %+v, err: %v", msg, err)
 		return
 	}
-
-	// Check if participant is registered
-	row := db.QueryRow(sqlSelectParticipantId, campaign.Name, msg.EventSource, msg.TriggerUser)
-	var id string
-	err = row.Scan(&id, &scpName) // this reads the db (capitalized) scpName
-	if err != nil {
-		c.Logger().Errorf("skip score-missing participant. msg: %+v, campaign: %+v, err: %v", msg, campaign, err)
+	for rows.Next() {
+		partier := participant{}
+		// note: reads the db (capitalized) scpName
+		err = rows.Scan(&partier.ID, &partier.CampaignName, &partier.ScpName, &partier.LoginName, &partier.TeamName)
+		if err != nil {
+			c.Logger().Errorf("skip score-error scanning participant. msg: %+v, err: %v", msg, err)
+			return
+		}
+		participantsToScore = append(participantsToScore, partier)
+	}
+	if len(participantsToScore) == 0 {
+		c.Logger().Debugf("skip score-missing participant. msg: %+v, err: %v", msg, err)
 		return
 	}
-	isValidScore = true
 	return
 }
 
-const sqlSelectPointValue = `SELECT pointValue, campaign.name FROM bug 
-	INNER JOIN campaign ON campaign.Id = bug.fk_campaign	
-	WHERE category = $1`
+const sqlSelectPointValue = `SELECT pointValue FROM bug 
+	INNER JOIN campaign ON campaign.Id = fk_campaign	
+	WHERE fk_campaign = (SELECT campaign.Id FROM campaign WHERE name = $1) 
+	  AND category = $2`
 
-func scorePoints(c echo.Context, msg scoringMessage) (points int, campaignName string) {
+func scorePoints(c echo.Context, msg scoringMessage, campaignName string) (points int) {
 	points = 0
 	scored := 0
 
 	for bugType, count := range msg.BugCounts {
-		row := db.QueryRow(sqlSelectPointValue, bugType)
+		row := db.QueryRow(sqlSelectPointValue, campaignName, bugType)
 		var value = 1
-		if err := row.Scan(&value, &campaignName); err != nil {
+		if err := row.Scan(&value); err != nil {
 			// ignore (and clear return) error from scan operation
 			c.Logger().Debugf("ignoring missing pointValue. bugType: %s, err: %+v, msg: %+v", bugType, err, msg)
 		}
@@ -710,21 +721,19 @@ func scorePoints(c echo.Context, msg scoringMessage) (points int, campaignName s
 
 const sqlUpdateParticipantScore = `UPDATE participant 
 		SET Score = Score + $1 
-		WHERE fk_campaign = (SELECT id FROM campaign WHERE name = $2)
-		      AND fk_scp = (SELECT id FROM source_control_provider WHERE name = $3)
-		      AND login_name = $4 
+		WHERE id = $2 
 		RETURNING UpstreamId, Score`
 
-func updateParticipantScore(c echo.Context, campaign, scpName, loginName string, delta int) (err error) {
-	var id string
+func updateParticipantScore(c echo.Context, participant participant, delta int) (err error) {
+	var upstreamId string
 	var score int
-	row := db.QueryRow(sqlUpdateParticipantScore, delta, campaign, scpName, loginName)
-	err = row.Scan(&id, &score)
+	row := db.QueryRow(sqlUpdateParticipantScore, delta, participant.ID)
+	err = row.Scan(&upstreamId, &score)
 	if err != nil {
 		return
 	}
 
-	err = upstreamUpdateScore(c, id, score)
+	err = upstreamUpdateScore(c, upstreamId, score)
 	return
 }
 
@@ -761,6 +770,8 @@ func newScore(c echo.Context) (err error) {
 
 	//c.Logger().Debugf("scoringAlert: %+v", alert)
 
+	now := time.Now()
+
 	for _, rawMsg := range alert.RecentHits {
 		var msg scoringMessage
 		err = json.Unmarshal([]byte(rawMsg), &msg)
@@ -772,53 +783,45 @@ func newScore(c echo.Context) (err error) {
 		msg.TriggerUser = strings.ToLower(msg.TriggerUser)
 
 		// if this particular entry is not valid, ignore it and continue processing
-		isValidScore, campaign, scpName := validScore(c, msg)
-		if !isValidScore {
+		activeParticipantsToScore := validScore(c, msg, now)
+		if len(activeParticipantsToScore) == 0 {
 			continue
 		}
-		if campaign.Name == "" {
-			err = fmt.Errorf("empty current campaign name. campaign: %+v", campaign)
-			return
-		}
-		campaignName := campaign.Name
-		if scpName == "" {
-			err = fmt.Errorf("empty db scpName. campaign: %+v", campaign)
-			return
-		}
+		for _, participantToScore := range activeParticipantsToScore {
 
-		//newPoints, campaignName := scorePoints(c, msg)
-		newPoints, _ := scorePoints(c, msg)
+			newPoints := scorePoints(c, msg, participantToScore.CampaignName)
 
-		var tx *sql.Tx
-		tx, err = db.Begin()
-		if err != nil {
-			return
+			var tx *sql.Tx
+			tx, err = db.Begin()
+			if err != nil {
+				return
+			}
+
+			row := db.QueryRow(sqlScoreQuery, participantToScore.CampaignName, participantToScore.ScpName, msg.RepoOwner, msg.RepoName, msg.PullRequest)
+			oldPoints := 0
+			err = row.Scan(&oldPoints)
+			if err != nil {
+				// ignore error case from scan when no row exists, will occur when this is a new score event
+				c.Logger().Debugf("ignoring likely new score event. err: %+v, scoringMessage: %+v", err, msg)
+			}
+
+			_, err = db.Exec(sqlInsertScoringEvent, participantToScore.CampaignName, participantToScore.ScpName, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
+			if err != nil {
+				return
+			}
+
+			err = updateParticipantScore(c, participantToScore, newPoints-oldPoints)
+			if err != nil {
+				return
+			}
+
+			err = tx.Commit()
+			if err != nil {
+				return
+			}
+
+			c.Logger().Debugf("score updated. newPoints: %d, oldPoints: %d, scoringMessage: %+v", newPoints, oldPoints, msg)
 		}
-
-		row := db.QueryRow(sqlScoreQuery, campaignName, scpName, msg.RepoOwner, msg.RepoName, msg.PullRequest)
-		oldPoints := 0
-		err = row.Scan(&oldPoints)
-		if err != nil {
-			// ignore error case from scan when no row exists, will occur when this is a new score event
-			c.Logger().Debugf("ignoring likely new score event. err: %+v, scoringMessage: %+v", err, msg)
-		}
-
-		_, err = db.Exec(sqlInsertScoringEvent, campaignName, scpName, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
-		if err != nil {
-			return
-		}
-
-		err = updateParticipantScore(c, campaignName, scpName, msg.TriggerUser, newPoints-oldPoints)
-		if err != nil {
-			return
-		}
-
-		err = tx.Commit()
-		if err != nil {
-			return
-		}
-
-		c.Logger().Debugf("score updated. newPoints: %d, oldPoints: %d, scoringMessage: %+v", newPoints, oldPoints, msg)
 	}
 
 	//c.Logger().Debugf("scoringAlert completed: %+v", alert)
@@ -827,7 +830,7 @@ func newScore(c echo.Context) (err error) {
 }
 
 const sqlSelectParticipantDetail = `SELECT 
-		participant.Id, campaign.name, source_control_provider.name, login_name, Email, DisplayName, Score, team.TeamName, JoinedAt
+		participant.Id, campaign.name, source_control_provider.name, login_name, Email, DisplayName, Score, team.name, JoinedAt
 		FROM participant
 		LEFT JOIN team ON team.Id = participant.fk_team
 		INNER JOIN campaign ON campaign.Id = participant.fk_campaign
@@ -852,7 +855,7 @@ func getParticipantDetail(c echo.Context) (err error) {
 		&participant.Email,
 		&participant.DisplayName,
 		&participant.Score,
-		&participant.fkTeam,
+		&participant.TeamName,
 		&participant.JoinedAt,
 	)
 
@@ -865,7 +868,7 @@ func getParticipantDetail(c echo.Context) (err error) {
 }
 
 const sqlSelectParticipantsByCampaign = `SELECT
-		participant.Id, campaign.name, source_control_provider.name, login_name, Email, DisplayName, Score, team.TeamName, JoinedAt 
+		participant.Id, campaign.name, source_control_provider.name, login_name, Email, DisplayName, Score, team.name, JoinedAt 
 		FROM participant
 		LEFT JOIN team ON participant.fk_team = team.Id
 		INNER JOIN campaign ON participant.fk_campaign = campaign.Id
@@ -892,7 +895,7 @@ func getParticipantsList(c echo.Context) (err error) {
 			&participant.Email,
 			&participant.DisplayName,
 			&participant.Score,
-			&participant.fkTeam,
+			&participant.TeamName,
 			&participant.JoinedAt,
 		)
 		if err != nil {
@@ -912,7 +915,7 @@ const sqlUpdateParticipant = `UPDATE participant
 		    Email = $4,
 		    DisplayName = $5,
 		    Score = $6,
-		    fk_team = $7		    
+		    fk_team = (SELECT Id FROM team WHERE name = $7)		    
 		WHERE Id = $8`
 
 func updateParticipant(c echo.Context) (err error) {
@@ -931,7 +934,7 @@ func updateParticipant(c echo.Context) (err error) {
 		participant.Email,
 		participant.DisplayName,
 		participant.Score,
-		participant.fkTeam,
+		participant.TeamName,
 		participant.ID,
 	)
 	if err != nil {
@@ -942,7 +945,7 @@ func updateParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	err = updateParticipantScore(c, participant.CampaignName, participant.ScpName, participant.LoginName, 0)
+	err = updateParticipantScore(c, participant, 0)
 	if err != nil {
 		return
 	}
@@ -1082,7 +1085,7 @@ func addParticipant(c echo.Context) (err error) {
 }
 
 const sqlInsertTeam = `INSERT INTO team
-		(fk_campaign, TeamName)
+		(fk_campaign, name)
 		VALUES ((SELECT id FROM campaign WHERE name = $1), $2)
 		RETURNING Id`
 
@@ -1097,8 +1100,8 @@ func addTeam(c echo.Context) (err error) {
 	var guid string
 	err = db.QueryRow(
 		sqlInsertTeam,
-		team.Campaign,
-		team.TeamName).Scan(&guid)
+		team.CampaignName,
+		team.Name).Scan(&guid)
 	if err != nil {
 		return
 	}
@@ -1107,7 +1110,7 @@ func addTeam(c echo.Context) (err error) {
 }
 
 const sqlUpdateParticipantTeam = `UPDATE participant 
-		SET fk_team = (SELECT Id FROM team WHERE TeamName = $1)
+		SET fk_team = (SELECT Id FROM team WHERE name = $1)
 		WHERE fk_campaign = (SELECT id FROM campaign WHERE name = $2)
 		 AND fk_scp = (SELECT id FROM source_control_provider WHERE name = $3)
 		 AND login_name = $4`
@@ -1293,7 +1296,7 @@ func putBugs(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, response)
 }
 
-const sqlSelectCampaigns = `SELECT ID, name, created_on, create_order, active, upstream_id, note FROM campaign`
+const sqlSelectCampaigns = `SELECT ID, name, created_on, create_order, start_on, end_on, upstream_id, note FROM campaign`
 
 func getCampaigns(c echo.Context) (err error) {
 	rows, err := db.Query(
@@ -1305,7 +1308,7 @@ func getCampaigns(c echo.Context) (err error) {
 	var campaigns []campaignStruct
 	for rows.Next() {
 		campaign := campaignStruct{}
-		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.Active, &campaign.UpstreamId, &campaign.Note)
+		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.StartOn, &campaign.EndOn, &campaign.UpstreamId, &campaign.Note)
 		if err != nil {
 			return
 		}
@@ -1315,7 +1318,7 @@ func getCampaigns(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, campaigns)
 }
 
-const sqlSelectCampaign = `SELECT ID, name, created_on, create_order, active, upstream_id, note 
+const sqlSelectCampaign = `SELECT ID, name, created_on, create_order, start_on, end_on, upstream_id, note 
 	FROM campaign
 	WHERE name = $1`
 
@@ -1326,7 +1329,7 @@ func getCampaign(campaignName string) (campaign campaignStruct, err error) {
 	}
 
 	for rows.Next() {
-		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.Active, &campaign.UpstreamId, &campaign.Note)
+		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.StartOn, &campaign.EndOn, &campaign.UpstreamId, &campaign.Note)
 		if err != nil {
 			return
 		}
@@ -1334,22 +1337,37 @@ func getCampaign(campaignName string) (campaign campaignStruct, err error) {
 	return
 }
 
-const sqlSelectCurrentCampaign = `SELECT * FROM campaign
-		WHERE campaign.active = true
-		ORDER BY campaign.create_order DESC`
+func isCampaignActive(campaign campaignStruct, now time.Time) (isActive bool, err error) {
+	isActive = now.After(campaign.StartOn) && (now.Before(campaign.EndOn))
+	return
+}
 
-func getCurrentCampaign() (current campaignStruct, err error) {
-	err = db.QueryRow(
-		sqlSelectCurrentCampaign).Scan(&current.ID, &current.Name, &current.CreatedOn, &current.CreatedOrder, &current.Active, &current.UpstreamId, &current.Note)
+const sqlSelectCurrentCampaigns = `SELECT * FROM campaign
+		WHERE $1 >= start_on
+			AND $1 < end_on
+		ORDER BY start_on`
+
+func getActiveCampaigns(now time.Time) (activeCampaigns []campaignStruct, err error) {
+	rows, err := db.Query(sqlSelectCurrentCampaigns, now)
 	if err != nil {
 		return
+	}
+
+	for rows.Next() {
+		activeCampaign := campaignStruct{}
+
+		err = rows.Scan(&activeCampaign.ID, &activeCampaign.Name, &activeCampaign.CreatedOn, &activeCampaign.CreatedOrder, &activeCampaign.StartOn, &activeCampaign.EndOn, &activeCampaign.UpstreamId, &activeCampaign.Note)
+		if err != nil {
+			return
+		}
+		activeCampaigns = append(activeCampaigns, activeCampaign)
 	}
 
 	return
 }
 
-func getCurrentCampaignEcho(c echo.Context) (err error) {
-	current, err := getCurrentCampaign()
+func getActiveCampaignsEcho(c echo.Context) (err error) {
+	current, err := getActiveCampaigns(time.Now())
 	if err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
@@ -1358,8 +1376,8 @@ func getCurrentCampaignEcho(c echo.Context) (err error) {
 }
 
 const sqlInsertCampaign = `INSERT INTO campaign 
-		(name, upstream_id) 
-		VALUES ($1, $2)
+		(name, upstream_id, start_on, end_on) 
+		VALUES ($1, $2, $3, $4)
 		RETURNING Id`
 
 func addCampaign(c echo.Context) (err error) {
@@ -1371,8 +1389,17 @@ func addCampaign(c echo.Context) (err error) {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 
-	campaign := campaignStruct{Name: campaignName}
-	webflowId, err := upstreamNewCampaign(c, campaign)
+	campaignFromRequest := campaignStruct{}
+	err = json.NewDecoder(c.Request().Body).Decode(&campaignFromRequest)
+	if err != nil {
+		return
+	}
+	campaignFromRequest.Name = campaignName
+
+	now := time.Now()
+	isActive := now.After(campaignFromRequest.StartOn) && (now.Before(campaignFromRequest.EndOn))
+
+	webflowId, err := upstreamNewCampaign(c, campaignFromRequest, isActive)
 	if err != nil {
 		return
 	}
@@ -1382,6 +1409,8 @@ func addCampaign(c echo.Context) (err error) {
 		sqlInsertCampaign,
 		campaignName,
 		webflowId,
+		campaignFromRequest.StartOn,
+		campaignFromRequest.EndOn,
 	).Scan(&guid)
 	if err != nil {
 		return
@@ -1390,12 +1419,12 @@ func addCampaign(c echo.Context) (err error) {
 	return c.String(http.StatusCreated, guid)
 }
 
-func upstreamActivateCampaign(c echo.Context, campaign campaignStruct) (id string, err error) {
+func upstreamActivateCampaign(c echo.Context, campaign campaignStruct, isActive bool) (id string, err error) {
 	item := leaderboardCampaign{
 		CampaignName: campaign.Name,
 		Slug:         campaign.Name,
 		CreateOrder:  campaign.CreatedOrder,
-		Active:       campaign.Active,
+		Active:       isActive,
 	}
 
 	payload := leaderboardCampaignPayload{
@@ -1430,12 +1459,13 @@ func upstreamActivateCampaign(c echo.Context, campaign campaignStruct) (id strin
 	return
 }
 
-const sqlActivateCampaign = `UPDATE campaign 
-		SET active = $1
-		WHERE name = $2
+const sqlUpdateCampaign = `UPDATE campaign
+		SET start_on = $1,
+			end_on = $2		
+		WHERE name = $3
 		RETURNING id`
 
-func activateCampaign(c echo.Context) (err error) {
+func updateCampaign(c echo.Context) (err error) {
 	campaignName := strings.TrimSpace(c.Param(ParamCampaignName))
 	if len(campaignName) == 0 {
 		err = fmt.Errorf("invalid parameter %s: %s", ParamCampaignName, campaignName)
@@ -1444,34 +1474,40 @@ func activateCampaign(c echo.Context) (err error) {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 
-	campaignFromDB, err := getCampaign(campaignName)
-	if err != nil {
-		return
-	}
-
+	// update campaign stored in db
 	campaignFromRequest := campaignStruct{}
 	err = json.NewDecoder(c.Request().Body).Decode(&campaignFromRequest)
 	if err != nil {
 		return
 	}
-	campaignFromDB.Active = campaignFromRequest.Active
-
-	_, err = upstreamActivateCampaign(c, campaignFromDB)
-	if err != nil {
-		return
-	}
-
 	var guid string
 	err = db.QueryRow(
-		sqlActivateCampaign,
-		campaignFromDB.Active,
+		sqlUpdateCampaign,
+		campaignFromRequest.StartOn,
+		campaignFromRequest.EndOn,
 		campaignName,
 	).Scan(&guid)
 	if err != nil {
 		return
 	}
 
-	return c.String(http.StatusCreated, guid)
+	// update upstream active status
+	campaignFromDB, err := getCampaign(campaignName)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	isActive, err := isCampaignActive(campaignFromDB, now)
+	if err != nil {
+		return
+	}
+
+	_, err = upstreamActivateCampaign(c, campaignFromDB, isActive)
+	if err != nil {
+		return
+	}
+
+	return c.String(http.StatusOK, guid)
 }
 
 func migratePrep(db *sql.DB) (m *migrate.Migrate, err error) {
