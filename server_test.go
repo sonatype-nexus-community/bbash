@@ -562,6 +562,28 @@ func TestIsCampaignActive(t *testing.T) {
 	assert.True(t, isActive)
 }
 
+func TestDoUpstreamRequestWithErrorClientDo(t *testing.T) {
+	c, rec := setupMockContextWebflow()
+	req, err := http.NewRequest("", "", nil)
+	assert.NoError(t, err)
+	res, err := doUpstreamRequest(c, req, "")
+	assert.EqualError(t, err, "Get \"\": unsupported protocol scheme \"\"")
+	assert.Nil(t, res)
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestDoUpstreamRequestWithErrorRespStatus(t *testing.T) {
+	c, rec := setupMockContextWebflow()
+	req, err := http.NewRequest("", "", nil)
+	assert.NoError(t, err)
+	res, err := doUpstreamRequest(c, req, "")
+	assert.EqualError(t, err, "Get \"\": unsupported protocol scheme \"\"")
+	assert.Nil(t, res)
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
 func TestUpstreamNewCampaignWebflowErrorNotFound(t *testing.T) {
 	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
@@ -996,7 +1018,7 @@ func TestMockWebflow_WithServer(t *testing.T) {
 	upstreamConfig.baseAPI = ts.URL
 
 	// uncomment 'main()' below for local testing with a mocked Webflow endpoint.
-	//main()
+	main()
 }
 
 //goland:noinspection GoSnakeCaseUsage,GoUnusedFunction
@@ -2104,7 +2126,7 @@ func TestDeleteParticipantWithUpstreamDeleteError(t *testing.T) {
 	assert.Equal(t, expectedErr.Error(), rec.Body.String())
 }
 
-func TestValidScoreUnknownOwner(t *testing.T) {
+func TestValidScoreUnknownRepoOwner(t *testing.T) {
 	c, _ := setupMockContext()
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -2114,11 +2136,12 @@ func TestValidScoreUnknownOwner(t *testing.T) {
 
 	orgName := "myOrgName"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
-		WithArgs(orgName).
+		WithArgs(testEventSourceValid, orgName).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	msg := scoringMessage{RepoOwner: orgName}
-	activeParticipantsToScore := validScore(c, msg, now)
+	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: orgName}
+	activeParticipantsToScore, err := validScore(c, msg, now)
+	assert.NoError(t, err)
 	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
 
@@ -2148,18 +2171,21 @@ func TestValidScoreParticipantNotRegistered(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
+	setupMockDBOrgValid(mock)
+
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(loginName).
+		WithArgs(now, testEventSourceValid, "unregisteredUser").
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}))
 
 	c, _ := setupMockContext()
 
-	msg := scoringMessage{RepoOwner: testOrgValid, TriggerUser: "unregisteredUser"}
-	activeParticipantsToScore := validScore(c, msg, now)
+	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: "unregisteredUser"}
+	activeParticipantsToScore, err := validScore(c, msg, now)
+	assert.NoError(t, err)
 	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
 
-func TestValidScoreParticipantCampaignError(t *testing.T) {
+func TestValidScoreParticipantScanError(t *testing.T) {
 	mock, dbMock, origDb := setupMockDb(t)
 	defer func() {
 		tearDownMockDbDefer(dbMock, origDb)
@@ -2167,19 +2193,17 @@ func TestValidScoreParticipantCampaignError(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	// current campaign error
-	forcedError := fmt.Errorf("forced current campaign read error")
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
-		WillReturnError(forcedError)
-
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName"}).AddRow("someId", "someSCP"))
+		WithArgs(now, testEventSourceValid, loginName).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			// force scan error via invalid datatype
+			AddRow("someId", sql.NullString{}, "someSCP", "someLoginName", ""))
 
 	c, _ := setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName}
-	activeParticipantsToScore := validScore(c, msg, now)
+	activeParticipantsToScore, err := validScore(c, msg, now)
+	assert.EqualError(t, err, "sql: Scan error on column index 1, name \"CampaignName\": converting NULL to string is unsupported")
 	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
 
@@ -2191,17 +2215,16 @@ func TestValidScoreParticipantErrorReadingParticipant(t *testing.T) {
 
 	setupMockDBOrgValid(mock)
 
-	mockCurrentCampaigns(mock)
-
 	forcedError := fmt.Errorf("forced current campaign read error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(campaign, testEventSourceValid, loginName).
+		WithArgs(now, testEventSourceValid, loginName).
 		WillReturnError(forcedError)
 
 	c, _ := setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName}
-	activeParticipantsToScore := validScore(c, msg, now)
+	activeParticipantsToScore, err := validScore(c, msg, now)
+	assert.EqualError(t, err, forcedError.Error())
 	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
 
@@ -2223,7 +2246,8 @@ func TestValidScoreParticipant(t *testing.T) {
 	c, _ := setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName}
-	activeParticipantsToScore := validScore(c, msg, now)
+	activeParticipantsToScore, err := validScore(c, msg, now)
+	assert.NoError(t, err)
 	assert.Equal(t, 1, len(activeParticipantsToScore))
 	assert.Equal(t, "someCampaign", activeParticipantsToScore[0].CampaignName)
 	assert.Equal(t, "someSCP", activeParticipantsToScore[0].ScpName)
@@ -2291,8 +2315,11 @@ func TestValidOrganizationFalse(t *testing.T) {
 		WithArgs(testEventSourceValid, orgName).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
+	c, _ := setupMockContext()
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: orgName}
-	assert.False(t, validOrganization(nil, msg))
+	isValidOrg, err := validOrganization(c, msg)
+	assert.Nil(t, err)
+	assert.False(t, isValidOrg)
 }
 
 func TestValidOrganizationError(t *testing.T) {
@@ -2304,14 +2331,14 @@ func TestValidOrganizationError(t *testing.T) {
 	orgName := "myOrgName"
 	forcedError := fmt.Errorf("forced query error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
-		WithArgs(orgName).
+		WithArgs("GitHub", orgName).
 		WillReturnError(forcedError)
 
-	c, rec := setupMockContext()
+	c, _ := setupMockContext()
 	msg := scoringMessage{EventSource: "GitHub", RepoOwner: orgName}
-	assert.False(t, validOrganization(c, msg))
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
+	isValidOrg, err := validOrganization(c, msg)
+	assert.EqualError(t, err, forcedError.Error())
+	assert.False(t, isValidOrg)
 }
 
 func TestValidOrganization(t *testing.T) {
@@ -2325,8 +2352,11 @@ func TestValidOrganization(t *testing.T) {
 		WithArgs(testEventSourceValid, orgName).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
+	c, _ := setupMockContext()
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: orgName}
-	assert.True(t, validOrganization(nil, msg))
+	isValidOrg, err := validOrganization(c, msg)
+	assert.Nil(t, err)
+	assert.True(t, isValidOrg)
 }
 
 func TestLogNewScoreWithError(t *testing.T) {
@@ -2386,33 +2416,8 @@ func TestNewScoreOneAlertInvalidScoringMessage(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlertInvalidScore(t *testing.T) {
-	scoringMsgBytes, err := json.Marshal(scoringMessage{})
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	orgName := ""
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
-		WithArgs(orgName).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	err = newScore(c)
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
 func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
-	githubName := "myGithubName"
-	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName})
+	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName})
 	assert.NoError(t, err)
 	scoringMsgJson := string(scoringMsgBytes)
 	c, rec := setupMockContextNewScore(t, scoringAlert{
@@ -2423,9 +2428,11 @@ func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
 	defer func() {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
+
+	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
 		WillReturnRows(sqlmock.NewRows([]string{}))
 
 	err = newScore(c)
@@ -2435,7 +2442,6 @@ func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
 }
 
 func TestNewScoreOneAlertHandleBeginTransactionError(t *testing.T) {
-	loginName := "myLoginName"
 	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName})
 	assert.NoError(t, err)
 	scoringMsgJson := string(scoringMsgBytes)
@@ -2494,9 +2500,9 @@ func TestNewScoreOneAlertScoreQueryErrorIgnored(t *testing.T) {
 }
 
 func TestNewScoreOneAlertInsertScoringEventErrorNotIgnored(t *testing.T) {
-	githubRepoName := "myRepoName"
-	githubPrId := -5
-	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: githubRepoName, PullRequest: githubPrId})
+	repoName := "myRepoName"
+	prId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId})
 	assert.NoError(t, err)
 	scoringMsgJson := string(scoringMsgBytes)
 	c, rec := setupMockContextNewScore(t, scoringAlert{
@@ -2518,7 +2524,7 @@ func TestNewScoreOneAlertInsertScoringEventErrorNotIgnored(t *testing.T) {
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	err = newScore(c)
@@ -2529,9 +2535,9 @@ func TestNewScoreOneAlertInsertScoringEventErrorNotIgnored(t *testing.T) {
 }
 
 func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
-	githubRepoName := "myRepoName"
-	githubPrId := -5
-	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: githubRepoName, PullRequest: githubPrId})
+	repoName := "myRepoName"
+	prId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId})
 	assert.NoError(t, err)
 	scoringMsgJson := string(scoringMsgBytes)
 	c, rec := setupMockContextNewScore(t, scoringAlert{
@@ -2553,11 +2559,11 @@ func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId, strings.ToLower(loginName), 0).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId, strings.ToLower(loginName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	err = newScore(c)
@@ -2568,9 +2574,9 @@ func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
 }
 
 func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
-	githubRepoName := "myRepoName"
-	githubPrId := -5
-	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: githubRepoName, PullRequest: githubPrId})
+	repoName := "myRepoName"
+	prId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId})
 	assert.NoError(t, err)
 	scoringMsgJson := string(scoringMsgBytes)
 	c, rec := setupMockContextNewScore(t, scoringAlert{
@@ -2592,11 +2598,11 @@ func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId, strings.ToLower(loginName), 0).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId, strings.ToLower(loginName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
@@ -2631,9 +2637,9 @@ func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
 }
 
 func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
-	githubRepoName := "myRepoName"
-	githubPrId := -5
-	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: githubRepoName, PullRequest: githubPrId})
+	repoName := "myRepoName"
+	prId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId})
 	assert.NoError(t, err)
 	scoringMsgJson := string(scoringMsgBytes)
 	c, rec := setupMockContextNewScore(t, scoringAlert{
@@ -2655,11 +2661,11 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(campaign, testEventSourceValid, testOrgValid, githubRepoName, githubPrId, strings.ToLower(loginName), 0).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId, strings.ToLower(loginName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
@@ -2694,11 +2700,11 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 }
 
 func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
-	githubName := "MYGithubName"
-	githubNameLowerCase := strings.ToLower(githubName)
-	githubRepoName := "myRepoName"
-	githubPrId := -5
-	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, RepoName: githubRepoName, PullRequest: githubPrId})
+	loginName := "MYGithubName"
+	loginNameLowerCase := strings.ToLower(loginName)
+	repoName := "myRepoName"
+	prId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId})
 	assert.NoError(t, err)
 	scoringMsgJson := string(scoringMsgBytes)
 	c, rec := setupMockContextNewScore(t, scoringAlert{
@@ -2710,31 +2716,30 @@ func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
-		WithArgs(testOrgValid).
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+	setupMockDBOrgValid(mock)
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubNameLowerCase).
-		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			AddRow(participantID, campaign, testEventSourceValid, loginName, ""))
 
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(testOrgValid, githubRepoName, githubPrId, githubNameLowerCase, 0).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId, loginNameLowerCase, 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(8, githubNameLowerCase).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(githubNameLowerCase, 0))
+		WithArgs(8, participantID).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(loginNameLowerCase, 0))
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, githubNameLowerCase), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, loginNameLowerCase), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 
@@ -2762,10 +2767,9 @@ func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
 }
 
 func TestNewScoreOneAlert(t *testing.T) {
-	githubName := "myGithubName"
-	githubRepoName := "myRepoName"
-	githubPrId := -5
-	scoringMsgBytes, err := json.Marshal(scoringMessage{RepoOwner: testOrgValid, TriggerUser: githubName, RepoName: githubRepoName, PullRequest: githubPrId})
+	repoName := "myRepoName"
+	prId := -5
+	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId})
 	assert.NoError(t, err)
 	scoringMsgJson := string(scoringMsgBytes)
 	c, rec := setupMockContextNewScore(t, scoringAlert{
@@ -2777,27 +2781,30 @@ func TestNewScoreOneAlert(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
+	setupMockDBOrgValid(mock)
+
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(githubName).
-		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
+			AddRow(participantID, campaign, testEventSourceValid, loginName, ""))
 
 	mock.ExpectBegin()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(testOrgValid, githubRepoName, githubPrId).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId).
 		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(testOrgValid, githubRepoName, githubPrId, githubName, 0).
+		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId, strings.ToLower(loginName), 0).
 		WillReturnResult(sqlmock.NewResult(0, -1))
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(8, githubName).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(githubName, 0))
+		WithArgs(8, participantID).
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(loginName, 0))
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, githubName), r.URL.EscapedPath())
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, loginName), r.URL.EscapedPath())
 
 		verifyRequestHeaders(t, r)
 

@@ -635,12 +635,15 @@ const sqlSelectOrganizationExists = `SELECT EXISTS(
 		WHERE fk_scp = (SELECT id from source_control_provider WHERE LOWER(name) = $1) AND Organization = $2)`
 
 // check if repo is in participating set
-func validOrganization(c echo.Context, msg scoringMessage) (orgExists bool) {
+func validOrganization(c echo.Context, msg scoringMessage) (orgExists bool, err error) {
 	row := db.QueryRow(sqlSelectOrganizationExists, msg.EventSource, msg.RepoOwner)
-	err := row.Scan(&orgExists)
+	err = row.Scan(&orgExists)
 	if err != nil {
-		c.Logger().Debugf("organization is not valid. scp: %s, organization: %s, err: %v", msg.EventSource, msg.RepoOwner, err)
+		c.Logger().Errorf("organization read error. msg: %+v, err: %v", msg, err)
 		return
+	}
+	if !orgExists {
+		c.Logger().Debugf("organization is not valid. scp: %s, organization: %s, err: %v", msg.EventSource, msg.RepoOwner, err)
 	}
 	return
 }
@@ -660,9 +663,14 @@ const sqlSelectParticipantId = `SELECT
 		    AND LOWER(source_control_provider.name) = $2 
 			AND login_name = $3`
 
-func validScore(c echo.Context, msg scoringMessage, now time.Time) (participantsToScore []participant) {
+func validScore(c echo.Context, msg scoringMessage, now time.Time) (participantsToScore []participant, err error) {
 	// check if repo is in participating set
-	if !validOrganization(c, msg) {
+	isValidOrg, err := validOrganization(c, msg)
+	if err != nil {
+		c.Logger().Debugf("skip score-error reading organization. msg: %+v, err: %+v", msg, err)
+		return
+	}
+	if !isValidOrg {
 		c.Logger().Debugf("skip score-missing organization. owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
 		return
 	}
@@ -783,7 +791,12 @@ func newScore(c echo.Context) (err error) {
 		msg.TriggerUser = strings.ToLower(msg.TriggerUser)
 
 		// if this particular entry is not valid, ignore it and continue processing
-		activeParticipantsToScore := validScore(c, msg, now)
+		var activeParticipantsToScore []participant
+		activeParticipantsToScore, err = validScore(c, msg, now)
+		if err != nil {
+			c.Logger().Debugf("error validating scoringMessage, err: %+v, msg: %s", err, msg)
+			return
+		}
 		if len(activeParticipantsToScore) == 0 {
 			continue
 		}
