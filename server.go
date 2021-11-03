@@ -861,6 +861,7 @@ func getParticipantDetail(c echo.Context) (err error) {
 	row := db.QueryRow(sqlSelectParticipantDetail, campaignName, scpName, loginName)
 
 	participant := new(participant)
+	var nullableTeamName sql.NullString
 	err = row.Scan(&participant.ID,
 		&participant.CampaignName,
 		&participant.ScpName,
@@ -868,13 +869,15 @@ func getParticipantDetail(c echo.Context) (err error) {
 		&participant.Email,
 		&participant.DisplayName,
 		&participant.Score,
-		&participant.TeamName,
+		&nullableTeamName,
 		&participant.JoinedAt,
 	)
-
 	if err != nil {
 		c.Logger().Error(err)
 		return
+	}
+	if nullableTeamName.Valid {
+		participant.TeamName = nullableTeamName.String
 	}
 
 	return c.JSON(http.StatusOK, participant)
@@ -900,6 +903,7 @@ func getParticipantsList(c echo.Context) (err error) {
 	var participants []participant
 	for rows.Next() {
 		participant := new(participant)
+		var nullableTeamName sql.NullString
 		err = rows.Scan(
 			&participant.ID,
 			&participant.CampaignName,
@@ -908,11 +912,14 @@ func getParticipantsList(c echo.Context) (err error) {
 			&participant.Email,
 			&participant.DisplayName,
 			&participant.Score,
-			&participant.TeamName,
+			&nullableTeamName,
 			&participant.JoinedAt,
 		)
 		if err != nil {
 			return
+		}
+		if nullableTeamName.Valid {
+			participant.TeamName = nullableTeamName.String
 		}
 		participants = append(participants, *participant)
 	}
@@ -953,32 +960,25 @@ func updateParticipant(c echo.Context) (err error) {
 	if err != nil {
 		return
 	}
-	rows, err := res.RowsAffected()
+	rowsAffected, err := res.RowsAffected()
 	if err != nil {
 		return
 	}
 
+	// updateParticipantScore() only done here to update upstream. can probably remove later
 	err = updateParticipantScore(c, participant, 0)
 	if err != nil {
 		return
 	}
 
-	if rows == 1 {
-		c.Logger().Infof(
-			"Success, huzzah! Participant updated, ID: %s, loginName: %s",
-			participant.ID,
-			participant.LoginName,
-		)
-
+	if rowsAffected == 1 {
+		c.Logger().Infof("Success, huzzah! Participant updated: %+v", participant)
 		return c.NoContent(http.StatusNoContent)
 	} else {
 		c.Logger().Errorf(
-			"No row was updated, something goofy has occurred, ID: %s, loginName: %s, rows: %s",
-			participant.ID,
-			participant.LoginName,
-			rows,
+			"No Participant row was updated, something goofy has occurred. participant: %+v, rowsAffected: %s",
+			participant, rowsAffected,
 		)
-
 		return c.NoContent(http.StatusBadRequest)
 	}
 }
