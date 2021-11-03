@@ -683,8 +683,12 @@ func validScore(c echo.Context, msg scoringMessage, now time.Time) (participants
 	}
 	for rows.Next() {
 		partier := participant{}
+		var nullableTeamName sql.NullString
 		// note: reads the db (capitalized) scpName
-		err = rows.Scan(&partier.ID, &partier.CampaignName, &partier.ScpName, &partier.LoginName, &partier.TeamName)
+		err = rows.Scan(&partier.ID, &partier.CampaignName, &partier.ScpName, &partier.LoginName, &nullableTeamName)
+		if nullableTeamName.Valid {
+			partier.TeamName = nullableTeamName.String
+		}
 		if err != nil {
 			c.Logger().Errorf("skip score-error scanning participant. msg: %+v, err: %v", msg, err)
 			return
