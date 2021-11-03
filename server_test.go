@@ -1018,7 +1018,7 @@ func TestMockWebflow_WithServer(t *testing.T) {
 	upstreamConfig.baseAPI = ts.URL
 
 	// uncomment 'main()' below for local testing with a mocked Webflow endpoint.
-	main()
+	//main()
 }
 
 //goland:noinspection GoSnakeCaseUsage,GoUnusedFunction
