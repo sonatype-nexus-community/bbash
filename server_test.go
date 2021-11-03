@@ -2475,6 +2475,32 @@ func TestNewScoreOneAlertInvalidScoringMessage(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
+func TestNewScoreOneAlertInvalidScore_Errro(t *testing.T) {
+	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName})
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	mock, dbMock, origDb := setupMockDb(t)
+	defer func() {
+		tearDownMockDbDefer(dbMock, origDb)
+	}()
+
+	setupMockDBOrgValid(mock)
+
+	forcedError := fmt.Errorf("forced validScore error")
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
+		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
+		WillReturnError(forcedError)
+
+	err = newScore(c)
+	assert.EqualError(t, err, forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
 func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
 	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName})
 	assert.NoError(t, err)
