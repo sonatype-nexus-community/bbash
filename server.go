@@ -890,7 +890,7 @@ const sqlSelectParticipantsByCampaign = `SELECT
 
 func getParticipantsList(c echo.Context) (err error) {
 	campaignName := c.Param(ParamCampaignName)
-	c.Logger().Debug("Getting list for ", campaignName)
+	c.Logger().Debug("Getting participant list for campaign: ", campaignName)
 
 	rows, err := db.Query(sqlSelectParticipantsByCampaign, campaignName)
 	if err != nil {
