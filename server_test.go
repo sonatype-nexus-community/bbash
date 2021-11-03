@@ -562,6 +562,65 @@ func TestIsCampaignActive(t *testing.T) {
 	assert.True(t, isActive)
 }
 
+func TestGetCampaignQueryError(t *testing.T) {
+	mock, dbMock, origDb := setupMockDb(t)
+	defer func() {
+		tearDownMockDbDefer(dbMock, origDb)
+	}()
+
+	forcedError := fmt.Errorf("forced campaign query error")
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
+		WithArgs(campaign).
+		WillReturnError(forcedError)
+
+	actualCampaign, err := getCampaign(campaign)
+	assert.EqualError(t, err, forcedError.Error())
+	assert.Equal(t, campaignStruct{}, actualCampaign)
+}
+
+func TestGetCampaignScanError(t *testing.T) {
+	mock, dbMock, origDb := setupMockDb(t)
+	defer func() {
+		tearDownMockDbDefer(dbMock, origDb)
+	}()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
+		WithArgs(campaign).
+		WillReturnRows(sqlmock.NewRows([]string{"ID", "name", "created_on", "create_order", "start_on", "end_on", "upstream_id", "note"}).
+			// force scan error due to invalid type
+			AddRow(campaignId, campaign, "", 0, now, now, campaignUpstreamId, sql.NullString{}))
+
+	actualCampaign, err := getCampaign(campaign)
+	assert.EqualError(t, err, "sql: Scan error on column index 2, name \"created_on\": unsupported Scan, storing driver.Value type string into type *time.Time")
+	// note this struct is partially populated
+	assert.Equal(t, campaignStruct{ID: campaignId, Name: campaign}, actualCampaign)
+}
+
+func TestGetCampaign(t *testing.T) {
+	mock, dbMock, origDb := setupMockDb(t)
+	defer func() {
+		tearDownMockDbDefer(dbMock, origDb)
+	}()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
+		WithArgs(campaign).
+		WillReturnRows(sqlmock.NewRows([]string{"ID", "name", "created_on", "create_order", "start_on", "end_on", "upstream_id", "note"}).
+			AddRow(campaignId, campaign, now, 0, now, now, campaignUpstreamId, sql.NullString{}))
+
+	actualCampaign, err := getCampaign(campaign)
+	assert.NoError(t, err)
+	assert.Equal(t, campaignStruct{
+		ID:           campaignId,
+		Name:         campaign,
+		CreatedOn:    now,
+		CreatedOrder: 0,
+		StartOn:      now,
+		EndOn:        now,
+		UpstreamId:   campaignUpstreamId,
+		Note:         sql.NullString{},
+	}, actualCampaign)
+}
+
 func TestDoUpstreamRequestWithErrorClientDo(t *testing.T) {
 	c, rec := setupMockContextWebflow()
 	req, err := http.NewRequest("", "", nil)
