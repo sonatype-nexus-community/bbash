@@ -542,12 +542,6 @@ func TestUpdateCampaignErrorReadingCampaignFromRequestBody(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func mockUpdateCampaign(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
-	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateCampaign)).
-		WithArgs(testStartOn, testEndOn, campaign).
-		WillReturnRows(sqlmock.NewRows([]string{"col1"}).AddRow(campaignId))
-}
-
 func TestUpdateCampaignScanError(t *testing.T) {
 	c, rec := setupMockContextCampaign(campaign)
 
@@ -566,14 +560,38 @@ func TestUpdateCampaignScanError(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-// @todo Fix me
-func ignoreTestUpdateCampaign(t *testing.T) {
+func setupMockWebflowCampaignUpdate(t *testing.T, testId string) *httptest.Server {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPut, r.Method)
+		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.campaignCollection, campaignUpstreamId), r.URL.EscapedPath())
+
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusOK)
+		lbResponse := leaderboardCampaignResponse{Id: testId}
+		respBytes, err := json.Marshal(lbResponse)
+		assert.NoError(t, err)
+		tmpl, err := template.New("MockWebflowCampaignCreateResponse").Parse(string(respBytes))
+		assert.NoError(t, err)
+		err = tmpl.Execute(w, nil)
+		assert.NoError(t, err)
+	}))
+	return ts
+}
+
+func mockUpdateCampaign(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
+	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateCampaign)).
+		WithArgs(testStartOn, testEndOn, campaign).
+		WillReturnRows(sqlmock.NewRows([]string{"col1"}).AddRow(campaignId))
+}
+
+func TestUpdateCampaign(t *testing.T) {
 	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
 		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
 	}()
 	testId := "testNewWebflowCampaignId"
-	ts := setupMockWebflowCampaignCreate(t, testId)
+	ts := setupMockWebflowCampaignUpdate(t, testId)
 	defer ts.Close()
 	origBaseAPI := upstreamConfig.baseAPI
 	defer func() {
@@ -588,12 +606,12 @@ func ignoreTestUpdateCampaign(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign, testId, testStartOn, testEndOn).
-		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignId))
+	mockUpdateCampaign(mock)
+
+	mockSelectCampaigns(mock)
 
 	assert.NoError(t, updateCampaign(c))
-	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.Equal(t, http.StatusOK, c.Response().Status)
 	assert.Equal(t, campaignId, rec.Body.String())
 }
 
@@ -672,10 +690,7 @@ func TestGetCampaign(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
-		WithArgs(campaign).
-		WillReturnRows(sqlmock.NewRows([]string{"ID", "name", "created_on", "create_order", "start_on", "end_on", "upstream_id", "note"}).
-			AddRow(campaignId, campaign, now, 0, now, now, campaignUpstreamId, sql.NullString{}))
+	mockSelectCampaigns(mock)
 
 	actualCampaign, err := getCampaign(campaign)
 	assert.NoError(t, err)
@@ -689,6 +704,13 @@ func TestGetCampaign(t *testing.T) {
 		UpstreamId:   campaignUpstreamId,
 		Note:         sql.NullString{},
 	}, actualCampaign)
+}
+
+func mockSelectCampaigns(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
+	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
+		WithArgs(campaign).
+		WillReturnRows(sqlmock.NewRows([]string{"ID", "name", "created_on", "create_order", "start_on", "end_on", "upstream_id", "note"}).
+			AddRow(campaignId, campaign, now, 0, now, now, campaignUpstreamId, sql.NullString{}))
 }
 
 func TestDoUpstreamRequestWithErrorClientDo(t *testing.T) {
