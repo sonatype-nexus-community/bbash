@@ -2185,6 +2185,25 @@ func TestDeleteParticipantWithUpstreamDeleteError(t *testing.T) {
 	assert.Equal(t, expectedErr.Error(), rec.Body.String())
 }
 
+func TestValidScoreUnknownErrorValidatingOrganization(t *testing.T) {
+	c, _ := setupMockContext()
+
+	mock, dbMock, origDb := setupMockDb(t)
+	defer func() {
+		tearDownMockDbDefer(dbMock, origDb)
+	}()
+
+	forcedError := fmt.Errorf("forced org exists query error")
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
+		WithArgs(testEventSourceValid, testOrgValid).
+		WillReturnError(forcedError)
+
+	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid}
+	activeParticipantsToScore, err := validScore(c, msg, now)
+	assert.EqualError(t, err, forcedError.Error())
+	assert.Equal(t, 0, len(activeParticipantsToScore))
+}
+
 func TestValidScoreUnknownRepoOwner(t *testing.T) {
 	c, _ := setupMockContext()
 
@@ -2193,12 +2212,11 @@ func TestValidScoreUnknownRepoOwner(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
-	orgName := "myOrgName"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
-		WithArgs(testEventSourceValid, orgName).
+		WithArgs(testEventSourceValid, testOrgValid).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: orgName}
+	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid}
 	activeParticipantsToScore, err := validScore(c, msg, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(activeParticipantsToScore))
@@ -2369,13 +2387,12 @@ func TestValidOrganizationFalse(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
-	orgName := "myOrgName"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
-		WithArgs(testEventSourceValid, orgName).
+		WithArgs(testEventSourceValid, testOrgValid).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
 	c, _ := setupMockContext()
-	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: orgName}
+	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid}
 	isValidOrg, err := validOrganization(c, msg)
 	assert.Nil(t, err)
 	assert.False(t, isValidOrg)
@@ -2387,14 +2404,13 @@ func TestValidOrganizationError(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
-	orgName := "myOrgName"
-	forcedError := fmt.Errorf("forced query error")
+	forcedError := fmt.Errorf("forced org exists query error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
-		WithArgs("GitHub", orgName).
+		WithArgs("GitHub", testOrgValid).
 		WillReturnError(forcedError)
 
 	c, _ := setupMockContext()
-	msg := scoringMessage{EventSource: "GitHub", RepoOwner: orgName}
+	msg := scoringMessage{EventSource: "GitHub", RepoOwner: testOrgValid}
 	isValidOrg, err := validOrganization(c, msg)
 	assert.EqualError(t, err, forcedError.Error())
 	assert.False(t, isValidOrg)
@@ -2406,13 +2422,12 @@ func TestValidOrganization(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
-	orgName := "myOrgName"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
-		WithArgs(testEventSourceValid, orgName).
+		WithArgs(testEventSourceValid, testOrgValid).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
 	c, _ := setupMockContext()
-	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: orgName}
+	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid}
 	isValidOrg, err := validOrganization(c, msg)
 	assert.Nil(t, err)
 	assert.True(t, isValidOrg)
