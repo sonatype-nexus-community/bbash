@@ -517,14 +517,84 @@ func TestAddCampaign(t *testing.T) {
 		tearDownMockDbDefer(dbMock, origDb)
 	}()
 
-	campaignUUID := "campaignId"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
 		WithArgs(campaign, testId, testStartOn, testEndOn).
-		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignUUID))
+		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignId))
 
 	assert.NoError(t, addCampaign(c))
 	assert.Equal(t, http.StatusCreated, c.Response().Status)
-	assert.Equal(t, campaignUUID, rec.Body.String())
+	assert.Equal(t, campaignId, rec.Body.String())
+}
+
+func TestUpdateCampaignMissingParamCampaign(t *testing.T) {
+	c, rec := setupMockContextCampaign("")
+
+	assert.NoError(t, updateCampaign(c))
+	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
+	assert.Equal(t, "invalid parameter campaignName: ", rec.Body.String())
+}
+
+func TestUpdateCampaignErrorReadingCampaignFromRequestBody(t *testing.T) {
+	c, rec := setupMockContextCampaignWithBody(campaign, "")
+
+	assert.EqualError(t, updateCampaign(c), "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func mockUpdateCampaign(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
+	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateCampaign)).
+		WithArgs(testStartOn, testEndOn, campaign).
+		WillReturnRows(sqlmock.NewRows([]string{"col1"}).AddRow(campaignId))
+}
+
+func TestUpdateCampaignScanError(t *testing.T) {
+	c, rec := setupMockContextCampaign(campaign)
+
+	mock, dbMock, origDb := setupMockDb(t)
+	defer func() {
+		tearDownMockDbDefer(dbMock, origDb)
+	}()
+
+	forcedError := fmt.Errorf("forced scan error update campaign")
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateCampaign)).
+		WithArgs(testStartOn, testEndOn, campaign).
+		WillReturnError(forcedError)
+
+	assert.EqualError(t, updateCampaign(c), forcedError.Error())
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+// @todo Fix me
+func ignoreTestUpdateCampaign(t *testing.T) {
+	origUpstreamConfig := setupMockUpstreamConfig()
+	defer func() {
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
+	}()
+	testId := "testNewWebflowCampaignId"
+	ts := setupMockWebflowCampaignCreate(t, testId)
+	defer ts.Close()
+	origBaseAPI := upstreamConfig.baseAPI
+	defer func() {
+		upstreamConfig.baseAPI = origBaseAPI
+	}()
+	upstreamConfig.baseAPI = ts.URL
+
+	c, rec := setupMockContextCampaign(campaign)
+
+	mock, dbMock, origDb := setupMockDb(t)
+	defer func() {
+		tearDownMockDbDefer(dbMock, origDb)
+	}()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
+		WithArgs(campaign, testId, testStartOn, testEndOn).
+		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignId))
+
+	assert.NoError(t, updateCampaign(c))
+	assert.Equal(t, http.StatusCreated, c.Response().Status)
+	assert.Equal(t, campaignId, rec.Body.String())
 }
 
 func setupMockContextWebflow() (c echo.Context, rec *httptest.ResponseRecorder) {
