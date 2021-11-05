@@ -241,7 +241,7 @@ func main() {
 		panic(fmt.Errorf("failed to ping database. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
 	}
 
-	err = migrateDB(db)
+	err = migrateDB(db, e)
 	if err != nil {
 		e.Logger.Error(err)
 		panic(fmt.Errorf("failed to migrate database. err: %+v", err))
@@ -1560,7 +1560,7 @@ func downgradeDB(db *sql.DB) (err error) {
 	return
 }
 
-func migrateDB(db *sql.DB) (err error) {
+func migrateDB(db *sql.DB, e *echo.Echo) (err error) {
 	m, err := migratePrep(db)
 	if err != nil {
 		return
@@ -1572,6 +1572,8 @@ func migrateDB(db *sql.DB) (err error) {
 		} else {
 			err = nil
 		}
+	} else {
+		e.Logger.Infof("database migrated successfully")
 	}
 
 	return

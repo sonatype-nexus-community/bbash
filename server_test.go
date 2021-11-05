@@ -124,7 +124,7 @@ func TestMigrateDBErrorPostgresWithInstance(t *testing.T) {
 		_ = dbMock.Close()
 	}()
 
-	assert.EqualError(t, migrateDB(dbMock), "all expectations were already fulfilled, call to Query 'SELECT CURRENT_DATABASE()' with args [] was not expected in line 0: SELECT CURRENT_DATABASE()")
+	assert.EqualError(t, migrateDB(dbMock, nil), "all expectations were already fulfilled, call to Query 'SELECT CURRENT_DATABASE()' with args [] was not expected in line 0: SELECT CURRENT_DATABASE()")
 }
 
 func setupMockPostgresWithInstance(mock sqlmock.Sqlmock) (args []driver.Value) {
@@ -156,7 +156,7 @@ func TestMigrateDBErrorMigrateUp(t *testing.T) {
 
 	setupMockPostgresWithInstance(mock)
 
-	assert.EqualError(t, migrateDB(dbMock), "try lock failed in line 0: SELECT pg_advisory_lock($1) (details: all expectations were already fulfilled, call to ExecQuery 'SELECT pg_advisory_lock($1)' with args [{Name: Ordinal:1 Value:1014225327}] was not expected)")
+	assert.EqualError(t, migrateDB(dbMock, nil), "try lock failed in line 0: SELECT pg_advisory_lock($1) (details: all expectations were already fulfilled, call to ExecQuery 'SELECT pg_advisory_lock($1)' with args [{Name: Ordinal:1 Value:1014225327}] was not expected)")
 }
 
 //goland:noinspection GoUnusedFunction,GoSnakeCaseUsage
@@ -198,7 +198,7 @@ func xxxIgnore_TestMigrateDB(t *testing.T) {
 		WithArgs(args...).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	assert.NoError(t, migrateDB(dbMock))
+	assert.NoError(t, migrateDB(dbMock, nil))
 }
 
 const timeLayout = "2006-01-02T15:04:05.000Z"
@@ -1220,7 +1220,7 @@ func xxxTestDropDB_DO_NOT_RUN_THIS(t *testing.T) {
 	assert.Equal(t, "db", dbname)
 	assert.Equal(t, "disable", sslMode)
 
-	assert.NoError(t, migrateDB(db))
+	assert.NoError(t, migrateDB(db, nil))
 	assert.NoError(t, downgradeDB(db))
 }
 
