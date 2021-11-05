@@ -1158,22 +1158,19 @@ func TestAddParticipant(t *testing.T) {
 }
 
 func TestMockWebflow_WithServer(t *testing.T) {
-	participantJson := `{"loginName": "` + loginName + `"}`
-	//c, rec := setupMockContextParticipant(participantJson)
-	setupMockContextParticipant(participantJson)
-
-	origToken := upstreamConfig.token
+	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
-		upstreamConfig.token = origToken
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
 	}()
 	upstreamConfig.token = "testWfToken"
-	testId := "testNewWebflowParticipantId"
-	ts := setupMockWebflowUserCreate(t, testId)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		verifyRequestHeaders(t, r)
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	// uncomment 'main()' below for local testing with a mocked Webflow endpoint.
