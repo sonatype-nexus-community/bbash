@@ -425,6 +425,14 @@ func tearDownMockUpstreamConfigDefer(origUpstreamConfig webflowConfig) {
 	upstreamConfig = origUpstreamConfig
 }
 
+func TestAddCampaignErrorReadingCampaignFromRequestBody(t *testing.T) {
+	c, rec := setupMockContextCampaignWithBody(campaign, "")
+
+	assert.EqualError(t, addCampaign(c), "EOF")
+	assert.Equal(t, 0, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
 func TestAddCampaignUpstreamAddError(t *testing.T) {
 	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
