@@ -447,12 +447,7 @@ func TestAddCampaignUpstreamAddError(t *testing.T) {
 
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
-
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextCampaign(campaign)
@@ -481,10 +476,6 @@ func TestAddCampaignScanError(t *testing.T) {
 	testId := "testNewWebflowCampaignId"
 	ts := setupMockWebflowCampaignCreate(t, testId)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextCampaign(campaign)
@@ -512,10 +503,6 @@ func TestAddCampaign(t *testing.T) {
 	testId := "testNewWebflowCampaignId"
 	ts := setupMockWebflowCampaignCreate(t, testId)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextCampaign(campaign)
@@ -601,10 +588,6 @@ func TestUpdateCampaign(t *testing.T) {
 	testId := "testNewWebflowCampaignId"
 	ts := setupMockWebflowCampaignUpdate(t, testId)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextCampaign(campaign)
@@ -757,10 +740,6 @@ func TestUpstreamNewCampaignWebflowErrorNotFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextWebflow()
@@ -788,10 +767,6 @@ func TestUpstreamNewCampaignWebflowIDDecodeError(t *testing.T) {
 		_, _ = w.Write([]byte("bad json text"))
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextWebflow()
@@ -830,10 +805,6 @@ func TestUpstreamNewCampaignWebflowValidID(t *testing.T) {
 	testId := "testNewWebflowCampaignId"
 	ts := setupMockWebflowCampaignCreate(t, testId)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextWebflow()
@@ -900,15 +871,11 @@ func TestGetCampaignUpstreamId(t *testing.T) {
 }
 
 func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
-	origParticipantCollection := upstreamConfig.participantCollection
+	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
-		upstreamConfig.participantCollection = origParticipantCollection
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
 	}()
 	upstreamConfig.participantCollection = "testWfCollection"
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -919,10 +886,6 @@ func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextWebflow()
@@ -942,15 +905,11 @@ func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
 }
 
 func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
-	origParticipantCollection := upstreamConfig.participantCollection
+	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
-		upstreamConfig.participantCollection = origParticipantCollection
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
 	}()
 	upstreamConfig.participantCollection = "testWfCollection"
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -962,10 +921,6 @@ func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
 		_, _ = w.Write([]byte("bad json text"))
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextWebflow()
@@ -1003,23 +958,15 @@ func setupMockWebflowUserCreate(t *testing.T, testId string) *httptest.Server {
 }
 
 func TestUpstreamNewParticipantWebflowValidID(t *testing.T) {
-	origParticipantCollection := upstreamConfig.participantCollection
+	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
-		upstreamConfig.participantCollection = origParticipantCollection
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
 	}()
 	upstreamConfig.participantCollection = "testWfCollection"
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 	testId := "testNewWebflowParticipantId"
 	ts := setupMockWebflowUserCreate(t, testId)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextWebflow()
@@ -1057,9 +1004,9 @@ func TestAddParticipantWebflowError(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"campaignName":"%s", "loginName": "%s"}`, campaign, loginName)
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origToken := upstreamConfig.token
+	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
-		upstreamConfig.token = origToken
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
 	}()
 	upstreamConfig.token = "testWfToken"
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1071,10 +1018,6 @@ func TestAddParticipantWebflowError(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -1093,18 +1036,14 @@ func TestAddParticipantCampaignMissing(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"campaignName":"%s", "loginName": "%s"}`, campaign, loginName)
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origToken := upstreamConfig.token
+	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
-		upstreamConfig.token = origToken
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
 	}()
 	upstreamConfig.token = "testWfToken"
 	testId := "testNewWebflowParticipantId"
 	ts := setupMockWebflowUserCreate(t, testId)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -1126,18 +1065,14 @@ func TestAddParticipant(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"campaignName":"%s", "scpName": "%s","loginName": "%s"}`, campaign, scpName, loginName)
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origToken := upstreamConfig.token
+	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
-		upstreamConfig.token = origToken
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
 	}()
 	upstreamConfig.token = "testWfToken"
 	testId := "testNewWebflowParticipantId"
 	ts := setupMockWebflowUserCreate(t, testId)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -1241,18 +1176,14 @@ func TestLogAddParticipantNoError(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"campaignName":"%s", "scpName": "%s","loginName": "%s"}`, campaign, scpName, loginName)
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origToken := upstreamConfig.token
+	origUpstreamConfig := setupMockUpstreamConfig()
 	defer func() {
-		upstreamConfig.token = origToken
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
 	}()
 	upstreamConfig.token = "testWfToken"
 	testId := "testNewWebflowParticipantId"
 	ts := setupMockWebflowUserCreate(t, testId)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	mock, dbMock, origDb := setupMockDb(t)
@@ -1369,6 +1300,10 @@ func setupMockContextUpstreamUpdateScore() (c echo.Context, rec *httptest.Respon
 }
 
 func TestUpstreamUpdateScoreStatusError(t *testing.T) {
+	origUpstreamConfig := setupMockUpstreamConfig()
+	defer func() {
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
+	}()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items/", upstreamConfig.participantCollection), r.URL.EscapedPath())
@@ -1378,16 +1313,8 @@ func TestUpstreamUpdateScoreStatusError(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 
 	c, rec := setupMockContextUpstreamUpdateScore()
@@ -1411,18 +1338,14 @@ func setupMockWebflowUserUpdate(t *testing.T, webflowId string) *httptest.Server
 }
 
 func TestUpstreamUpdateScore(t *testing.T) {
+	origUpstreamConfig := setupMockUpstreamConfig()
+	defer func() {
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
+	}()
 	ts := setupMockWebflowUserUpdate(t, "")
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 
 	c, rec := setupMockContextUpstreamUpdateScore()
@@ -1448,18 +1371,14 @@ func TestUpdateParticipantNoRowsUpdated(t *testing.T) {
 		WithArgs(0, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(participantID, 0))
 
+	origUpstreamConfig := setupMockUpstreamConfig()
+	defer func() {
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
+	}()
 	ts := setupMockWebflowUserUpdate(t, participantID)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 
 	assert.NoError(t, updateParticipant(c))
@@ -1483,18 +1402,14 @@ func TestUpdateParticipant(t *testing.T) {
 		WithArgs(0, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(participantID, 0))
 
+	origUpstreamConfig := setupMockUpstreamConfig()
+	defer func() {
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
+	}()
 	ts := setupMockWebflowUserUpdate(t, participantID)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 
 	assert.NoError(t, updateParticipant(c))
@@ -2205,10 +2120,6 @@ func TestDeleteParticipant(t *testing.T) {
 	}()
 	ts := setupMockWebflowCampaignDelete(t)
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextParticipantDelete(campaign, scpName, loginName)
@@ -2259,10 +2170,6 @@ func TestDeleteParticipantWithUpstreamDeleteError(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
 	c, rec := setupMockContextParticipantDelete(campaign, scpName, loginName)
@@ -2806,6 +2713,10 @@ func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
 		WithArgs(8, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(strings.ToLower(loginName), 0))
 
+	origUpstreamConfig := setupMockUpstreamConfig()
+	defer func() {
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
+	}()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, strings.ToLower(loginName)), r.URL.EscapedPath())
@@ -2815,16 +2726,8 @@ func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
 		w.WriteHeader(http.StatusBadRequest)
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 
 	err = newScore(c)
@@ -2869,6 +2772,10 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 		WithArgs(8, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(strings.ToLower(loginName), 0))
 
+	origUpstreamConfig := setupMockUpstreamConfig()
+	defer func() {
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
+	}()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, strings.ToLower(loginName)), r.URL.EscapedPath())
@@ -2878,16 +2785,8 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 
 	err = newScore(c)
@@ -2934,6 +2833,10 @@ func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
 		WithArgs(8, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(loginNameLowerCase, 0))
 
+	origUpstreamConfig := setupMockUpstreamConfig()
+	defer func() {
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
+	}()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, loginNameLowerCase), r.URL.EscapedPath())
@@ -2943,16 +2846,8 @@ func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 
 	mock.ExpectCommit()
@@ -2999,6 +2894,10 @@ func TestNewScoreOneAlert(t *testing.T) {
 		WithArgs(8, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(loginName, 0))
 
+	origUpstreamConfig := setupMockUpstreamConfig()
+	defer func() {
+		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
+	}()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
 		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, loginName), r.URL.EscapedPath())
@@ -3008,16 +2907,8 @@ func TestNewScoreOneAlert(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
-	origBaseAPI := upstreamConfig.baseAPI
-	defer func() {
-		upstreamConfig.baseAPI = origBaseAPI
-	}()
 	upstreamConfig.baseAPI = ts.URL
 
-	origToken := upstreamConfig.token
-	defer func() {
-		upstreamConfig.token = origToken
-	}()
 	upstreamConfig.token = "testWfToken"
 
 	mock.ExpectCommit()
