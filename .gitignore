@@ -29,3 +29,7 @@ tmp/
 
 # Environments
 scripts/.venv
+
+# Javascript
+node_modules/
+build/

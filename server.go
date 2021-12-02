@@ -21,13 +21,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/labstack/echo/v4/middleware"
-	"github.com/sonatype-nexus-community/bbash/buildversion"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/labstack/echo/v4/middleware"
+	"github.com/sonatype-nexus-community/bbash/buildversion"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
@@ -170,6 +171,7 @@ const (
 	ScoreEvent            string = "/scoring"
 	New                   string = "/new"
 	WebflowApiBase        string = "https://api.webflow.com"
+	buildLocation         string = "build"
 )
 
 type webflowConfig struct {
@@ -312,6 +314,8 @@ func main() {
 	scoreGroup := e.Group(ScoreEvent)
 
 	scoreGroup.POST(New, logNewScore)
+
+	e.Static("/", buildLocation)
 
 	routes := e.Routes()
 

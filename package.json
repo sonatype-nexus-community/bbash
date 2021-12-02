@@ -1,0 +1,53 @@
+{
+  "name": "bbash",
+  "version": "0.0.1",
+  "description": "[![sonatype-nexus-community](https://circleci.com/gh/sonatype-nexus-community/bbash.svg?style=shield)](https://circleci.com/gh/sonatype-nexus-community/bbash) # BBash",
+  "main": "index.js",
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test --transformIgnorePatterns \"node_modules/(?!@codemirror)/\"",
+    "eject": "react-scripts eject"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sonatype-nexus-community/bbash.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sonatype-nexus-community/bbash/issues"
+  },
+  "dependencies": {
+    "@sonatype/react-shared-components": "^9.1.14",
+    "react": "^17.0.2",
+    "react-dom": "^17.0.2",
+    "react-fetching-library": "^1.7.6",
+    "web-vitals": "^2.1.2"
+  },
+  "devDependencies": {
+    "@types/react": "^17.0.37",
+    "@types/react-dom": "^17.0.11",
+    "react-scripts": "^4.0.3",
+    "sass": "^1.44.0",
+    "typescript": "^4.5.2"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
