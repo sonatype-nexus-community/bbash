@@ -26,7 +26,7 @@ GOTEST=$(GOCMD) test
 
 all: test
 
-air:
+air: yarn
 	$(GOBUILD) -o ./tmp/bbash $(GOBUILD_FLAGS) ./server.go
 
 docker:
@@ -34,7 +34,7 @@ docker:
 	docker build -t bug-bash .
 	docker image prune --force --filter label=stage=builder 
 
-run-air:
+run-air: air
 	docker run --name bug_bash_postgres -p 5432:5432 -e POSTGRES_PASSWORD=bug_bash -e POSTGRES_DB=db -d postgres
 	$(AIRCMD) -c .air.toml && docker stop bug_bash_postgres && docker rm bug_bash_postgres
 
