@@ -2,6 +2,8 @@
 GOCMD=go
 GOBUILD=$(GOCMD) build
 
+AIRCMD=~/go/bin/air
+
 TAG_COMMIT := $(shell git rev-list --abbrev-commit --tags --max-count=1)
 TAG := $(shell git describe --abbrev=0 --tags ${TAG_COMMIT} 2>/dev/null || true)
 COMMIT := $(shell git rev-parse --short HEAD)
@@ -34,7 +36,7 @@ docker:
 
 run-air:
 	docker run --name bug_bash_postgres -p 5432:5432 -e POSTGRES_PASSWORD=bug_bash -e POSTGRES_DB=db -d postgres
-	air -c .air.toml && docker stop bug_bash_postgres && docker rm bug_bash_postgres
+	$(AIRCMD) -c .air.toml && docker stop bug_bash_postgres && docker rm bug_bash_postgres
 
 build: yarn go-build
 
