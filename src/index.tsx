@@ -17,7 +17,7 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 import { ClientContextProvider, createClient } from 'react-fetching-library';
 import BugBashContainer from './BugBashContainer';
-import reportWebVitals from './reportWebVitals';
+import reportWebVitals from "./reportWebVitals";
 
 const client = createClient({});
 
