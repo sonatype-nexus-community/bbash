@@ -13,18 +13,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { NxNexusPageHeader } from "@sonatype/react-shared-components"
+import {NxNexusPageHeader} from "@sonatype/react-shared-components"
 import React from "react"
 import packageJson from '../../package.json';
 
+import customLogo from '../assets/images/logo-bbash.png';
+
 const Header = () => {
     return (
-      <NxNexusPageHeader 
-        productInfo={{ 
-            name: (process.env.REACT_APP_BUG_BASH_APP_NAME) ? process.env.REACT_APP_BUG_BASH_APP_NAME : packageJson.name,
-            version: packageJson.version
-          }}
-          />
+        <NxNexusPageHeader
+            productInfo={{
+                name: (process.env.REACT_APP_BUG_BASH_APP_NAME) ? process.env.REACT_APP_BUG_BASH_APP_NAME : packageJson.name,
+                version: packageJson.version
+            }}
+            logoPath={customLogo}
+        />
     )
 }
 
