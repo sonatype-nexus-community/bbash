@@ -32,7 +32,7 @@ const BashSelect = () => {
     }
 
     return (
-        <NxFormGroup label={`Selected Option: ${selectState.value}`} isRequired>
+        <NxFormGroup label={`Selected Bash: ${selectState.value}`} isRequired>
             <NxFormSelect>
                 <option value="1">Option 1</option>
             </NxFormSelect>
