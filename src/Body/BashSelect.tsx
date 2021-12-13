@@ -16,19 +16,24 @@
 import {NxFormGroup, NxFormSelect, nxFormSelectStateHelpers} from "@sonatype/react-shared-components"
 import React, {FormEvent} from "react"
 
-type Campaign = {
+interface Campaign {
     id: string
     name: string
     createdOn: string
 }
 
+type BashSelectProps = {
+    setCampaign: any
+}
+
 var selectedCampaign: Campaign
 
-const BashSelect = () => {
+const BashSelect = (props: BashSelectProps) => {
     const [selectState, setSelectValue] = nxFormSelectStateHelpers.useNxFormSelectState<number>(1);
 
-    function onChange(evt: FormEvent<HTMLSelectElement>) {
+    const onChange = (evt: FormEvent<HTMLSelectElement>) => {
         setSelectValue(parseInt(evt.currentTarget.value));
+        props.setCampaign(evt.currentTarget.value);
     }
 
     return (
@@ -41,3 +46,5 @@ const BashSelect = () => {
 }
 
 export default BashSelect;
+
+export type {Campaign}

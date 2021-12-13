@@ -15,32 +15,41 @@
  */
 import {NxTable} from "@sonatype/react-shared-components"
 import React from "react"
+import {Campaign} from "./BashSelect";
 
 type BashSelectProps = {
-    activeCampaigns: (event: any) => void;
+    selectedBash?: Campaign;
 }
 
 const LeaderBoard = (props: BashSelectProps) => {
-    return (
-        <NxTable>
-            <NxTable.Head>
-                <NxTable.Row>
-                    <NxTable.Cell>GitHub ID</NxTable.Cell>
-                    <NxTable.Cell isNumeric>Points</NxTable.Cell>
-                </NxTable.Row>
-            </NxTable.Head>
-            <NxTable.Body>
-                <NxTable.Row>
-                    <NxTable.Cell>Content 1</NxTable.Cell>
-                    <NxTable.Cell isNumeric>4</NxTable.Cell>
-                </NxTable.Row>
-                <NxTable.Row>
-                    <NxTable.Cell>Content 1</NxTable.Cell>
-                    <NxTable.Cell isNumeric>4</NxTable.Cell>
-                </NxTable.Row>
-            </NxTable.Body>
-        </NxTable>
-    )
+
+    const doRender = (campaign: Campaign) => {
+        return (
+            <NxTable>
+                <NxTable.Head>
+                    <NxTable.Row>
+                        <NxTable.Cell>GitHub ID</NxTable.Cell>
+                        <NxTable.Cell isNumeric>Points</NxTable.Cell>
+                    </NxTable.Row>
+                </NxTable.Head>
+                <NxTable.Body>
+                    <NxTable.Row>
+                        <NxTable.Cell>Content 1</NxTable.Cell>
+                        <NxTable.Cell isNumeric>4</NxTable.Cell>
+                    </NxTable.Row>
+                    <NxTable.Row>
+                        <NxTable.Cell>Content 1</NxTable.Cell>
+                        <NxTable.Cell isNumeric>4</NxTable.Cell>
+                    </NxTable.Row>
+                </NxTable.Body>
+            </NxTable>
+        )
+    }
+
+    if (props.selectedBash) {
+        return doRender(props.selectedBash);
+    }
+    return null;
 }
 
 export default LeaderBoard;

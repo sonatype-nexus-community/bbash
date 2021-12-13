@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 import React, {useState} from "react";
-import BashSelect from "./BashSelect";
+import BashSelect, {Campaign} from "./BashSelect";
 import LeaderBoard from "./LeaderBoard";
 
 const Body = () => {
 
-    // const [selectedBash, setSelectedBash] = useState<Campaign>(false)
+    const [selectedBash, setSelectedBash] = useState<Campaign | undefined>(undefined)
 
     const doRender = () => {
 
       return <>
           <h1>Welcome to the Bug Bash!</h1>
-          <BashSelect/>
-          {/*<LeaderBoard activeCampaigns={BashSelect}/>*/}
+          <BashSelect setCampaign={setSelectedBash}/>
+          <LeaderBoard selectedBash={selectedBash}/>
         </>
     }
 
