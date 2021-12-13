@@ -13,14 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React from "react";
+import React, {useState} from "react";
+import BashSelect from "./BashSelect";
+import LeaderBoard from "./LeaderBoard";
 
 const Body = () => {
+
+    // const [selectedBash, setSelectedBash] = useState<Campaign>(false)
 
     const doRender = () => {
 
       return <>
           <h1>Welcome to the Bug Bash!</h1>
+          <BashSelect/>
+          {/*<LeaderBoard activeCampaigns={BashSelect}/>*/}
         </>
     }
 
