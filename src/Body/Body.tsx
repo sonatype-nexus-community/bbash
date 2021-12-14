@@ -13,13 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React, {useState} from "react";
+import React, {FormEvent, useState} from "react";
 import BashSelect, {Campaign} from "./BashSelect";
 import LeaderBoard from "./LeaderBoard";
 
 const Body = () => {
 
     const [selectedBash, setSelectedBash] = useState<Campaign | undefined>(undefined)
+
+    const onChange = (evt: FormEvent<HTMLSelectElement>) => {
+        console.log("body changed")
+    }
 
     const doRender = () => {
 
