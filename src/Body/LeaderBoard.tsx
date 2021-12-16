@@ -18,7 +18,7 @@ import React, {useContext, useState} from "react"
 import {Campaign} from "./CampaignSelect";
 import {Action, ClientContext} from "react-fetching-library";
 
-type BashSelectProps = {
+type CampaignSelectProps = {
     selectedCampaign?: Campaign;
 }
 
@@ -40,7 +40,7 @@ type queryError = {
 }
 
 
-const LeaderBoard = (props: BashSelectProps) => {
+const LeaderBoard = (props: CampaignSelectProps) => {
 
     const [queryError, setQueryError] = useState<queryError>({error: false, errorMessage: ""}),
         [currentCampaign, setCurrentCampaign] = useState<Campaign>(),
