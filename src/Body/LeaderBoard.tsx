@@ -13,13 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import {NxTable} from "@sonatype/react-shared-components"
-import React, {FormEvent, useContext, useState} from "react"
-import {Campaign} from "./BashSelect";
+import {NxLoadError, NxTable} from "@sonatype/react-shared-components"
+import React, {useContext, useState} from "react"
+import {Campaign} from "./CampaignSelect";
 import {Action, ClientContext} from "react-fetching-library";
 
 type BashSelectProps = {
-    selectedBash?: Campaign;
+    selectedCampaign?: Campaign;
 }
 
 interface Participant {
@@ -43,49 +43,37 @@ type queryError = {
 const LeaderBoard = (props: BashSelectProps) => {
 
     const [queryError, setQueryError] = useState<queryError>({error: false, errorMessage: ""}),
-        [leadersFetched, setLeadersFetched] = useState(false),
-        [leadersList, setLeadersList] = useState<Participant[]>([]),
-        [priorCampaign, setPriorCampaign] = useState<Campaign>();
+        [currentCampaign, setCurrentCampaign] = useState<Campaign>(),
+        [participantList, setParticipantList] = useState<Participant[]>();
 
 
     const clientContext = useContext(ClientContext);
     const getLeaders = async (campaign: Campaign) => {
-        if (leadersFetched) { // @todo better way to avoid looping?
+
+        if (participantList?.length && campaign.name == currentCampaign?.name) { // @todo better way to avoid looping?
             return;
         }
 
         const getLeadersAction: Action = {
             method: 'GET',
-            endpoint: `/participant/list/${campaign?.name}`
+            endpoint: `/participant/list/${campaign.name}`
         }
         const res = await clientContext.query(getLeadersAction);
 
         if (!res.error) {
-            setLeadersFetched(true); // @todo better way to avoid looping?
-
-            console.log("leaders fetched")
-            console.log(res.payload)
-
-            setLeadersList(res.payload ? res.payload : []);
+            setParticipantList(res.payload ? res.payload : []);  // @todo better way to avoid looping?
+            setCurrentCampaign(campaign)
         } else {
             setQueryError({error: true, errorMessage: res.payload});
         }
     }
 
-    const onChange = (evt: FormEvent<HTMLSelectElement>) => {
-        console.log("leader changes")
-    }
-
-    let lastCampaign: Campaign
     const doRender = (campaign: Campaign) => {
-        console.log("render leaders, campaign %s, prior: %s, last: %s", campaign.name, priorCampaign?.name, lastCampaign?.name)
-        // @todo How to trigger refresh of participants w/out forever loop
-        // if (priorCampaign && campaign && priorCampaign.guid != campaign.guid) {
-        //     setLeadersFetched(false);
-        // }
         getLeaders(campaign);
-        //setPriorCampaign(campaign)
-        lastCampaign = campaign
+
+        if (queryError.error) {
+            return <NxLoadError error={queryError.errorMessage}/>;
+        }
 
         return (
             <NxTable>
@@ -96,7 +84,7 @@ const LeaderBoard = (props: BashSelectProps) => {
                     </NxTable.Row>
                 </NxTable.Head>
                 <NxTable.Body>
-                    {leadersList.length ? leadersList.map((participant) =>
+                    {participantList?.length ? participantList.map((participant) =>
                             <NxTable.Row>
                                 <NxTable.Cell>{participant.loginName}</NxTable.Cell>
                                 <NxTable.Cell isNumeric>{participant.score}</NxTable.Cell>
@@ -108,8 +96,8 @@ const LeaderBoard = (props: BashSelectProps) => {
         )
     }
 
-    if (props.selectedBash) {
-        return doRender(props.selectedBash);
+    if (props.selectedCampaign) {
+        return doRender(props.selectedCampaign);
     }
     return null;
 }

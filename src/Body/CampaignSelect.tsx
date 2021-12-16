@@ -14,11 +14,8 @@
  * limitations under the License.
  */
 import {
-    NxFormGroup,
     NxFormSelect,
-    nxFormSelectStateHelpers,
-    NxLoadError,
-    NxTooltip
+    NxLoadError
 } from "@sonatype/react-shared-components"
 import React, {FormEvent, useContext, useState} from "react"
 import {Action, ClientContext} from "react-fetching-library";
@@ -34,22 +31,21 @@ type queryError = {
     errorMessage: string
 }
 
-type BashSelectProps = {
-    setCampaign: any
+type CampaignSelectProps = {
+    selectedCampaign: any
 }
 
 
-const BashSelect = (props: BashSelectProps) => {
+const CampaignSelect = (props: CampaignSelectProps) => {
 
     const [queryError, setQueryError] = useState<queryError>({error: false, errorMessage: ""}),
-        [bashListFetched, setBashListFetched] = useState(false),
-        [bashList, setBashList] = useState<Campaign[]>([]),
-        [selectedCampaign, setSelectedCampaign] = useState<Campaign>();
+        [campaignList, setCampaignList] = useState<Campaign[]>([]);
 
     const clientContext = useContext(ClientContext);
-    const getBashList = async () => {
-        if (bashListFetched) { // @todo better way to avoid looping?
-            return;
+
+    const getCampaignList = async () => {
+        if (campaignList?.length) { // @todo better way to avoid looping?
+            return
         }
 
         const getBashesAction: Action = {
@@ -59,8 +55,7 @@ const BashSelect = (props: BashSelectProps) => {
         const res = await clientContext.query(getBashesAction);
 
         if (!res.error) {
-            setBashListFetched(true); // @todo better way to avoid looping?
-            setBashList(res.payload ? res.payload : []);
+            setCampaignList(res.payload ? res.payload : []); // @todo better way to avoid looping?
         } else {
             setQueryError({error: true, errorMessage: res.payload});
         }
@@ -68,29 +63,23 @@ const BashSelect = (props: BashSelectProps) => {
 
     const onChange = (evt: FormEvent<HTMLSelectElement>) => {
         const selectedGuid = evt.currentTarget.value;
-        const foundCampaign = bashList.find(element => element.guid == selectedGuid)
-        setSelectedCampaign(foundCampaign);
-        // props.setCampaign(evt.currentTarget.value);
-        props.setCampaign(foundCampaign);
+        const foundCampaign = campaignList.find(element => element.guid == selectedGuid)
+        props.selectedCampaign(foundCampaign);
     }
 
     const doRender = () => {
-        getBashList();
+        getCampaignList();
 
         if (queryError.error) {
             return <NxLoadError error={queryError.errorMessage}/>;
         }
 
         return (
-            <NxTooltip title="Select a Bash" placement="top">
-                <NxFormGroup label={`Selected Bash: ${selectedCampaign?.name} (${selectedCampaign?.guid}) created on: ${selectedCampaign?.createdOn}`} isRequired>
-                    <NxFormSelect onChange={onChange}>
-                        {bashList.length ? bashList.map((bash) =>
-                            <option value={bash.guid}>{bash.name}</option>)
-                            : <option value="0">No Bashes Available</option>}
-                    </NxFormSelect>
-                </NxFormGroup>
-            </NxTooltip>
+            <NxFormSelect onChange={onChange}>
+                {campaignList.length ? campaignList.map((bash) =>
+                        <option value={bash.guid}>{bash.name}</option>)
+                    : <option value="0">No Bashes Available</option>}
+            </NxFormSelect>
         )
     }
 
@@ -99,6 +88,6 @@ const BashSelect = (props: BashSelectProps) => {
     )
 }
 
-export default BashSelect;
+export default CampaignSelect;
 
 export type {Campaign}

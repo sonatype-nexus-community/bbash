@@ -13,24 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React, {FormEvent, useState} from "react";
-import BashSelect, {Campaign} from "./BashSelect";
+import React, {useState} from "react";
+import CampaignSelect, {Campaign} from "./CampaignSelect";
 import LeaderBoard from "./LeaderBoard";
 
 const Body = () => {
 
-    const [selectedBash, setSelectedBash] = useState<Campaign | undefined>(undefined)
-
-    const onChange = (evt: FormEvent<HTMLSelectElement>) => {
-        console.log("body changed")
-    }
+    const [selectedCampaign, setSelectedCampaign] = useState<Campaign>()
 
     const doRender = () => {
 
       return <>
           <h1>Welcome to the Bug Bash!</h1>
-          <BashSelect setCampaign={setSelectedBash}/>
-          <LeaderBoard selectedBash={selectedBash}/>
+          <CampaignSelect selectedCampaign={setSelectedCampaign}/>
+          <LeaderBoard selectedCampaign={selectedCampaign}/>
         </>
     }
 
