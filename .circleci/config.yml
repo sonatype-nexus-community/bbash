@@ -21,7 +21,7 @@ executors:
   go:
     docker:
 #      - image: circleci/golang:1.16.2-buster-node-browsers-legacy
-      - image: cimg/go:1.16-node
+      - image: cimg/go:1.17-node
 
 commands:
   cmd-nancy:
