@@ -21,7 +21,7 @@ executors:
   go:
     docker:
 #      - image: circleci/golang:1.16.2-buster-node-browsers-legacy
-      - image: cimg/go:1.17-node
+      - image: cimg/go:1.16-node
 
 commands:
   cmd-nancy:
@@ -42,13 +42,13 @@ jobs:
       - run: mkdir -p $TEST_RESULTS/gotest
       - restore_cache:
           keys:
-            - go-mod-v1-{{ checksum "go.sum" }}
+            - go-mod-v2-{{ checksum "go.sum" }}
       - run: go get -u github.com/jstemmer/go-junit-report
       - run: make all
       - run: make test | go-junit-report > $TEST_RESULTS/gotest/report.xml
       - cmd-nancy
       - save_cache:
-          key: go-mod-v1-{{ checksum "go.sum" }}
+          key: go-mod-v2-{{ checksum "go.sum" }}
           paths:
             - "/go/pkg/mod"
       - store_artifacts:
