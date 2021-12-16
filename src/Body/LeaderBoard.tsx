@@ -50,7 +50,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
     const clientContext = useContext(ClientContext);
     const getLeaders = async (campaign: Campaign) => {
 
-        if (participantList?.length && campaign.name == currentCampaign?.name) { // @todo better way to avoid looping?
+        if (participantList?.length && campaign.name === currentCampaign?.name) { // @todo better way to avoid looping?
             return;
         }
 

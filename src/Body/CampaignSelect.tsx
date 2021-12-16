@@ -63,7 +63,7 @@ const CampaignSelect = (props: CampaignSelectProps) => {
 
     const onChange = (evt: FormEvent<HTMLSelectElement>) => {
         const selectedGuid = evt.currentTarget.value;
-        const foundCampaign = campaignList.find(element => element.guid == selectedGuid)
+        const foundCampaign = campaignList.find(element => element.guid === selectedGuid)
         props.selectedCampaign(foundCampaign);
     }
 
