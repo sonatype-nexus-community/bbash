@@ -44,15 +44,15 @@ const CampaignSelect = (props: CampaignSelectProps) => {
     const clientContext = useContext(ClientContext);
 
     const getCampaignList = async () => {
-        if (campaignList?.length) { // @todo better way to avoid looping?
+        if (campaignList?.length || queryError?.error) { // @todo better way to avoid looping?
             return
         }
 
-        const getBashesAction: Action = {
+        const getCampaignsAction: Action = {
             method: 'GET',
             endpoint: `/campaign/list`
         }
-        const res = await clientContext.query(getBashesAction);
+        const res = await clientContext.query(getCampaignsAction);
 
         if (!res.error) {
             setCampaignList(res.payload ? res.payload : []); // @todo better way to avoid looping?
@@ -71,7 +71,7 @@ const CampaignSelect = (props: CampaignSelectProps) => {
         getCampaignList();
 
         if (queryError.error) {
-            return <NxLoadError error={queryError.errorMessage}/>;
+            return <NxLoadError error={queryError?.errorMessage}/>;
         }
 
         return (
