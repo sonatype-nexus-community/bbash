@@ -38,6 +38,9 @@ run-air: air
 	docker run --name bug_bash_postgres -p 5432:5432 -e POSTGRES_PASSWORD=bug_bash -e POSTGRES_DB=db -d postgres
 	$(AIRCMD) -c .air.toml && docker stop bug_bash_postgres && docker rm bug_bash_postgres
 
+run-air-alone: yarn
+	$(AIRCMD) -c .air.toml
+
 build: yarn go-build
 
 go-build:
