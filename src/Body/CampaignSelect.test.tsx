@@ -22,8 +22,15 @@ describe("<CampaignSelect />", () => {
     test("Should display an error by default-not really, but we'll fix this", async () => {
         const { findByTestId } = render(<CampaignSelect selectedCampaign={(e: any) => { }}/>);
 
-        const h1 = await findByTestId(`cla-body-error`);
+        // const h1 = await findByTestId(`campaign-select-error`);
+        const h1 = await findByTestId(`campaign-select`);
 
-        expect(h1).toHaveTextContent("There was an error!");
+        // console.log(h1);
+        console.log(h1.getAttributeNames());
+        console.log(h1.className);
+
+        expect(h1.className).toEqual("nx-form-select");
+
+        // expect(h1).toHaveTextContent("No Campaigns Available");
     });
 });

@@ -71,14 +71,14 @@ const CampaignSelect = (props: CampaignSelectProps) => {
         getCampaignList();
 
         if (queryError.error) {
-            return <NxLoadError error={queryError?.errorMessage}/>;
+            return <NxLoadError error={queryError?.errorMessage} data-testid="campaign-select-error"/>;
         }
 
         return (
-            <NxFormSelect onChange={onChange}>
+            <NxFormSelect onChange={onChange} data-testid="campaign-select">
                 {campaignList.length ? campaignList.map((bash) =>
                         <option value={bash.guid}>{bash.name}</option>)
-                    : <option value="0">No Bashes Available</option>}
+                    : <option value="0">No Campaigns Available</option>}
             </NxFormSelect>
         )
     }
