@@ -79,8 +79,8 @@ const LeaderBoard = (props: CampaignSelectProps) => {
             <NxTable>
                 <NxTable.Head>
                     <NxTable.Row>
-                        <NxTable.Cell>GitHub ID</NxTable.Cell>
-                        <NxTable.Cell isNumeric>Points</NxTable.Cell>
+                        <NxTable.Cell>Source Code Repository User Name</NxTable.Cell>
+                        <NxTable.Cell isNumeric>Score</NxTable.Cell>
                     </NxTable.Row>
                 </NxTable.Head>
                 <NxTable.Body>
@@ -90,7 +90,10 @@ const LeaderBoard = (props: CampaignSelectProps) => {
                                 <NxTable.Cell isNumeric>{participant.score}</NxTable.Cell>
                             </NxTable.Row>
                         )
-                        : <NxTable.Row>No Participants</NxTable.Row>}
+                        : <NxTable.Row>
+                            <NxTable.Cell>No Participants</NxTable.Cell>
+                            <NxTable.Cell isNumeric> </NxTable.Cell>
+                        </NxTable.Row>}
                 </NxTable.Body>
             </NxTable>
         )
