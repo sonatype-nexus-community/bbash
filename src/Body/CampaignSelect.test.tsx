@@ -13,24 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { render } from '@testing-library/react';
+import {render} from '@testing-library/react';
 import React from 'react';
+import {ClientContextProvider, createClient} from 'react-fetching-library';
 
 import CampaignSelect from './CampaignSelect';
 
-describe("<CampaignSelect />", () => {
-    test("Should display an error by default-not really, but we'll fix this", async () => {
-        const { findByTestId } = render(<CampaignSelect selectedCampaign={(e: any) => { }}/>);
+describe("<CampaignSelect></CampaignSelect>", () => {
+    test("Should have no campaign selected by default", async () => {
+        const client = createClient({});
 
-        // const h1 = await findByTestId(`campaign-select-error`);
-        const h1 = await findByTestId(`campaign-select`);
+        const {findByText} = render(
+            <ClientContextProvider client={client}>
+                <CampaignSelect setSelectedCampaign={() => {
+                }}/>
+            </ClientContextProvider>
+        );
 
-        // console.log(h1);
-        console.log(h1.getAttributeNames());
-        console.log(h1.className);
-
-        expect(h1.className).toEqual("nx-form-select");
-
-        // expect(h1).toHaveTextContent("No Campaigns Available");
+        const foundElement = await findByText("Select a campaign");
+        expect(foundElement).toBeTruthy()
     });
 });

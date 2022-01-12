@@ -23,15 +23,15 @@ const Body = () => {
 
     const doRender = () => {
 
-      return <>
-          <h1>Welcome to the Bug Bash!</h1>
-          <CampaignSelect selectedCampaign={setSelectedCampaign}/>
-          <LeaderBoard selectedCampaign={selectedCampaign}/>
+        return <>
+            <h1>Welcome to the Bug Bash!</h1>
+            <CampaignSelect setSelectedCampaign={setSelectedCampaign}/>
+            <LeaderBoard selectedCampaign={selectedCampaign}/>
         </>
     }
 
     return (
-      doRender()
+        doRender()
     )
 }
 

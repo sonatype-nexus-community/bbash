@@ -32,7 +32,7 @@ type queryError = {
 }
 
 type CampaignSelectProps = {
-    selectedCampaign: any
+    setSelectedCampaign: (campaign: Campaign | undefined) => void
 }
 
 
@@ -64,21 +64,22 @@ const CampaignSelect = (props: CampaignSelectProps) => {
     const onChange = (evt: FormEvent<HTMLSelectElement>) => {
         const selectedGuid = evt.currentTarget.value;
         const foundCampaign = campaignList.find(element => element.guid === selectedGuid)
-        props.selectedCampaign(foundCampaign);
+        props.setSelectedCampaign(foundCampaign);
     }
 
     const doRender = () => {
         getCampaignList();
 
         if (queryError.error) {
-            return <NxLoadError error={queryError?.errorMessage} data-testid="campaign-select-error"/>;
+            return <NxLoadError error={queryError?.errorMessage}/>;
         }
 
         return (
-            <NxFormSelect onChange={onChange} data-testid="campaign-select">
+            <NxFormSelect onChange={onChange} defaultValue="">
+                <option value="" disabled hidden>Select a campaign</option>
                 {campaignList.length ? campaignList.map((bash) =>
-                        <option value={bash.guid}>{bash.name}</option>)
-                    : <option value="0">No Campaigns Available</option>}
+                        <option key={bash.guid} value={bash.guid}>{bash.name}</option>)
+                    : ""}
             </NxFormSelect>
         )
     }
