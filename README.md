@@ -117,7 +117,7 @@ Some pre-requisite/one-time setup steps:
         $ aws-vault exec <your_profile> terraform plan
 
 
-An executable bash script similar to the following will make pushing images easier:
+An executable bash script (`docker.sh`?) similar to the following will make pushing images easier:
 
 ```bash
 #!/bin/bash
