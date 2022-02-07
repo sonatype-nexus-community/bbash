@@ -25,7 +25,9 @@ You can run:
 
 ### Running/Developing
 
-Thanks to Air, there is some amount of "live-reload". To run the project, you can run `air -c .air.toml` in the project root. Once it is built, you should be able to access the site at `http://localhost:7777/`
+Thanks to Air, there is some amount of "live-reload". To run the project, you can run `air -c .air.toml` in the project root. 
+Once it is built, you should be able to access the site at http://localhost:7777/.
+The app pages live at: http://localhost:7777/index.html
 
 Any code changes to golang files will cause a rebuild and restart, and will be accessible via the browser with a refresh!
 
