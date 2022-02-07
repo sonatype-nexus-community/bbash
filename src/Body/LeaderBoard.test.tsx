@@ -39,4 +39,44 @@ describe("<LeaderBoard></LeaderBoard>", () => {
         const foundElement = await findByText("No Participants");
         expect(foundElement).toBeTruthy()
     });
+
+    test("Should show error if failure reading participant list", async () => {
+
+        // const client = createClient({});
+
+        // see this: https://marcin-piela.github.io/react-fetching-library/#/?id=response-interceptors
+        const responseInterceptor = client => async (action, response) => {
+            console.log("intercepted, response: ", response)
+            if (response.payload.data) {
+                return {
+                    ...response,
+                    payload: response.payload.data
+                };
+            }
+
+            return response;
+        };
+        console.log("responseInterceptor: ", responseInterceptor)
+
+        const client = createClient({
+            responseInterceptors: [responseInterceptor]
+        });
+        console.log(client)
+
+        const selectedCampaign: Campaign = {
+            guid: "myCampaignGuid",
+            name: "",
+            createdOn: Date()
+        };
+
+        const {findByText} = render(
+            <ClientContextProvider client={client}>
+                <LeaderBoard selectedCampaign={selectedCampaign}/>
+            </ClientContextProvider>
+        );
+        console.log("test ran")
+
+        const foundElement = await findByText("No Participants");
+        expect(foundElement).toBeTruthy()
+    });
 });

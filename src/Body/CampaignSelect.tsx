@@ -17,7 +17,7 @@ import {
     NxFormSelect,
     NxLoadError
 } from "@sonatype/react-shared-components"
-import React, {FormEvent, useContext, useState} from "react"
+import React, {FormEvent, useContext, useState, useEffect} from "react"
 import {Action, ClientContext} from "react-fetching-library";
 
 interface Campaign {
@@ -43,10 +43,12 @@ const CampaignSelect = (props: CampaignSelectProps) => {
 
     const clientContext = useContext(ClientContext);
 
+    useEffect(() => {
+        // noinspection JSIgnoredPromiseFromCall
+        getCampaignList()
+    }, []) // [] prevents rebuilding the list at each render
+
     const getCampaignList = async () => {
-        if (campaignList?.length || queryError?.error) { // @todo better way to avoid looping?
-            return
-        }
 
         const getCampaignsAction: Action = {
             method: 'GET',
@@ -57,7 +59,7 @@ const CampaignSelect = (props: CampaignSelectProps) => {
         if (!res.error) {
             setCampaignList(res.payload ? res.payload : []); // @todo better way to avoid looping?
         } else {
-            setQueryError({error: true, errorMessage: res.payload});
+            setQueryError({error: true, errorMessage: res.payload.error});
         }
     }
 
@@ -68,8 +70,6 @@ const CampaignSelect = (props: CampaignSelectProps) => {
     }
 
     const doRender = () => {
-        getCampaignList();
-
         if (queryError.error) {
             return <NxLoadError error={queryError?.errorMessage}/>;
         }

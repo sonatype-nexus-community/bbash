@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 import {NxLoadError, NxTable} from "@sonatype/react-shared-components"
-import React, {useContext, useState} from "react"
+import React, {useContext, useEffect, useState} from "react"
 import {Campaign} from "./CampaignSelect";
 import {Action, ClientContext} from "react-fetching-library";
 
@@ -43,17 +43,21 @@ type queryError = {
 const LeaderBoard = (props: CampaignSelectProps) => {
 
     const [queryError, setQueryError] = useState<queryError>({error: false, errorMessage: ""}),
-        [currentCampaign, setCurrentCampaign] = useState<Campaign>(),
         [participantList, setParticipantList] = useState<Participant[]>();
 
-
     const clientContext = useContext(ClientContext);
-    const getLeaders = async (campaign: Campaign) => {
 
-        if (participantList?.length && campaign.name === currentCampaign?.name) { // @todo better way to avoid looping?
-            return;
+    useEffect(() => {
+        console.debug("selectedCampaign", [props.selectedCampaign])
+        if (props.selectedCampaign) {
+            // noinspection JSIgnoredPromiseFromCall
+            getLeaders(props.selectedCampaign);
+        } else {
+            console.debug("no selectedCampaign, skipping getLeaders")
         }
+    }, [props.selectedCampaign]) // [props.selectedCampaign] rebuilds the list only when selectedCampaign changes
 
+    const getLeaders = async (campaign: Campaign) => {
         const getLeadersAction: Action = {
             method: 'GET',
             endpoint: `/participant/list/${campaign.name}`
@@ -61,16 +65,13 @@ const LeaderBoard = (props: CampaignSelectProps) => {
         const res = await clientContext.query(getLeadersAction);
 
         if (!res.error) {
-            setParticipantList(res.payload ? res.payload : []);  // @todo better way to avoid looping?
-            setCurrentCampaign(campaign)
+            setParticipantList(res.payload ? res.payload : []);
         } else {
-            setQueryError({error: true, errorMessage: res.payload});
+            setQueryError({error: true, errorMessage: res.payload.error});
         }
     }
 
-    const doRender = (campaign: Campaign) => {
-        getLeaders(campaign);
-
+    const doRender = () => {
         if (queryError.error) {
             return <NxLoadError error={queryError.errorMessage}/>;
         }
@@ -100,7 +101,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
     }
 
     if (props.selectedCampaign) {
-        return doRender(props.selectedCampaign);
+        return doRender();
     }
     return null;
 }
