@@ -49,27 +49,28 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
     useEffect(() => {
         console.debug("selectedCampaign", [props.selectedCampaign])
+
+        const getLeaders = async (campaign: Campaign) => {
+            const getLeadersAction: Action = {
+                method: 'GET',
+                endpoint: `/participant/list/${campaign.name}`
+            }
+            const res = await clientContext.query(getLeadersAction);
+
+            if (!res.error) {
+                setParticipantList(res.payload ? res.payload : []);
+            } else {
+                setQueryError({error: true, errorMessage: res.payload.error});
+            }
+        }
+
         if (props.selectedCampaign) {
             // noinspection JSIgnoredPromiseFromCall
             getLeaders(props.selectedCampaign);
         } else {
             console.debug("no selectedCampaign, skipping getLeaders")
         }
-    }, [props.selectedCampaign]) // [props.selectedCampaign] rebuilds the list only when selectedCampaign changes
-
-    const getLeaders = async (campaign: Campaign) => {
-        const getLeadersAction: Action = {
-            method: 'GET',
-            endpoint: `/participant/list/${campaign.name}`
-        }
-        const res = await clientContext.query(getLeadersAction);
-
-        if (!res.error) {
-            setParticipantList(res.payload ? res.payload : []);
-        } else {
-            setQueryError({error: true, errorMessage: res.payload.error});
-        }
-    }
+    }, [clientContext, props.selectedCampaign]) // rebuilds the list only when selectedCampaign changes
 
     const doRender = () => {
         if (queryError.error) {

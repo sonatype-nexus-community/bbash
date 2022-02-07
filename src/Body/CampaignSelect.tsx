@@ -44,24 +44,23 @@ const CampaignSelect = (props: CampaignSelectProps) => {
     const clientContext = useContext(ClientContext);
 
     useEffect(() => {
+
+        const getCampaignList = async () => {
+            const getCampaignsAction: Action = {
+                method: 'GET',
+                endpoint: `/campaign/list`
+            }
+            const res = await clientContext.query(getCampaignsAction);
+            if (!res.error) {
+                setCampaignList(res.payload ? res.payload : []); // @todo better way to avoid looping?
+            } else {
+                setQueryError({error: true, errorMessage: res.payload.error});
+            }
+        }
+
         // noinspection JSIgnoredPromiseFromCall
         getCampaignList()
-    }, []) // [] prevents rebuilding the list at each render
-
-    const getCampaignList = async () => {
-
-        const getCampaignsAction: Action = {
-            method: 'GET',
-            endpoint: `/campaign/list`
-        }
-        const res = await clientContext.query(getCampaignsAction);
-
-        if (!res.error) {
-            setCampaignList(res.payload ? res.payload : []); // @todo better way to avoid looping?
-        } else {
-            setQueryError({error: true, errorMessage: res.payload.error});
-        }
-    }
+    }, [clientContext]) // prevents rebuilding the list at each render
 
     const onChange = (evt: FormEvent<HTMLSelectElement>) => {
         const selectedGuid = evt.currentTarget.value;
