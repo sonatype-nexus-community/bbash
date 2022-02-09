@@ -18,6 +18,9 @@ import React from 'react';
 import {ClientContextProvider, createClient} from 'react-fetching-library';
 
 import CampaignSelect from './CampaignSelect';
+import {MockResponseObject} from "fetch-mock";
+import fetchMock from "fetch-mock-jest";
+import LeaderBoard from "./LeaderBoard";
 
 describe("<CampaignSelect></CampaignSelect>", () => {
     test("Should have no campaign selected by default", async () => {
@@ -25,12 +28,33 @@ describe("<CampaignSelect></CampaignSelect>", () => {
 
         const {findByText} = render(
             <ClientContextProvider client={client}>
-                <CampaignSelect setSelectedCampaign={() => {
-                }}/>
+                <CampaignSelect setSelectedCampaign={() => {}}/>
             </ClientContextProvider>
         );
 
-        const foundElement = await findByText("Select a campaign");
-        expect(foundElement).toBeTruthy()
+        expect(await findByText("Select a campaign")).toBeTruthy()
     });
+
+    test("Should show error if failure reading campaign list", async () => {
+        let myError = new Error("forced fetch error");
+        let mockResponse: MockResponseObject = {
+            throws: myError,
+        }
+        fetchMock.get('/campaign/list',
+            mockResponse
+        );
+
+        const client = createClient({});
+        const {findByText} = render(
+            <ClientContextProvider client={client}>
+                <CampaignSelect setSelectedCampaign={() => {}}/>
+            </ClientContextProvider>
+        );
+
+        expect(await findByText((content, node) => {
+            return content === "An error occurred loading data. " + myError.toString()
+        })).toBeTruthy()
+    });
+
 });
+

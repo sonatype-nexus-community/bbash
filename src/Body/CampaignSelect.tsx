@@ -52,9 +52,10 @@ const CampaignSelect = (props: CampaignSelectProps) => {
             }
             const res = await clientContext.query(getCampaignsAction);
             if (!res.error) {
-                setCampaignList(res.payload ? res.payload : []); // @todo better way to avoid looping?
+                setCampaignList(res.payload ? res.payload : []);
             } else {
-                setQueryError({error: true, errorMessage: res.payload.error});
+                const errMsg = (res && res.payload) ? res.payload.error : res.errorObject.toString()
+                setQueryError({error: true, errorMessage: errMsg});
             }
         }
 

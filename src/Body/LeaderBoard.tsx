@@ -48,8 +48,6 @@ const LeaderBoard = (props: CampaignSelectProps) => {
     const clientContext = useContext(ClientContext);
 
     useEffect(() => {
-        console.debug("selectedCampaign", [props.selectedCampaign])
-
         const getLeaders = async (campaign: Campaign) => {
             const getLeadersAction: Action = {
                 method: 'GET',
@@ -60,7 +58,8 @@ const LeaderBoard = (props: CampaignSelectProps) => {
             if (!res.error) {
                 setParticipantList(res.payload ? res.payload : []);
             } else {
-                setQueryError({error: true, errorMessage: res.payload.error});
+                const errMsg = (res && res.payload) ? res.payload.error : res.errorObject.toString()
+                setQueryError({error: true, errorMessage: errMsg});
             }
         }
 

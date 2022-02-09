@@ -16,67 +16,52 @@
 import {render} from '@testing-library/react';
 import React from 'react';
 import {ClientContextProvider, createClient} from 'react-fetching-library';
+import fetchMock from "fetch-mock-jest";
 
 import LeaderBoard from './LeaderBoard';
 import {Campaign} from "./CampaignSelect";
+import {MockResponseObject} from "fetch-mock";
+
+beforeEach(() => {
+    fetchMock.reset()
+})
+
+const selectedCampaign: Campaign = {
+    guid: "myCampaignGuid",
+    name: "myCampaignName",
+    createdOn: Date()
+};
 
 describe("<LeaderBoard></LeaderBoard>", () => {
     test("Should have no participants shown by default", async () => {
         const client = createClient({});
-
-        const selectedCampaign: Campaign = {
-            guid: "myCampaignGuid",
-            name: "myCampaignName",
-            createdOn: Date()
-        };
-
         const {findByText} = render(
             <ClientContextProvider client={client}>
                 <LeaderBoard selectedCampaign={selectedCampaign}/>
             </ClientContextProvider>
         );
 
-        const foundElement = await findByText("No Participants");
-        expect(foundElement).toBeTruthy()
+        expect(await findByText("No Participants")).toBeTruthy()
     });
 
     test("Should show error if failure reading participant list", async () => {
+        let myError = new Error("forced fetch error");
+        let mockResponse: MockResponseObject = {
+            throws: myError,
+        }
+        fetchMock.get('/participant/list/' + selectedCampaign.name,
+            mockResponse
+        );
 
-        // const client = createClient({});
-
-        // see this: https://marcin-piela.github.io/react-fetching-library/#/?id=response-interceptors
-        const responseInterceptor = client => async (action, response) => {
-            console.log("intercepted, response: ", response)
-            if (response.payload.data) {
-                return {
-                    ...response,
-                    payload: response.payload.data
-                };
-            }
-
-            return response;
-        };
-        console.log("responseInterceptor: ", responseInterceptor)
-
-        const client = createClient({
-            responseInterceptors: [responseInterceptor]
-        });
-        console.log(client)
-
-        const selectedCampaign: Campaign = {
-            guid: "myCampaignGuid",
-            name: "",
-            createdOn: Date()
-        };
-
+        const client = createClient({});
         const {findByText} = render(
             <ClientContextProvider client={client}>
                 <LeaderBoard selectedCampaign={selectedCampaign}/>
             </ClientContextProvider>
         );
-        console.log("test ran")
 
-        const foundElement = await findByText("No Participants");
-        expect(foundElement).toBeTruthy()
+        expect(await findByText((content, node) => {
+            return content === "An error occurred loading data. " + myError.toString()
+        })).toBeTruthy()
     });
 });
