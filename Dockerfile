@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM node:15.12.0-alpine3.13 as yarn-build
+FROM node:16.13.2-alpine3.15 as yarn-build
 LABEL stage=builder
 
 RUN apk add --update build-base
