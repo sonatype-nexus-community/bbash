@@ -60,7 +60,7 @@ describe("<LeaderBoard></LeaderBoard>", () => {
             </ClientContextProvider>
         );
 
-        expect(await findByText((content, node) => {
+        expect(await findByText((content) => {
             return content === "An error occurred loading data. " + myError.toString()
         })).toBeTruthy()
     });

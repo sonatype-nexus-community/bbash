@@ -20,7 +20,6 @@ import {ClientContextProvider, createClient} from 'react-fetching-library';
 import CampaignSelect from './CampaignSelect';
 import {MockResponseObject} from "fetch-mock";
 import fetchMock from "fetch-mock-jest";
-import LeaderBoard from "./LeaderBoard";
 
 describe("<CampaignSelect></CampaignSelect>", () => {
     test("Should have no campaign selected by default", async () => {
@@ -51,7 +50,7 @@ describe("<CampaignSelect></CampaignSelect>", () => {
             </ClientContextProvider>
         );
 
-        expect(await findByText((content, node) => {
+        expect(await findByText((content) => {
             return content === "An error occurred loading data. " + myError.toString()
         })).toBeTruthy()
     });
