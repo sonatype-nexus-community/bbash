@@ -397,12 +397,14 @@ func upstreamNewCampaign(c echo.Context, newCampaign campaignStruct, isActive bo
 		Fields: item,
 	}
 
-	body, err := json.Marshal(payload)
+	var body []byte
+	body, err = json.Marshal(payload)
 	if err != nil {
 		return
 	}
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", upstreamConfig.baseAPI, upstreamConfig.campaignCollection), bytes.NewReader(body))
+	var req *http.Request
+	req, err = http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", upstreamConfig.baseAPI, upstreamConfig.campaignCollection), bytes.NewReader(body))
 	if err != nil {
 		return
 	}
