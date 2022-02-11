@@ -17,7 +17,6 @@
 package main
 
 import (
-	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -40,15 +39,19 @@ import (
 
 var db *sql.DB
 
+// todo remove this when upstream stuff is removed
+const upstreamIdDeprecated = "deprecatedUpstreamId"
+
 type campaignStruct struct {
-	ID           string         `json:"guid"`
-	Name         string         `json:"name"`
-	CreatedOn    time.Time      `json:"createdOn"`
-	CreatedOrder int            `json:"createdOrder"`
-	StartOn      time.Time      `json:"startOn"`
-	EndOn        time.Time      `json:"endOn"`
-	UpstreamId   string         `json:"upstreamId"`
-	Note         sql.NullString `json:"note"`
+	ID           string    `json:"guid"`
+	Name         string    `json:"name"`
+	CreatedOn    time.Time `json:"createdOn"`
+	CreatedOrder int       `json:"createdOrder"`
+	StartOn      time.Time `json:"startOn"`
+	EndOn        time.Time `json:"endOn"`
+	// todo remove this when upstream stuff is removed
+	UpstreamId string         `json:"upstreamId"`
+	Note       sql.NullString `json:"note"`
 }
 
 type sourceControlProvider struct {
@@ -131,23 +134,6 @@ type leaderboardCampaignResponse struct {
 	Id string `json:"_id"`
 }
 
-type leaderboardItem struct {
-	UserName           string `json:"name"`
-	Slug               string `json:"slug"`
-	Score              int    `json:"score"`
-	CampaignUpstreamId string `json:"campaign-reference"`
-	Archived           bool   `json:"_archived"`
-	Draft              bool   `json:"_draft"`
-}
-
-type leaderboardPayload struct {
-	Fields leaderboardItem `json:"fields"`
-}
-
-type leaderboardResponse struct {
-	Id string `json:"_id"`
-}
-
 const (
 	ParamScpName          string = "scpName"
 	ParamLoginName        string = "loginName"
@@ -170,21 +156,8 @@ const (
 	Campaign              string = "/campaign"
 	ScoreEvent            string = "/scoring"
 	New                   string = "/new"
-	WebflowApiBase        string = "https://api.webflow.com"
 	buildLocation         string = "build"
 )
-
-type webflowConfig struct {
-	// variable baseAPI allows for changes to url for testing
-	baseAPI               string // typically default to: WebflowApiBase
-	token                 string
-	campaignCollection    string // campaign CMS collection id
-	participantCollection string // participant CMS collection id
-}
-
-var upstreamConfig = webflowConfig{
-	baseAPI: WebflowApiBase,
-}
 
 const envPGHost = "PG_HOST"
 const envPGPort = "PG_PORT"
@@ -194,6 +167,7 @@ const envPGDBName = "PG_DB_NAME"
 const envSSLMode = "SSL_MODE"
 
 var errRecovered error
+var upstreamEnabled bool
 
 func main() {
 	e := echo.New()
@@ -224,9 +198,9 @@ func main() {
 		e.Logger.Error(err)
 	}
 
-	upstreamConfig.token = os.Getenv("WEBFLOW_TOKEN")
-	upstreamConfig.campaignCollection = os.Getenv("WEBFLOW_CAMPAIGN_COLLECTION_ID")
-	upstreamConfig.participantCollection = os.Getenv("WEBFLOW_COLLECTION_ID")
+	if upstreamEnabled {
+		setupUpstream()
+	}
 
 	host, port, dbname, _, err := openDB()
 	if err != nil {
@@ -353,159 +327,6 @@ func (e *CreateError) Error() string {
 	return fmt.Sprintf(e.MsgPattern, e.Status)
 }
 
-const msgPatternCreateErrorCampaign = "could not create upstream campaign. response status: %s"
-const msgPatternActivateErrorCampaign = "could not activate upstream campaign. response status: %s"
-const msgPatternCreateErrorParticipant = "could not create upstream participant. response status: %s"
-const msgPatternDeleteErrorParticipant = "could not delete upstream participant. response status: %s"
-
-func doUpstreamRequest(c echo.Context, req *http.Request, errMsgPattern string) (res *http.Response, err error) {
-	requestHeaderSetup(req)
-
-	res, err = getNetClient().Do(req)
-	if err != nil {
-		return
-	}
-
-	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		defer res.Body.Close()
-		c.Logger().Debug(res)
-		var responseBody []byte
-		_, _ = res.Body.Read(responseBody)
-		c.Logger().Debug(responseBody)
-		// return a real error to the caller to indicate failure
-		err = &CreateError{MsgPattern: errMsgPattern, Status: res.Status}
-		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
-			err = errContext
-		}
-		return
-	}
-	return
-}
-
-func upstreamNewCampaign(c echo.Context, newCampaign campaignStruct, isActive bool) (id string, err error) {
-	item := leaderboardCampaign{
-		CampaignName: newCampaign.Name,
-		Slug:         newCampaign.Name,
-		CreateOrder:  newCampaign.CreatedOrder,
-		Active:       isActive,
-		Note:         "",
-		Archived:     false,
-		Draft:        false,
-	}
-
-	payload := leaderboardCampaignPayload{
-		Fields: item,
-	}
-
-	var body []byte
-	body, err = json.Marshal(payload)
-	if err != nil {
-		return
-	}
-
-	var req *http.Request
-	req, err = http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", upstreamConfig.baseAPI, upstreamConfig.campaignCollection), bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-
-	var res *http.Response
-	res, err = doUpstreamRequest(c, req, msgPatternCreateErrorCampaign)
-	if err != nil {
-		return
-	}
-
-	var response leaderboardCampaignResponse
-	err = json.NewDecoder(res.Body).Decode(&response)
-	if err != nil {
-		return
-	}
-	id = response.Id
-
-	c.Logger().Debugf("created new upstream campaign: leaderboardCampaign: %+v", item)
-	return
-}
-
-const sqlSelectUpstreamIdCampaign = `SELECT upstream_id FROM campaign WHERE name = $1`
-
-// lookup the Upstream_id for the campaign name
-func getCampaignUpstreamId(c echo.Context, campaignName string) (campaignUpstreamId string, err error) {
-	err = db.QueryRow(sqlSelectUpstreamIdCampaign, campaignName).
-		Scan(&campaignUpstreamId)
-	if err != nil {
-		c.Logger().Errorf("error reading campaign upstream id. campaignName: %s, err: %+v", campaignName, err)
-		return
-	}
-
-	return
-}
-
-func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
-	campaignUpstreamId, err := getCampaignUpstreamId(c, p.CampaignName)
-	if err != nil {
-		c.Logger().Errorf("error reading campaign upstream id for new participant: %+v", p)
-		return
-	}
-	item := leaderboardItem{}
-	item.CampaignUpstreamId = campaignUpstreamId
-	item.UserName = p.LoginName
-	item.Slug = p.LoginName
-	item.Score = 0
-	item.Archived = false
-	item.Draft = false
-
-	payload := leaderboardPayload{}
-	payload.Fields = item
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/collections/%s/items?live=true", upstreamConfig.baseAPI, upstreamConfig.participantCollection), bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-
-	var res *http.Response
-	res, err = doUpstreamRequest(c, req, msgPatternCreateErrorParticipant)
-	if err != nil {
-		return
-	}
-
-	var response leaderboardResponse
-	err = json.NewDecoder(res.Body).Decode(&response)
-	if err != nil {
-		return
-	}
-	id = response.Id
-
-	c.Logger().Debugf("created new upstream user: leaderboardItem: %+v", item)
-	return
-}
-
-// see: https://medium.com/@nate510/don-t-use-go-s-default-http-client-4804cb19f779
-func getNetClient() (netClient *http.Client) {
-	netClient = &http.Client{
-		Timeout: time.Second * 10,
-	}
-	return
-}
-
-func requestHeaderSetup(req *http.Request) {
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", upstreamConfig.token))
-	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("accept-version", "1.0.0")
-}
-
-type ParticipantUpdateError struct {
-	Status string
-}
-
-func (e *ParticipantUpdateError) Error() string {
-	return fmt.Sprintf("could not update score. response status: %s", e.Status)
-}
-
 const sqlSelectSourceControlProvider = `SELECT * FROM source_control_provider`
 
 func getSourceControlProviders(c echo.Context) (err error) {
@@ -595,45 +416,6 @@ func deleteOrganization(c echo.Context) (err error) {
 		return c.NoContent(http.StatusNoContent)
 	}
 	return c.JSON(http.StatusNotFound, fmt.Sprintf("no organization: scpName: %s, name: %s", scpName, orgName))
-}
-
-func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error) {
-
-	var payload struct {
-		Fields struct {
-			Score int `json:"score"`
-		} `json:"fields"`
-	}
-	payload.Fields.Score = score
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-
-	url := fmt.Sprintf("%s/collections/%s/items/%s?live=true", upstreamConfig.baseAPI, upstreamConfig.participantCollection, webflowId)
-	req, err := http.NewRequest("PATCH", url, bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-	requestHeaderSetup(req)
-
-	res, err := getNetClient().Do(req)
-	if err != nil {
-		return
-	} else if res.StatusCode < 200 || res.StatusCode >= 300 {
-		c.Logger().Debug(req)
-		var responseBody []byte
-		_, _ = res.Body.Read(responseBody)
-		c.Logger().Debug(responseBody)
-		// return a real error to the caller to indicate failure
-		err = &ParticipantUpdateError{res.Status}
-		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
-			err = errContext
-		}
-	}
-
-	return
 }
 
 const sqlSelectOrganizationExists = `SELECT EXISTS(
@@ -751,7 +533,9 @@ func updateParticipantScore(c echo.Context, participant participant, delta int) 
 		return
 	}
 
-	err = upstreamUpdateScore(c, upstreamId, score)
+	if upstreamEnabled {
+		err = upstreamUpdateScore(c, upstreamId, score)
+	}
 	return
 }
 
@@ -797,7 +581,7 @@ func newScore(c echo.Context) (err error) {
 			c.Logger().Debugf("error unmarshalling scoringMessage, err: %+v, rawMsg: %s", err, rawMsg)
 			return
 		}
-		// force triggerUser to lower case to match database/webflow values
+		// force triggerUser to lower case to match database values
 		msg.TriggerUser = strings.ToLower(msg.TriggerUser)
 
 		// if this particular entry is not valid, ignore it and continue processing
@@ -975,7 +759,7 @@ func updateParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	// updateParticipantScore() only done here to update upstream. can probably remove later
+	// @todo updateParticipantScore() only done here to update upstream. can probably remove later
 	err = updateParticipantScore(c, participant, 0)
 	if err != nil {
 		return
@@ -1012,37 +796,15 @@ func deleteParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	// delete from upstream - warning: slugs are cached until webflow republishes site. create, delete, create will complain
-	_, err = upstreamDeleteParticipant(c, participantUpstreamId)
-	if err != nil {
-		return
+	if upstreamEnabled {
+		_, err = upstreamDeleteParticipant(c, participantUpstreamId)
+		if err != nil {
+			return
+		}
 	}
+
 	return c.JSON(http.StatusOK, fmt.Sprintf("deleted participant: campaign: %s, scpName: %s, loginName: %s, participantUpstreamId: %s",
 		campaign, scpName, loginName, participantUpstreamId))
-}
-
-func upstreamDeleteParticipant(c echo.Context, participantUpstreamId string) (id string, err error) {
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/collections/%s/items/%s?live=true",
-		upstreamConfig.baseAPI, upstreamConfig.participantCollection, participantUpstreamId), nil)
-	if err != nil {
-		return
-	}
-
-	var res *http.Response
-	res, err = doUpstreamRequest(c, req, msgPatternDeleteErrorParticipant)
-	if err != nil {
-		return
-	}
-
-	var response leaderboardResponse
-	err = json.NewDecoder(res.Body).Decode(&response)
-	if err != nil {
-		return
-	}
-	id = response.Id
-
-	c.Logger().Debugf("deleted upstream user: participantUpstreamId: %s", participantUpstreamId)
-	return
 }
 
 const sqlInsertParticipant = `INSERT INTO participant 
@@ -1068,11 +830,15 @@ func addParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	// @todo Sanity check the campaign/scp/login doesn't already exist before creating Upstream record
-
-	webflowId, err := upstreamNewParticipant(c, participant)
-	if err != nil {
-		return
+	// @todo remove deprecated upstream stuff
+	var webflowId string
+	if upstreamEnabled {
+		webflowId, err = upstreamNewParticipant(c, participant)
+		if err != nil {
+			return
+		}
+	} else {
+		webflowId = upstreamIdDeprecated
 	}
 
 	var guid string
@@ -1084,7 +850,8 @@ func addParticipant(c echo.Context) (err error) {
 		participant.Email,
 		participant.DisplayName,
 		0,
-		webflowId).Scan(&guid, &participant.Score, &participant.JoinedAt)
+		webflowId, // @todo remove deprecated upstream stuff
+	).Scan(&guid, &participant.Score, &participant.JoinedAt)
 	if err != nil {
 		c.Logger().Errorf("error inserting participant: %+v, err: %+v", participant, err)
 		return
@@ -1330,7 +1097,10 @@ func getCampaigns(c echo.Context) (err error) {
 
 	var campaigns []campaignStruct
 	for rows.Next() {
-		campaign := campaignStruct{}
+		campaign := campaignStruct{
+			// todo remove this when upstream stuff is removed
+			UpstreamId: upstreamIdDeprecated,
+		}
 		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.StartOn, &campaign.EndOn, &campaign.UpstreamId, &campaign.Note)
 		if err != nil {
 			return
@@ -1360,11 +1130,6 @@ func getCampaign(campaignName string) (campaign campaignStruct, err error) {
 	return
 }
 
-func isCampaignActive(campaign campaignStruct, now time.Time) (isActive bool, err error) {
-	isActive = now.After(campaign.StartOn) && (now.Before(campaign.EndOn))
-	return
-}
-
 const sqlSelectCurrentCampaigns = `SELECT * FROM campaign
 		WHERE $1 >= start_on
 			AND $1 < end_on
@@ -1377,7 +1142,10 @@ func getActiveCampaigns(now time.Time) (activeCampaigns []campaignStruct, err er
 	}
 
 	for rows.Next() {
-		activeCampaign := campaignStruct{}
+		activeCampaign := campaignStruct{
+			// todo remove this when upstream stuff is removed
+			UpstreamId: upstreamIdDeprecated,
+		}
 
 		err = rows.Scan(&activeCampaign.ID, &activeCampaign.Name, &activeCampaign.CreatedOn, &activeCampaign.CreatedOrder, &activeCampaign.StartOn, &activeCampaign.EndOn, &activeCampaign.UpstreamId, &activeCampaign.Note)
 		if err != nil {
@@ -1419,19 +1187,22 @@ func addCampaign(c echo.Context) (err error) {
 	}
 	campaignFromRequest.Name = campaignName
 
-	now := time.Now()
-	isActive := now.After(campaignFromRequest.StartOn) && (now.Before(campaignFromRequest.EndOn))
-
-	webflowId, err := upstreamNewCampaign(c, campaignFromRequest, isActive)
-	if err != nil {
-		return
+	// @todo remove deprecated upstream stuff
+	var webflowId string
+	if upstreamEnabled {
+		webflowId, err = createNewWebflowId(c, &campaignFromRequest)
+		if err != nil {
+			return
+		}
+	} else {
+		webflowId = upstreamIdDeprecated
 	}
 
 	var guid string
 	err = db.QueryRow(
 		sqlInsertCampaign,
 		campaignName,
-		webflowId,
+		webflowId, // @todo remove deprecated upstream stuff
 		campaignFromRequest.StartOn,
 		campaignFromRequest.EndOn,
 	).Scan(&guid)
@@ -1440,46 +1211,6 @@ func addCampaign(c echo.Context) (err error) {
 	}
 
 	return c.String(http.StatusCreated, guid)
-}
-
-func upstreamActivateCampaign(c echo.Context, campaign campaignStruct, isActive bool) (id string, err error) {
-	item := leaderboardCampaign{
-		CampaignName: campaign.Name,
-		Slug:         campaign.Name,
-		CreateOrder:  campaign.CreatedOrder,
-		Active:       isActive,
-	}
-
-	payload := leaderboardCampaignPayload{
-		Fields: item,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-
-	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/collections/%s/items/%s?live=true",
-		upstreamConfig.baseAPI, upstreamConfig.campaignCollection, campaign.UpstreamId), bytes.NewReader(body))
-	if err != nil {
-		return
-	}
-
-	var res *http.Response
-	res, err = doUpstreamRequest(c, req, msgPatternActivateErrorCampaign)
-	if err != nil {
-		return
-	}
-
-	var response leaderboardCampaignResponse
-	err = json.NewDecoder(res.Body).Decode(&response)
-	if err != nil {
-		return
-	}
-	id = response.Id
-
-	c.Logger().Debugf("updated upstream campaign: leaderboardCampaign: %+v", item)
-	return
 }
 
 const sqlUpdateCampaign = `UPDATE campaign
@@ -1514,20 +1245,11 @@ func updateCampaign(c echo.Context) (err error) {
 		return
 	}
 
-	// update upstream active status
-	campaignFromDB, err := getCampaign(campaignName)
-	if err != nil {
-		return
-	}
-	now := time.Now()
-	isActive, err := isCampaignActive(campaignFromDB, now)
-	if err != nil {
-		return
-	}
-
-	_, err = upstreamActivateCampaign(c, campaignFromDB, isActive)
-	if err != nil {
-		return
+	if upstreamEnabled {
+		err = updateUpstreamCampaignActiveStatus(c, campaignName)
+		if err != nil {
+			return
+		}
 	}
 
 	return c.String(http.StatusOK, guid)

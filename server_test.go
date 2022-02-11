@@ -24,7 +24,6 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
-	"html/template"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -280,10 +279,8 @@ func TestConvertSqlToDbMockExpect(t *testing.T) {
 func TestGetCampaignsQueryError(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced campaign error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
@@ -297,10 +294,8 @@ func TestGetCampaignsQueryError(t *testing.T) {
 func TestGetCampaignsScanError(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstream_id", "note"}).
@@ -315,10 +310,8 @@ func TestGetCampaignsScanError(t *testing.T) {
 func TestGetCampaigns(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstream_id", "note"}).
@@ -335,10 +328,8 @@ func TestGetCampaigns(t *testing.T) {
 }
 
 func TestGetActiveCampaignsScanError(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstreamId", "note"}).
@@ -352,10 +343,8 @@ func TestGetActiveCampaignsScanError(t *testing.T) {
 }
 
 func TestGetActiveCampaigns(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mockCurrentCampaigns(mock)
 
@@ -376,10 +365,8 @@ func mockCurrentCampaigns(mock sqlmock.Sqlmock) {
 func TestGetActiveCampaignsEchoError(t *testing.T) {
 	c, rec := setupMockContextCampaign(campaign)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced campaign error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
@@ -393,10 +380,8 @@ func TestGetActiveCampaignsEchoError(t *testing.T) {
 func TestGetActiveCampaignsEcho(t *testing.T) {
 	c, rec := setupMockContextCampaign(campaign)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstreamId", "note"}).
@@ -412,19 +397,6 @@ func TestGetActiveCampaignsEcho(t *testing.T) {
 	assert.Equal(t, string(jsonExpectedCampaign)+"\n", rec.Body.String())
 }
 
-func setupMockUpstreamConfig() (origUpstreamConfig webflowConfig) {
-	origUpstreamConfig = upstreamConfig
-
-	upstreamConfig.campaignCollection = campaignUpstreamCollection
-	upstreamConfig.token = tokenUpstream
-	upstreamConfig.participantCollection = participantUpstreamCollection
-	return
-}
-
-func tearDownMockUpstreamConfigDefer(origUpstreamConfig webflowConfig) {
-	upstreamConfig = origUpstreamConfig
-}
-
 func TestAddCampaignErrorReadingCampaignFromRequestBody(t *testing.T) {
 	c, rec := setupMockContextCampaignWithBody(campaign, "")
 
@@ -433,61 +405,15 @@ func TestAddCampaignErrorReadingCampaignFromRequestBody(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestAddCampaignUpstreamAddError(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	testId := "testNewWebflowCampaignId"
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.campaignCollection), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	c, rec := setupMockContextCampaign(campaign)
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	forcedError := fmt.Errorf("forced Scan error")
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign, testId).
-		WillReturnError(forcedError)
-
-	expectedError := CreateError{msgPatternCreateErrorCampaign, "500 Internal Server Error"}
-	assert.EqualError(t, addCampaign(c), expectedError.Error())
-	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, expectedError.Error(), rec.Body.String())
-}
-
 func TestAddCampaignScanError(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	testId := "testNewWebflowCampaignId"
-	ts := setupMockWebflowCampaignCreate(t, testId)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
 	c, rec := setupMockContextCampaign(campaign)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced Scan error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign, testId, testStartOn, testEndOn).
+		WithArgs(campaign, upstreamIdDeprecated, testStartOn, testEndOn).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addCampaign(c), forcedError.Error())
@@ -496,24 +422,13 @@ func TestAddCampaignScanError(t *testing.T) {
 }
 
 func TestAddCampaign(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	testId := "testNewWebflowCampaignId"
-	ts := setupMockWebflowCampaignCreate(t, testId)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
 	c, rec := setupMockContextCampaign(campaign)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign, testId, testStartOn, testEndOn).
+		WithArgs(campaign, upstreamIdDeprecated, testStartOn, testEndOn).
 		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignId))
 
 	assert.NoError(t, addCampaign(c))
@@ -540,10 +455,8 @@ func TestUpdateCampaignErrorReadingCampaignFromRequestBody(t *testing.T) {
 func TestUpdateCampaignScanError(t *testing.T) {
 	c, rec := setupMockContextCampaign(campaign)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced scan error update campaign")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateCampaign)).
@@ -555,25 +468,6 @@ func TestUpdateCampaignScanError(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func setupMockWebflowCampaignUpdate(t *testing.T, testId string) *httptest.Server {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPut, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.campaignCollection, campaignUpstreamId), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-		lbResponse := leaderboardCampaignResponse{Id: testId}
-		respBytes, err := json.Marshal(lbResponse)
-		assert.NoError(t, err)
-		tmpl, err := template.New("MockWebflowCampaignCreateResponse").Parse(string(respBytes))
-		assert.NoError(t, err)
-		err = tmpl.Execute(w, nil)
-		assert.NoError(t, err)
-	}))
-	return ts
-}
-
 func mockUpdateCampaign(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
 	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateCampaign)).
 		WithArgs(testStartOn, testEndOn, campaign).
@@ -581,21 +475,10 @@ func mockUpdateCampaign(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
 }
 
 func TestUpdateCampaign(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	testId := "testNewWebflowCampaignId"
-	ts := setupMockWebflowCampaignUpdate(t, testId)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
 	c, rec := setupMockContextCampaign(campaign)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mockUpdateCampaign(mock)
 
@@ -604,16 +487,6 @@ func TestUpdateCampaign(t *testing.T) {
 	assert.NoError(t, updateCampaign(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
 	assert.Equal(t, campaignId, rec.Body.String())
-}
-
-func setupMockContextWebflow() (c echo.Context, rec *httptest.ResponseRecorder) {
-	e := echo.New()
-	req := httptest.NewRequest("", "/", nil)
-	rec = httptest.NewRecorder()
-	c = e.NewContext(req, rec)
-	c.SetParamNames("live")
-	c.SetParamValues("true")
-	return
 }
 
 func TestGetNetClient(t *testing.T) {
@@ -634,18 +507,9 @@ func verifyRequestHeaders(t *testing.T, req *http.Request) {
 	assert.Equal(t, "1.0.0", req.Header.Get("accept-version"))
 }
 
-func TestIsCampaignActive(t *testing.T) {
-	testCampaign := campaignStruct{StartOn: now.Add(-1 * time.Second), EndOn: now.Add(1 * time.Second)}
-	isActive, err := isCampaignActive(testCampaign, now)
-	assert.NoError(t, err)
-	assert.True(t, isActive)
-}
-
 func TestGetCampaignQueryError(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced campaign query error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
@@ -658,10 +522,8 @@ func TestGetCampaignQueryError(t *testing.T) {
 }
 
 func TestGetCampaignScanError(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
 		WithArgs(campaign).
@@ -676,10 +538,8 @@ func TestGetCampaignScanError(t *testing.T) {
 }
 
 func TestGetCampaign(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mockSelectCampaigns(mock)
 
@@ -704,284 +564,17 @@ func mockSelectCampaigns(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
 			AddRow(campaignId, campaign, now, 0, now, now, campaignUpstreamId, sql.NullString{}))
 }
 
-func TestDoUpstreamRequestWithErrorClientDo(t *testing.T) {
-	c, rec := setupMockContextWebflow()
-	req, err := http.NewRequest("", "", nil)
-	assert.NoError(t, err)
-	res, err := doUpstreamRequest(c, req, "")
-	assert.EqualError(t, err, "Get \"\": unsupported protocol scheme \"\"")
-	assert.Nil(t, res)
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestDoUpstreamRequestWithErrorRespStatus(t *testing.T) {
-	c, rec := setupMockContextWebflow()
-	req, err := http.NewRequest("", "", nil)
-	assert.NoError(t, err)
-	res, err := doUpstreamRequest(c, req, "")
-	assert.EqualError(t, err, "Get \"\": unsupported protocol scheme \"\"")
-	assert.Nil(t, res)
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestUpstreamNewCampaignWebflowErrorNotFound(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.campaignCollection), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	c, rec := setupMockContextWebflow()
-
-	id, err := upstreamNewCampaign(c, campaignStruct{}, true)
-	assert.Equal(t, "", id)
-	expectedErr := &CreateError{msgPatternCreateErrorCampaign, "404 Not Found"}
-	assert.EqualError(t, err, expectedErr.Error())
-	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, expectedErr.Error(), rec.Body.String())
-}
-
-func TestUpstreamNewCampaignWebflowIDDecodeError(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.campaignCollection), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("bad json text"))
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	c, rec := setupMockContextWebflow()
-
-	id, err := upstreamNewCampaign(c, campaignStruct{}, true)
-	assert.Equal(t, "", id)
-	assert.EqualError(t, err, "invalid character 'b' looking for beginning of value")
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func setupMockWebflowCampaignCreate(t *testing.T, testId string) *httptest.Server {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.campaignCollection), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-		lbResponse := leaderboardCampaignResponse{Id: testId}
-		respBytes, err := json.Marshal(lbResponse)
-		assert.NoError(t, err)
-		tmpl, err := template.New("MockWebflowCampaignCreateResponse").Parse(string(respBytes))
-		assert.NoError(t, err)
-		err = tmpl.Execute(w, nil)
-		assert.NoError(t, err)
-	}))
-	return ts
-}
-
-func TestUpstreamNewCampaignWebflowValidID(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	testId := "testNewWebflowCampaignId"
-	ts := setupMockWebflowCampaignCreate(t, testId)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	c, rec := setupMockContextWebflow()
-
-	id, err := upstreamNewCampaign(c, campaignStruct{}, true)
-	assert.Equal(t, testId, id)
-	assert.NoError(t, err)
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestGetCampaignUpstreamIdScanError(t *testing.T) {
-	c, rec := setupMockContext()
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	forcedError := fmt.Errorf("forced campaign upstream id error")
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectUpstreamIdCampaign)).
-		WithArgs(campaign).
-		WillReturnError(forcedError)
-
-	id, err := getCampaignUpstreamId(c, campaign)
-	assert.EqualError(t, err, forcedError.Error())
-	assert.Equal(t, "", id)
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func setupMockDb(t *testing.T) (mock sqlmock.Sqlmock, dbMock *sql.DB, origDb *sql.DB) {
+func setupMockDb(t *testing.T) (mock sqlmock.Sqlmock, resetMockDb func()) {
+	var dbMock *sql.DB
 	dbMock, mock = newMockDb(t)
-	origDb = db
+	origDb := db
 	db = dbMock
+
+	resetMockDb = func() {
+		_ = dbMock.Close()
+		db = origDb
+	}
 	return
-}
-
-func tearDownMockDbDefer(dbMock *sql.DB, origDb *sql.DB) {
-	_ = dbMock.Close()
-	db = origDb
-}
-
-func mockCampaignUpstreamId(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
-	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectUpstreamIdCampaign)).
-		WithArgs(campaign).
-		WillReturnRows(sqlmock.NewRows([]string{"col1"}).AddRow(campaignUpstreamId))
-}
-
-func TestGetCampaignUpstreamId(t *testing.T) {
-	c, rec := setupMockContext()
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-	mockCampaignUpstreamId(mock)
-
-	id, err := getCampaignUpstreamId(c, campaign)
-	assert.NoError(t, err)
-	assert.Equal(t, campaignUpstreamId, id)
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestUpstreamNewParticipantWebflowErrorNotFound(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	upstreamConfig.participantCollection = "testWfCollection"
-	upstreamConfig.token = "testWfToken"
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.participantCollection), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	c, rec := setupMockContextWebflow()
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-	mockCampaignUpstreamId(mock)
-
-	id, err := upstreamNewParticipant(c, participant{CampaignName: campaign})
-	assert.Equal(t, "", id)
-	expectedErr := &CreateError{msgPatternCreateErrorParticipant, "404 Not Found"}
-	assert.EqualError(t, err, expectedErr.Error())
-	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, expectedErr.Error(), rec.Body.String())
-}
-
-func TestUpstreamNewParticipantWebflowIDDecodeError(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	upstreamConfig.participantCollection = "testWfCollection"
-	upstreamConfig.token = "testWfToken"
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.participantCollection), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("bad json text"))
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	c, rec := setupMockContextWebflow()
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-	mockCampaignUpstreamId(mock)
-
-	id, err := upstreamNewParticipant(c, participant{CampaignName: campaign})
-	assert.Equal(t, "", id)
-	assert.EqualError(t, err, "invalid character 'b' looking for beginning of value")
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func setupMockWebflowUserCreate(t *testing.T, testId string) *httptest.Server {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.participantCollection), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-		lbResponse := leaderboardResponse{Id: testId}
-		respBytes, err := json.Marshal(lbResponse)
-		assert.NoError(t, err)
-		tmpl, err := template.New("MockWebflowUserCreateResponse").Parse(string(respBytes))
-		assert.NoError(t, err)
-		err = tmpl.Execute(w, nil)
-		assert.NoError(t, err)
-	}))
-	return ts
-}
-
-func TestUpstreamNewParticipantWebflowValidID(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	upstreamConfig.participantCollection = "testWfCollection"
-	upstreamConfig.token = "testWfToken"
-	testId := "testNewWebflowParticipantId"
-	ts := setupMockWebflowUserCreate(t, testId)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	c, rec := setupMockContextWebflow()
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-	mockCampaignUpstreamId(mock)
-
-	id, err := upstreamNewParticipant(c, participant{CampaignName: campaign})
-	assert.Equal(t, testId, id)
-	assert.NoError(t, err)
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
 func setupMockContextParticipant(participantJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
@@ -1000,57 +593,12 @@ func TestAddParticipantBodyInvalid(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestAddParticipantWebflowError(t *testing.T) {
-	participantJson := fmt.Sprintf(`{"campaignName":"%s", "loginName": "%s"}`, campaign, loginName)
-	c, rec := setupMockContextParticipant(participantJson)
-
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	upstreamConfig.token = "testWfToken"
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items", upstreamConfig.participantCollection), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-	mockCampaignUpstreamId(mock)
-
-	expectedErr := &CreateError{msgPatternCreateErrorParticipant, "404 Not Found"}
-	assert.EqualError(t, addParticipant(c), expectedErr.Error())
-	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, expectedErr.Error(), rec.Body.String())
-}
-
 func TestAddParticipantCampaignMissing(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"campaignName":"%s", "loginName": "%s"}`, campaign, loginName)
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	upstreamConfig.token = "testWfToken"
-	testId := "testNewWebflowParticipantId"
-	ts := setupMockWebflowUserCreate(t, testId)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-	mockCampaignUpstreamId(mock)
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced SQL insert error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
@@ -1065,51 +613,16 @@ func TestAddParticipant(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"campaignName":"%s", "scpName": "%s","loginName": "%s"}`, campaign, scpName, loginName)
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	upstreamConfig.token = "testWfToken"
-	testId := "testNewWebflowParticipantId"
-	ts := setupMockWebflowUserCreate(t, testId)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-	mockCampaignUpstreamId(mock)
-
-	participantID := "participantUUId"
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
-		WithArgs(scpName, campaign, loginName, "", "", 0, testId).
+		WithArgs(scpName, campaign, loginName, "", "", 0, upstreamIdDeprecated).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Score", "JoinedAt"}).AddRow(participantID, 0, time.Time{}))
 
 	assert.NoError(t, addParticipant(c))
 	assert.Equal(t, http.StatusCreated, c.Response().Status)
 	assert.True(t, strings.HasPrefix(rec.Body.String(), `{"guid":"`+participantID+`","endpoints":{"participantDetail"`), rec.Body.String())
 	assert.True(t, strings.Contains(rec.Body.String(), `"loginName":"`+loginName+`"`), rec.Body.String())
-}
-
-func TestMockWebflow_WithServer(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	upstreamConfig.token = "testWfToken"
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("{}"))
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	// uncomment 'main()' below for local testing with a mocked Webflow endpoint.
-	//main()
 }
 
 //goland:noinspection GoSnakeCaseUsage,GoUnusedFunction
@@ -1176,25 +689,10 @@ func TestLogAddParticipantNoError(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"campaignName":"%s", "scpName": "%s","loginName": "%s"}`, campaign, scpName, loginName)
 	c, rec := setupMockContextParticipant(participantJson)
 
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	upstreamConfig.token = "testWfToken"
-	testId := "testNewWebflowParticipantId"
-	ts := setupMockWebflowUserCreate(t, testId)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-	mockCampaignUpstreamId(mock)
-
-	participantID := "participantUUId"
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
-		WithArgs(scpName, campaign, loginName, "", "", 0, testId).
+		WithArgs(scpName, campaign, loginName, "", "", 0, upstreamIdDeprecated).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Score", "JoinedAt"}).AddRow(participantID, 0, time.Time{}))
 
 	err := logAddParticipant(c)
@@ -1237,10 +735,8 @@ func TestUpdateParticipantMissingParticipantID(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"loginName": "%s","campaignName": "%s", "scpName": "%s"}`, loginName, campaign, scpName)
 	c, rec := setupMockContextUpdateParticipant(participantJson)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced SQL insert error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
@@ -1256,10 +752,8 @@ func TestUpdateParticipantUpdateError(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"guid": "%s","campaignName": "%s", "scpName": "%s", "loginName": "%s"}`, participantID, campaign, scpName, loginName)
 	c, rec := setupMockContextUpdateParticipant(participantJson)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced SQL insert error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
@@ -1275,10 +769,8 @@ func TestUpdateParticipantScoreError(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"guid": "%s","campaignName": "%s", "scpName": "%s", "loginName": "%s"}`, participantID, campaign, scpName, loginName)
 	c, rec := setupMockContextUpdateParticipant(participantJson)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
 		WithArgs(campaign, scpName, loginName, "", "", 0, "", participantID).
@@ -1299,87 +791,19 @@ func setupMockContextUpstreamUpdateScore() (c echo.Context, rec *httptest.Respon
 	return
 }
 
-func TestUpstreamUpdateScoreStatusError(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/", upstreamConfig.participantCollection), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	upstreamConfig.token = "testWfToken"
-
-	c, rec := setupMockContextUpstreamUpdateScore()
-
-	expectedErr := &ParticipantUpdateError{"404 Not Found"}
-	assert.EqualError(t, upstreamUpdateScore(c, "", 0), expectedErr.Error())
-	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, expectedErr.Error(), rec.Body.String())
-}
-
-func setupMockWebflowUserUpdate(t *testing.T, webflowId string) *httptest.Server {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, webflowId), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-	}))
-	return ts
-}
-
-func TestUpstreamUpdateScore(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := setupMockWebflowUserUpdate(t, "")
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	upstreamConfig.token = "testWfToken"
-
-	c, rec := setupMockContextUpstreamUpdateScore()
-
-	assert.NoError(t, upstreamUpdateScore(c, "", 0))
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
 func TestUpdateParticipantNoRowsUpdated(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"guid": "%s", "campaignName": "%s", "scpName": "%s", "loginName": "%s", "teamName": "%s"}`, participantID, campaign, scpName, loginName, teamName)
 	c, rec := setupMockContextUpdateParticipant(participantJson)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
 		WithArgs(campaign, scpName, loginName, "", "", 0, teamName, participantID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
 		WithArgs(0, participantID).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(participantID, 0))
-
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := setupMockWebflowUserUpdate(t, participantID)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	upstreamConfig.token = "testWfToken"
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(upstreamIdDeprecated, 0))
 
 	assert.NoError(t, updateParticipant(c))
 	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
@@ -1390,27 +814,15 @@ func TestUpdateParticipant(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"guid": "%s", "campaignName": "%s", "scpName": "%s", "loginName": "%s"}`, participantID, campaign, scpName, loginName)
 	c, rec := setupMockContextUpdateParticipant(participantJson)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
 		WithArgs(campaign, scpName, loginName, "", "", 0, "", participantID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
 		WithArgs(0, participantID).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(participantID, 0))
-
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := setupMockWebflowUserUpdate(t, participantID)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	upstreamConfig.token = "testWfToken"
+		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(upstreamIdDeprecated, 0))
 
 	assert.NoError(t, updateParticipant(c))
 	assert.Equal(t, http.StatusNoContent, c.Response().Status)
@@ -1438,10 +850,8 @@ func TestAddTeamInsertError(t *testing.T) {
 	teamJson := `{"teamName": "` + teamName + `"}`
 	c, rec := setupMockContextTeam(teamJson)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced SQL insert error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertTeam)).
@@ -1456,10 +866,8 @@ func TestAddTeamEmptyOrganization(t *testing.T) {
 	teamJson := `{"campaignName": "` + campaign + `","name": "` + teamName + `"}`
 	c, rec := setupMockContextTeam(teamJson)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	teamID := "teamUUId"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertTeam)).
@@ -1475,10 +883,8 @@ func TestAddTeam(t *testing.T) {
 	teamJson := `{"campaignName": "` + campaign + `","name":"` + teamName + `"}`
 	c, rec := setupMockContextTeam(teamJson)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	teamID := "teamUUId"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertTeam)).
@@ -1511,10 +917,8 @@ func TestAddPersonToTeamMissingParameters(t *testing.T) {
 func TestAddPersonToTeamUpdateError(t *testing.T) {
 	c, rec := setupMockContextAddPersonToTeam(campaign, scpName, loginName, teamName)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced SQL update error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
@@ -1528,10 +932,8 @@ func TestAddPersonToTeamUpdateError(t *testing.T) {
 func TestAddPersonToTeamRowsAffectedError(t *testing.T) {
 	c, rec := setupMockContextAddPersonToTeam(campaign, scpName, loginName, teamName)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced Rows Affected error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
@@ -1546,10 +948,8 @@ func TestAddPersonToTeamRowsAffectedError(t *testing.T) {
 func TestAddPersonToTeamZeroRowsAffected(t *testing.T) {
 	c, rec := setupMockContextAddPersonToTeam(campaign, scpName, loginName, teamName)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WithArgs(teamName, campaign, scpName, loginName).
@@ -1563,10 +963,8 @@ func TestAddPersonToTeamZeroRowsAffected(t *testing.T) {
 func TestAddPersonToTeamSomeRowsAffected(t *testing.T) {
 	c, rec := setupMockContextAddPersonToTeam(campaign, scpName, loginName, teamName)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipantTeam)).
 		WithArgs(teamName, campaign, scpName, loginName).
@@ -1590,10 +988,8 @@ func setupMockContextParticipantDetail(campaignName, scpName, loginName string) 
 func TestGetParticipantDetailScanError(t *testing.T) {
 	c, rec := setupMockContextParticipantDetail("", "", "")
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced Scan error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantDetail)).
@@ -1608,10 +1004,8 @@ func TestGetParticipantDetailScanError(t *testing.T) {
 func TestGetParticipantDetail(t *testing.T) {
 	c, rec := setupMockContextParticipantDetail(campaign, scpName, loginName)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantDetail)).
 		WithArgs(campaign, scpName, loginName).
@@ -1636,10 +1030,8 @@ func TestGetParticipantsListScanError(t *testing.T) {
 	campaignName := ""
 	c, rec := setupMockContextParticipantList(campaignName)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced Scan error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
@@ -1655,10 +1047,8 @@ func TestGetParticipantsListRowScanError(t *testing.T) {
 	campaignName := ""
 	c, rec := setupMockContextParticipantList(campaignName)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs("").
@@ -1674,10 +1064,8 @@ func TestGetParticipantsListRowScanError(t *testing.T) {
 func TestGetParticipantsList(t *testing.T) {
 	c, rec := setupMockContextParticipantList(campaign)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs(campaign).
@@ -1719,10 +1107,8 @@ func TestAddBugScanError(t *testing.T) {
 	category := "myCategory"
 	c, rec := setupMockContextAddBug(`{"campaign": "` + campaign + `", "category":"` + category + `"}`)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced Scan error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
@@ -1757,10 +1143,8 @@ func TestAddBug(t *testing.T) {
 	pointValue := 9
 	c, rec := setupMockContextAddBug(`{"campaign": "` + campaign + `", "category":"` + category + `","pointValue":` + strconv.Itoa(pointValue) + `}`)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	bugId := "myBugId"
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
@@ -1798,10 +1182,8 @@ func TestUpdateBugUpdateError(t *testing.T) {
 	pointValue := 9
 	c, rec := setupMockContextUpdateBug(campaign, category, strconv.Itoa(pointValue))
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced Update error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
@@ -1819,10 +1201,8 @@ func TestUpdateBugRowsAffectedError(t *testing.T) {
 	pointValue := 9
 	c, rec := setupMockContextUpdateBug(campaign, category, strconv.Itoa(pointValue))
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced Rows Affected error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
@@ -1840,10 +1220,8 @@ func TestUpdateBugRowsAffectedZero(t *testing.T) {
 	pointValue := 9
 	c, rec := setupMockContextUpdateBug(campaign, category, strconv.Itoa(pointValue))
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, campaign, category).
@@ -1878,10 +1256,8 @@ func TestUpdateBug(t *testing.T) {
 	pointValue := 9
 	c, rec := setupMockContextUpdateBug(campaign, category, strconv.Itoa(pointValue))
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateBug)).
 		WithArgs(pointValue, campaign, category).
@@ -1903,10 +1279,8 @@ func setupMockContextGetBugs() (c echo.Context, rec *httptest.ResponseRecorder) 
 func TestGetBugsSelectError(t *testing.T) {
 	c, rec := setupMockContextGetBugs()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced Select error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectBug)).WillReturnError(forcedError)
@@ -1919,10 +1293,8 @@ func TestGetBugsSelectError(t *testing.T) {
 func TestGetBugsScanError(t *testing.T) {
 	c, rec := setupMockContextGetBugs()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectBug)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Campaign", "Category", "PointValue"}).
@@ -1937,10 +1309,8 @@ func TestGetBugsScanError(t *testing.T) {
 func TestGetBugs(t *testing.T) {
 	c, rec := setupMockContextGetBugs()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	campaign := "myCampaign"
 	bugId := "myBugId"
@@ -1975,10 +1345,8 @@ func TestPutBugsBodyInvalid(t *testing.T) {
 func TestPutBugsBeginTxError(t *testing.T) {
 	c, rec := setupMockContextPutBugs(`[{}]`)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced Begin Txn error")
 	mock.ExpectBegin().WillReturnError(forcedError)
@@ -1991,10 +1359,8 @@ func TestPutBugsBeginTxError(t *testing.T) {
 func TestPutBugsScanError(t *testing.T) {
 	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointvalue":5}]`)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectBegin()
 	forcedError := fmt.Errorf("forced Scan error")
@@ -2010,10 +1376,8 @@ func TestPutBugsScanError(t *testing.T) {
 func TestPutBugsCommitTxError(t *testing.T) {
 	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointvalue":5}]`)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertBug)).
@@ -2031,10 +1395,8 @@ func TestPutBugsCommitTxError(t *testing.T) {
 func TestPutBugsOneBugInvalidBug(t *testing.T) {
 	c, rec := setupMockContextPutBugs(`[{}]`)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectBegin()
 
@@ -2045,10 +1407,8 @@ func TestPutBugsOneBugInvalidBug(t *testing.T) {
 func TestPutBugsOneBug(t *testing.T) {
 	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointvalue":5}]`)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectBegin()
 	bugId := "myBugId"
@@ -2066,10 +1426,8 @@ func TestPutBugsOneBug(t *testing.T) {
 func TestPutBugsMultipleBugs(t *testing.T) {
 	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointvalue":5}, {"campaign":"myCampaign","category":"bugCat3", "pointvalue":9}]`)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectBegin()
 	bugId := "myBugId"
@@ -2100,51 +1458,26 @@ func setupMockContextParticipantDelete(campaignName, scpName, loginName string) 
 	return
 }
 
-func setupMockWebflowCampaignDelete(t *testing.T) *httptest.Server {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodDelete, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, participantUpstreamId), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("{\"deleted\": 1}"))
-	}))
-	return ts
-}
-
 func TestDeleteParticipant(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := setupMockWebflowCampaignDelete(t)
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
 	c, rec := setupMockContextParticipantDelete(campaign, scpName, loginName)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlDeleteParticipant)).
 		WithArgs(campaign, scpName, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"upstreamid"}).AddRow(participantUpstreamId))
+		WillReturnRows(sqlmock.NewRows([]string{"upstreamid"}).AddRow(upstreamIdDeprecated))
 
 	assert.NoError(t, deleteParticipant(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
-	assert.Equal(t, fmt.Sprintf("\"deleted participant: campaign: %s, scpName: %s, loginName: %s, participantUpstreamId: %s\"\n", campaign, scpName, loginName, participantUpstreamId), rec.Body.String())
+	assert.Equal(t, fmt.Sprintf("\"deleted participant: campaign: %s, scpName: %s, loginName: %s, participantUpstreamId: %s\"\n", campaign, scpName, loginName, upstreamIdDeprecated), rec.Body.String())
 }
 
 func TestDeleteParticipantWithDBDeleteError(t *testing.T) {
 	c, rec := setupMockContextParticipantDelete(campaign, scpName, loginName)
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced delete error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlDeleteParticipant)).
@@ -2156,46 +1489,11 @@ func TestDeleteParticipantWithDBDeleteError(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestDeleteParticipantWithUpstreamDeleteError(t *testing.T) {
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodDelete, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, participantUpstreamId), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusBadRequest)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	c, rec := setupMockContextParticipantDelete(campaign, scpName, loginName)
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlDeleteParticipant)).
-		WithArgs(campaign, scpName, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"upstreamid"}).AddRow(participantUpstreamId))
-
-	expectedErr := &CreateError{msgPatternDeleteErrorParticipant, "400 Bad Request"}
-	assert.EqualError(t, deleteParticipant(c), expectedErr.Error())
-	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, expectedErr.Error(), rec.Body.String())
-}
-
 func TestValidScoreUnknownErrorValidatingOrganization(t *testing.T) {
 	c, _ := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced org exists query error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
@@ -2211,10 +1509,8 @@ func TestValidScoreUnknownErrorValidatingOrganization(t *testing.T) {
 func TestValidScoreUnknownRepoOwner(t *testing.T) {
 	c, _ := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
 		WithArgs(testEventSourceValid, testOrgValid).
@@ -2247,10 +1543,8 @@ const testEventSourceValid = "github"
 const testOrgValid = "myValidTestOrganization"
 
 func TestValidScoreParticipantNotRegistered(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2267,10 +1561,8 @@ func TestValidScoreParticipantNotRegistered(t *testing.T) {
 }
 
 func TestValidScoreParticipantScanError(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2289,10 +1581,8 @@ func TestValidScoreParticipantScanError(t *testing.T) {
 }
 
 func TestValidScoreParticipantErrorReadingParticipant(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2310,10 +1600,8 @@ func TestValidScoreParticipantErrorReadingParticipant(t *testing.T) {
 }
 
 func TestValidScoreParticipant(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2347,10 +1635,8 @@ func TestScorePointsNothing(t *testing.T) {
 }
 
 func TestScorePointsScanError(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	msg := scoringMessage{BugCounts: map[string]int{"myBugType": 1}}
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectPointValue)).
@@ -2364,10 +1650,8 @@ func TestScorePointsScanError(t *testing.T) {
 }
 
 func TestScorePointsFixedTwoThreePointers(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	bugType := "threePointBugType"
 	msg := scoringMessage{BugCounts: map[string]int{bugType: 2}}
@@ -2386,10 +1670,8 @@ func TestScorePointsBonusForNonClassified(t *testing.T) {
 }
 
 func TestValidOrganizationFalse(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
 		WithArgs(testEventSourceValid, testOrgValid).
@@ -2403,10 +1685,8 @@ func TestValidOrganizationFalse(t *testing.T) {
 }
 
 func TestValidOrganizationError(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced org exists query error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
@@ -2421,10 +1701,8 @@ func TestValidOrganizationError(t *testing.T) {
 }
 
 func TestValidOrganization(t *testing.T) {
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganizationExists)).
 		WithArgs(testEventSourceValid, testOrgValid).
@@ -2502,10 +1780,8 @@ func TestNewScoreOneAlertInvalidScore_Errro(t *testing.T) {
 		RecentHits: []string{scoringMsgJson},
 	})
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2528,10 +1804,8 @@ func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
 		RecentHits: []string{scoringMsgJson},
 	})
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2553,10 +1827,8 @@ func TestNewScoreOneAlertHandleBeginTransactionError(t *testing.T) {
 		RecentHits: []string{scoringMsgJson},
 	})
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2579,10 +1851,8 @@ func TestNewScoreOneAlertScoreQueryErrorIgnored(t *testing.T) {
 		RecentHits: []string{scoringMsgJson},
 	})
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2613,10 +1883,8 @@ func TestNewScoreOneAlertInsertScoringEventErrorNotIgnored(t *testing.T) {
 		RecentHits: []string{scoringMsgJson},
 	})
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2648,10 +1916,8 @@ func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
 		RecentHits: []string{scoringMsgJson},
 	})
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2677,65 +1943,6 @@ func TestNewScoreOneAlertUpdateScoreErrorNotIgnored(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlertUpdateScoreEndPointErrorNotIgnored(t *testing.T) {
-	repoName := "myRepoName"
-	prId := -5
-	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId})
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
-
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
-
-	setupMockDBOrgValid(mock)
-
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantId)).
-		WithArgs(sqlmock.AnyArg(), testEventSourceValid, strings.ToLower(loginName)).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
-			AddRow(participantID, campaign, testEventSourceValid, "someLoginName", ""))
-
-	mock.ExpectBegin()
-
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlScoreQuery)).
-		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId).
-		WillReturnRows(sqlmock.NewRows([]string{"points"}).AddRow("-8"))
-
-	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
-		WithArgs(campaign, testEventSourceValid, testOrgValid, repoName, prId, strings.ToLower(loginName), 0).
-		WillReturnResult(sqlmock.NewResult(0, -1))
-
-	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(8, participantID).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(strings.ToLower(loginName), 0))
-
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, strings.ToLower(loginName)), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusBadRequest)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	upstreamConfig.token = "testWfToken"
-
-	err = newScore(c)
-	assert.EqualError(t, err, "could not update score. response status: 400 Bad Request")
-	assert.Equal(t, http.StatusInternalServerError, c.Response().Status)
-	assert.Equal(t, "could not update score. response status: 400 Bad Request", rec.Body.String())
-}
-
 func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
@@ -2746,10 +1953,8 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 		RecentHits: []string{scoringMsgJson},
 	})
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2771,23 +1976,6 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
 		WithArgs(8, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(strings.ToLower(loginName), 0))
-
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, strings.ToLower(loginName)), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	upstreamConfig.token = "testWfToken"
 
 	err = newScore(c)
 	assert.EqualError(t, err, "all expectations were already fulfilled, call to Commit transaction was not expected")
@@ -2807,10 +1995,8 @@ func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
 		RecentHits: []string{scoringMsgJson},
 	})
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2833,23 +2019,6 @@ func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
 		WithArgs(8, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(loginNameLowerCase, 0))
 
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, loginNameLowerCase), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	upstreamConfig.token = "testWfToken"
-
 	mock.ExpectCommit()
 
 	err = newScore(c)
@@ -2868,10 +2037,8 @@ func TestNewScoreOneAlert(t *testing.T) {
 		RecentHits: []string{scoringMsgJson},
 	})
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	setupMockDBOrgValid(mock)
 
@@ -2894,23 +2061,6 @@ func TestNewScoreOneAlert(t *testing.T) {
 		WithArgs(8, participantID).
 		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(loginName, 0))
 
-	origUpstreamConfig := setupMockUpstreamConfig()
-	defer func() {
-		tearDownMockUpstreamConfigDefer(origUpstreamConfig)
-	}()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPatch, r.Method)
-		assert.Equal(t, fmt.Sprintf("/collections/%s/items/%s", upstreamConfig.participantCollection, loginName), r.URL.EscapedPath())
-
-		verifyRequestHeaders(t, r)
-
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer ts.Close()
-	upstreamConfig.baseAPI = ts.URL
-
-	upstreamConfig.token = "testWfToken"
-
 	mock.ExpectCommit()
 
 	err = newScore(c)
@@ -2922,10 +2072,8 @@ func TestNewScoreOneAlert(t *testing.T) {
 func TestGetSourceControlProvidersQueryError(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced scp error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectSourceControlProvider)).
@@ -2940,10 +2088,8 @@ func TestGetSourceControlProvidersQueryError(t *testing.T) {
 func TestGetSourceControlProvidersScanError(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectSourceControlProvider)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "name", "url"}).
@@ -2959,10 +2105,8 @@ func TestGetSourceControlProvidersScanError(t *testing.T) {
 func TestGetSourceControlProviders(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectSourceControlProvider)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "name", "url"}).AddRow("someId", "someSCP", "someUrl"))
@@ -2976,10 +2120,8 @@ func TestGetSourceControlProviders(t *testing.T) {
 func TestGetOrganizationsError(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedErr := fmt.Errorf("forced org list error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
@@ -2994,10 +2136,8 @@ func TestGetOrganizationsError(t *testing.T) {
 func TestGetOrganizationsScanError(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
 		WillReturnRows(sqlmock.NewRows([]string{}).AddRow())
@@ -3011,10 +2151,8 @@ func TestGetOrganizationsScanError(t *testing.T) {
 func TestGetOrganizations(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectOrganization)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "SCPName", "Org"}).AddRow("someId", "someSCP", "someOrg"))
@@ -3037,10 +2175,8 @@ func TestAddOrganizationBodyBad(t *testing.T) {
 func TestAddOrganizationInsertError(t *testing.T) {
 	c, rec := setupMockContextWithBody(http.MethodPut, "{\"organization\":\"myOrganizationName\"}")
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced org add error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlAddOrganization)).
@@ -3055,10 +2191,8 @@ func TestAddOrganizationInsertError(t *testing.T) {
 func TestAddOrganization(t *testing.T) {
 	c, rec := setupMockContextWithBody(http.MethodPut, "{\"organization\":\"myOrganizationName\"}")
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlAddOrganization)).
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}).AddRow("someId"))
@@ -3072,10 +2206,8 @@ func TestAddOrganization(t *testing.T) {
 func TestDeleteOrganizationDeleteError(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	forcedError := fmt.Errorf("forced org delete error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlDeleteOrganization)).
@@ -3090,10 +2222,8 @@ func TestDeleteOrganizationDeleteError(t *testing.T) {
 func TestDeleteOrganizationNotFound(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlDeleteOrganization)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -3107,10 +2237,8 @@ func TestDeleteOrganizationNotFound(t *testing.T) {
 func TestDeleteOrganization(t *testing.T) {
 	c, rec := setupMockContext()
 
-	mock, dbMock, origDb := setupMockDb(t)
-	defer func() {
-		tearDownMockDbDefer(dbMock, origDb)
-	}()
+	mock, resetMockDb := setupMockDb(t)
+	defer resetMockDb()
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlDeleteOrganization)).
 		WillReturnResult(sqlmock.NewResult(0, 1))

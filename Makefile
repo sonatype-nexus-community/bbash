@@ -27,7 +27,7 @@ GOTEST=$(GOCMD) test
 all: test
 
 air: yarn
-	$(GOBUILD) -o ./tmp/bbash $(GOBUILD_FLAGS) ./server.go
+	$(GOBUILD) -o ./tmp/bbash $(GOBUILD_FLAGS) ./server.go ./server_upstream.go
 
 docker:
 	yarn version --patch
@@ -47,10 +47,10 @@ go-build:
 	echo "VERSION: $(VERSION)"
 	echo "DATE: $(DATE)"
 	echo "COMMIT: $(COMMIT)"
-	$(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go
+	$(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go ./server_upstream.go
 
 go-alpine-build:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go ./server_upstream.go
 
 test: build
 	$(GOTEST) -v ./... 2>&1
