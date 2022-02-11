@@ -52,8 +52,8 @@ For frontend work (with a previously manually launched database), this command i
 make run-air-alone
 ```
 
-For full round trip testing with a local environment, (debug) run the test: [server_test.go->TestMockWebflow_WithServer](./server_test.go#L506).
-Don't forget to temporarily uncomment the call to [main()](./server_test.go#L527).
+For full round trip testing with a local environment, (debug) run the test: [server_upstream_test.go->TestMockWebflow_WithServerUpstreamEnabled](./server_upstream_test.go#L561).
+Don't forget to temporarily uncomment the call to [main()](./server_upstream_test.go#L576).
 
 ## Deployment
 
