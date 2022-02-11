@@ -200,6 +200,17 @@ func xxxIgnore_TestMigrateDB(t *testing.T) {
 	assert.NoError(t, migrateDB(dbMock, nil))
 }
 
+func TestSetupRoutes(t *testing.T) {
+	e := echo.New()
+	//req := httptest.NewRequest(http.MethodGet, "/", nil)
+	//rec = httptest.NewRecorder()
+	//c = e.NewContext(req, rec)
+
+	setupRoutes(e, "myBuildInfoMsg")
+	routes := e.Routes()
+	assert.Equal(t, 22, len(routes))
+}
+
 const timeLayout = "2006-01-02T15:04:05.000Z"
 
 var testStartOn time.Time
@@ -1772,7 +1783,7 @@ func TestNewScoreOneAlertInvalidScoringMessage(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlertInvalidScore_Errro(t *testing.T) {
+func TestNewScoreOneAlertInvalidScore_Error(t *testing.T) {
 	scoringMsgBytes, err := json.Marshal(scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName})
 	assert.NoError(t, err)
 	scoringMsgJson := string(scoringMsgBytes)

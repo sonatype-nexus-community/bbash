@@ -223,6 +223,15 @@ func main() {
 		panic(fmt.Errorf("failed to migrate database. err: %+v", err))
 	}
 
+	setupRoutes(e, buildInfoMessage)
+
+	err = e.Start(":7777")
+	if err != nil {
+		e.Logger.Error(err)
+	}
+}
+
+func setupRoutes(e *echo.Echo, buildInfoMessage string) {
 	e.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, fmt.Sprintf("I am ALIVE. %s", buildInfoMessage))
 	})
@@ -295,11 +304,6 @@ func main() {
 
 	for _, v := range routes {
 		fmt.Printf("Registered route: %s %s as %s\n", v.Method, v.Path, v.Name)
-	}
-
-	err = e.Start(":7777")
-	if err != nil {
-		e.Logger.Error(err)
 	}
 }
 
