@@ -60,7 +60,7 @@ const CampaignSelect = (props: CampaignSelectProps) => {
         }
 
         // noinspection JSIgnoredPromiseFromCall
-        getCampaignList()
+        getCampaignList();
     }, [clientContext]) // prevents rebuilding the list at each render
 
     const onChange = (evt: FormEvent<HTMLSelectElement>) => {

@@ -13,8 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import {NxLoadError, NxTable} from "@sonatype/react-shared-components"
-import React, {useContext, useEffect, useState} from "react"
+import {NxButton, NxLoadError, NxTable} from "@sonatype/react-shared-components"
+import React, {MouseEvent, useContext, useEffect, useState} from "react"
 import {Campaign} from "./CampaignSelect";
 import {Action, ClientContext} from "react-fetching-library";
 
@@ -47,29 +47,36 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
     const clientContext = useContext(ClientContext);
 
-    useEffect(() => {
-        const getLeaders = async (campaign: Campaign) => {
-            const getLeadersAction: Action = {
-                method: 'GET',
-                endpoint: `/participant/list/${campaign.name}`
-            }
-            const res = await clientContext.query(getLeadersAction);
-
-            if (!res.error) {
-                setParticipantList(res.payload ? res.payload : []);
-            } else {
-                const errMsg = (res && res.payload) ? res.payload.error : res.errorObject.toString()
-                setQueryError({error: true, errorMessage: errMsg});
-            }
-        }
-
-        if (props.selectedCampaign) {
-            // noinspection JSIgnoredPromiseFromCall
-            getLeaders(props.selectedCampaign);
-        } else {
+    const getLeaders = async (campaign: Campaign | undefined) => {
+        if (!campaign) {
             console.debug("no selectedCampaign, skipping getLeaders")
+            return
         }
+
+        const getLeadersAction: Action = {
+            method: 'GET',
+            endpoint: `/participant/list/${campaign.name}`
+        }
+        const res = await clientContext.query(getLeadersAction);
+
+        if (!res.error) {
+            setParticipantList(res.payload ? res.payload : []);
+        } else {
+            const errMsg = (res && res.payload) ? res.payload.error : res.errorObject.toString()
+            setQueryError({error: true, errorMessage: errMsg});
+        }
+    }
+
+    useEffect(() => {
+        // noinspection JSIgnoredPromiseFromCall
+        getLeaders(props.selectedCampaign);
     }, [clientContext, props.selectedCampaign]) // rebuilds the list only when selectedCampaign changes
+
+    // noinspection JSUnusedLocalSymbols
+    const onClick = (evt: MouseEvent<HTMLButtonElement>) => {
+        // noinspection JSIgnoredPromiseFromCall
+        getLeaders(props.selectedCampaign);
+    }
 
     const doRender = () => {
         if (queryError.error) {
@@ -77,26 +84,30 @@ const LeaderBoard = (props: CampaignSelectProps) => {
         }
 
         return (
-            <NxTable>
-                <NxTable.Head>
-                    <NxTable.Row>
-                        <NxTable.Cell>Source Code Repository User Name</NxTable.Cell>
-                        <NxTable.Cell isNumeric>Score</NxTable.Cell>
-                    </NxTable.Row>
-                </NxTable.Head>
-                <NxTable.Body>
-                    {participantList?.length ? participantList.map((participant) =>
-                            <NxTable.Row>
-                                <NxTable.Cell>{participant.loginName}</NxTable.Cell>
-                                <NxTable.Cell isNumeric>{participant.score}</NxTable.Cell>
-                            </NxTable.Row>
-                        )
-                        : <NxTable.Row>
-                            <NxTable.Cell>No Participants</NxTable.Cell>
-                            <NxTable.Cell isNumeric> </NxTable.Cell>
-                        </NxTable.Row>}
-                </NxTable.Body>
-            </NxTable>
+            <>
+                <NxButton variant="secondary" onClick={onClick}>Refresh Scores</NxButton>
+
+                <NxTable>
+                    <NxTable.Head>
+                        <NxTable.Row>
+                            <NxTable.Cell>Source Code Repository User Name</NxTable.Cell>
+                            <NxTable.Cell isNumeric>Score</NxTable.Cell>
+                        </NxTable.Row>
+                    </NxTable.Head>
+                    <NxTable.Body>
+                        {participantList?.length ? participantList.map((participant) =>
+                                <NxTable.Row>
+                                    <NxTable.Cell>{participant.loginName}</NxTable.Cell>
+                                    <NxTable.Cell isNumeric>{participant.score}</NxTable.Cell>
+                                </NxTable.Row>
+                            )
+                            : <NxTable.Row>
+                                <NxTable.Cell>No Participants</NxTable.Cell>
+                                <NxTable.Cell isNumeric> </NxTable.Cell>
+                            </NxTable.Row>}
+                    </NxTable.Body>
+                </NxTable>
+            </>
         )
     }
 
