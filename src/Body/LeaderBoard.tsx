@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 import {NxButton, NxLoadError, NxTable} from "@sonatype/react-shared-components"
-import React, {MouseEvent, useContext, useEffect, useState} from "react"
+import React, {MouseEvent, useCallback, useContext, useEffect, useState} from "react"
 import {Campaign} from "./CampaignSelect";
 import {Action, ClientContext} from "react-fetching-library";
 
@@ -47,7 +47,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
     const clientContext = useContext(ClientContext);
 
-    const getLeaders = async (campaign: Campaign | undefined) => {
+    const getLeaders = useCallback(async (campaign: Campaign | undefined) => {
         if (!campaign) {
             console.debug("no selectedCampaign, skipping getLeaders")
             return
@@ -65,7 +65,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
             const errMsg = (res && res.payload) ? res.payload.error : res.errorObject.toString()
             setQueryError({error: true, errorMessage: errMsg});
         }
-    }
+    }, [])
 
     useEffect(() => {
         // noinspection JSIgnoredPromiseFromCall
