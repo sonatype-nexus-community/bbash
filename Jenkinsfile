@@ -16,7 +16,7 @@
 @Library(['private-pipeline-library', 'jenkins-shared']) _
 
 dockerizedBuildPipeline(
-  buildImageId: "${sonatypeDockerRegistryId()}/cdi/golang-1.17.1:2",
+  pathToDockerfile: "jenkins.dockerfile",
   deployBranch: 'main',
   prepare: {
     githubStatusUpdate('pending')
@@ -24,19 +24,16 @@ dockerizedBuildPipeline(
   buildAndTest: {
     sh '''
     make all
-    go get -u github.com/jstemmer/go-junit-report
-    make test | go-junit-report > test-results.xml
     '''
   },
   vulnerabilityScan: {
     withDockerImage(env.DOCKER_IMAGE_ID, {
       withCredentials([usernamePassword(credentialsId: 'jenkins-iq',
         usernameVariable: 'IQ_USERNAME', passwordVariable: 'IQ_PASSWORD')]) {
-        sh 'npx auditjs@latest iq -x -a auditjs -s release -u $IQ_USERNAME -p $IQ_PASSWORD -h https://iq.sonatype.dev'
+        sh 'npx auditjs@latest iq -x -a bbash -s release -u $IQ_USERNAME -p $IQ_PASSWORD -h https://iq.sonatype.dev'
       }
     })
   },
-  testResults: [ 'test-results.xml' ],
   onSuccess: {
     githubStatusUpdate('success')
   },
