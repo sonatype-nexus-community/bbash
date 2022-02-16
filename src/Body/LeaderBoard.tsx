@@ -65,12 +65,12 @@ const LeaderBoard = (props: CampaignSelectProps) => {
             const errMsg = (res && res.payload) ? res.payload.error : res.errorObject.toString()
             setQueryError({error: true, errorMessage: errMsg});
         }
-    }, [])
+    }, [clientContext])
 
     useEffect(() => {
         // noinspection JSIgnoredPromiseFromCall
         getLeaders(props.selectedCampaign);
-    }, [clientContext, props.selectedCampaign]) // rebuilds the list only when selectedCampaign changes
+    }, [clientContext, props.selectedCampaign, getLeaders]) // rebuilds the list only when selectedCampaign changes
 
     // noinspection JSUnusedLocalSymbols
     const onClick = (evt: MouseEvent<HTMLButtonElement>) => {
