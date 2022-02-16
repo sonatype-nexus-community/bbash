@@ -70,7 +70,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
     useEffect(() => {
         // noinspection JSIgnoredPromiseFromCall
         getLeaders(props.selectedCampaign);
-    }, [clientContext, props.selectedCampaign]) // rebuilds the list only when selectedCampaign changes
+    }, [clientContext, props.selectedCampaign, getLeaders]) // rebuilds the list only when selectedCampaign changes
 
     // noinspection JSUnusedLocalSymbols
     const onClick = (evt: MouseEvent<HTMLButtonElement>) => {
