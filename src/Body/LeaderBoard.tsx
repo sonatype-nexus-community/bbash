@@ -47,7 +47,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
     const clientContext = useContext(ClientContext);
 
-    const getLeaders = useCallback(async (campaign: Campaign | undefined) => {
+    const getLeaders = async (campaign: Campaign | undefined) => {
         if (!campaign) {
             console.debug("no selectedCampaign, skipping getLeaders")
             return
@@ -65,12 +65,13 @@ const LeaderBoard = (props: CampaignSelectProps) => {
             const errMsg = (res && res.payload) ? res.payload.error : res.errorObject.toString()
             setQueryError({error: true, errorMessage: errMsg});
         }
-    }, [clientContext])
+    }
 
     useEffect(() => {
         // noinspection JSIgnoredPromiseFromCall
         getLeaders(props.selectedCampaign);
-    }, [clientContext, props.selectedCampaign, getLeaders]) // rebuilds the list only when selectedCampaign changes
+        // rebuilds the list only when selectedCampaign changes
+    }, [clientContext, props.selectedCampaign]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // noinspection JSUnusedLocalSymbols
     const onClick = (evt: MouseEvent<HTMLButtonElement>) => {
