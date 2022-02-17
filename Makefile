@@ -1,6 +1,7 @@
-.PHONY: all test build go-build yarn air docker run-air go-alpine-build
+.PHONY: all test build yarn air docker go-build go-alpine-build run-air run-air-alone
 GOCMD=go
 GOBUILD=$(GOCMD) build
+GOTEST=$(GOCMD) test
 
 AIRCMD=~/go/bin/air
 
@@ -22,26 +23,17 @@ GOBUILD_FLAGS=-ldflags="-X 'github.com/sonatype-nexus-community/bbash/buildversi
 	   -X 'github.com/sonatype-nexus-community/bbash/buildversion.BuildTime=$(DATE)' \
 	   -X 'github.com/sonatype-nexus-community/bbash/buildversion.BuildCommit=$(COMMIT)'"
 
-GOTEST=$(GOCMD) test
-
 all: test
-
-air: yarn
-	$(GOBUILD) -o ./tmp/bbash $(GOBUILD_FLAGS) ./server.go ./server_upstream.go
 
 docker:
 	yarn version --patch
 	docker build -t bug-bash .
 	docker image prune --force --filter label=stage=builder 
 
-run-air: air
-	docker run --name bug_bash_postgres -p 5432:5432 -e POSTGRES_PASSWORD=bug_bash -e POSTGRES_DB=db -d postgres
-	$(AIRCMD) -c .air.toml && docker stop bug_bash_postgres && docker rm bug_bash_postgres
-
-run-air-alone: yarn
-	$(AIRCMD) -c .air.toml
-
 build: yarn go-build
+
+yarn:
+	yarn && yarn build
 
 go-build:
 	echo "VERSION: $(VERSION)"
@@ -52,8 +44,15 @@ go-build:
 go-alpine-build:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go ./server_upstream.go
 
+air: yarn
+	$(GOBUILD) -o ./tmp/bbash $(GOBUILD_FLAGS) ./server.go
+
+run-air: air
+	docker run --name bug_bash_postgres -p 5432:5432 -e POSTGRES_PASSWORD=bug_bash -e POSTGRES_DB=db -d postgres
+	air -c .air.toml && docker stop bug_bash_postgres && docker rm bug_bash_postgres
+
+run-air-alone: yarn
+	$(AIRCMD) -c .air.toml
+
 test: build
 	$(GOTEST) -v ./... 2>&1
-
-yarn:
-	yarn && yarn build
