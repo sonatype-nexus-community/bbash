@@ -25,4 +25,8 @@ RUN apt-get update && apt-get install -y nodejs
 RUN npm install --global yarn
 ENV GOPATH=
 
-COPY . .
+USER jenkins
+RUN go install github.com/sonatype-nexus-community/nancy@latest
+
+#  root dir mounted as workspace. instead, for local testing, use: docker run -it -v $(pwd):/ws ...
+#COPY . .
