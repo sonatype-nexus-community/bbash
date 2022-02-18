@@ -24,6 +24,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap/zaptest"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,14 @@ import (
 )
 
 var now = time.Now()
+
+func resetEnvVariable(t *testing.T, variableName, originalValue string) {
+	if originalValue == "" {
+		assert.NoError(t, os.Unsetenv(variableName))
+	} else {
+		assert.NoError(t, os.Setenv(variableName, originalValue))
+	}
+}
 
 func newMockDb(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
 	db, mock, err := sqlmock.New()
@@ -57,6 +66,24 @@ func resetEnvVar(t *testing.T, envVarName, origValue string) {
 
 func resetEnvVarPGHost(t *testing.T, origEnvPGHost string) {
 	resetEnvVar(t, envPGHost, origEnvPGHost)
+}
+
+func TestZapLoggerFilterSkipsELB(t *testing.T) {
+	req := httptest.NewRequest("", "/", nil)
+	req.Header.Set("User-Agent", "bing ELB-HealthChecker yadda")
+	//logger := zaptest.NewLogger(t)
+
+	//result := ZapLoggerFilterAWS_ELB(logger)
+
+	//handlerFunc := func(next echo.HandlerFunc) echo.HandlerFunc {
+	//	return func(c echo.Context) error {
+	//		return nil
+	//	}
+	//}
+	//r2 := result(handlerFunc)
+	//assert.Nil(t, result)
+	// @TODO figure out how to test these hoops
+	//result(nil)
 }
 
 func TestMainDBPingError(t *testing.T) {
@@ -123,7 +150,7 @@ func TestMigrateDBErrorPostgresWithInstance(t *testing.T) {
 		_ = dbMock.Close()
 	}()
 
-	assert.EqualError(t, migrateDB(dbMock, nil), "all expectations were already fulfilled, call to Query 'SELECT CURRENT_DATABASE()' with args [] was not expected in line 0: SELECT CURRENT_DATABASE()")
+	assert.EqualError(t, migrateDB(dbMock), "all expectations were already fulfilled, call to Query 'SELECT CURRENT_DATABASE()' with args [] was not expected in line 0: SELECT CURRENT_DATABASE()")
 }
 
 func setupMockPostgresWithInstance(mock sqlmock.Sqlmock) (args []driver.Value) {
@@ -155,7 +182,7 @@ func TestMigrateDBErrorMigrateUp(t *testing.T) {
 
 	setupMockPostgresWithInstance(mock)
 
-	assert.EqualError(t, migrateDB(dbMock, nil), "try lock failed in line 0: SELECT pg_advisory_lock($1) (details: all expectations were already fulfilled, call to ExecQuery 'SELECT pg_advisory_lock($1)' with args [{Name: Ordinal:1 Value:1014225327}] was not expected)")
+	assert.EqualError(t, migrateDB(dbMock), "try lock failed in line 0: SELECT pg_advisory_lock($1) (details: all expectations were already fulfilled, call to ExecQuery 'SELECT pg_advisory_lock($1)' with args [{Name: Ordinal:1 Value:1014225327}] was not expected)")
 }
 
 //goland:noinspection GoUnusedFunction,GoSnakeCaseUsage
@@ -197,7 +224,7 @@ func xxxIgnore_TestMigrateDB(t *testing.T) {
 		WithArgs(args...).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	assert.NoError(t, migrateDB(dbMock, nil))
+	assert.NoError(t, migrateDB(dbMock))
 }
 
 func TestSetupRoutes(t *testing.T) {
@@ -684,7 +711,7 @@ func xxxTestDropDB_DO_NOT_RUN_THIS(t *testing.T) {
 	assert.Equal(t, "db", dbname)
 	assert.Equal(t, "disable", sslMode)
 
-	assert.NoError(t, migrateDB(db, nil))
+	assert.NoError(t, migrateDB(db))
 	assert.NoError(t, downgradeDB(db))
 }
 
@@ -2258,4 +2285,51 @@ func TestDeleteOrganization(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusNoContent, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
+}
+
+func saveEnvAdminCredentials(t *testing.T) (resetInfoCreds func()) {
+	origInfoUsername := os.Getenv(envAdminUsername)
+	origInfoPassword := os.Getenv(envAdminPassword)
+	resetInfoCreds = func() {
+		resetEnvVariable(t, envAdminUsername, origInfoUsername)
+		resetEnvVariable(t, envAdminUsername, origInfoPassword)
+	}
+
+	// setup testing logger while we're here
+	logger = zaptest.NewLogger(t)
+
+	return
+}
+
+func TestInfoBasicValidatorMissingEnv(t *testing.T) {
+	resetInfoCreds := saveEnvAdminCredentials(t)
+	defer resetInfoCreds()
+	assert.NoError(t, os.Unsetenv(envAdminUsername))
+	assert.NoError(t, os.Unsetenv(envAdminPassword))
+
+	isValid, err := infoBasicValidator("yadda", "bing", nil)
+	assert.NoError(t, err)
+	assert.False(t, isValid)
+}
+
+func TestInfoBasicValidatorInValid(t *testing.T) {
+	resetInfoCreds := saveEnvAdminCredentials(t)
+	defer resetInfoCreds()
+	assert.NoError(t, os.Setenv(envAdminUsername, "yadda"))
+	assert.NoError(t, os.Setenv(envAdminPassword, "Doh!"))
+
+	isValid, err := infoBasicValidator("yadda", "bing", nil)
+	assert.NoError(t, err)
+	assert.False(t, isValid)
+}
+
+func TestInfoBasicValidatorValid(t *testing.T) {
+	resetInfoCreds := saveEnvAdminCredentials(t)
+	defer resetInfoCreds()
+	assert.NoError(t, os.Setenv(envAdminUsername, "yadda"))
+	assert.NoError(t, os.Setenv(envAdminPassword, "bing"))
+
+	isValid, err := infoBasicValidator("yadda", "bing", nil)
+	assert.NoError(t, err)
+	assert.True(t, isValid)
 }

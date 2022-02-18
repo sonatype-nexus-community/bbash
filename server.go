@@ -17,16 +17,18 @@
 package main
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/labstack/echo/v4/middleware"
 	"github.com/sonatype-nexus-community/bbash/buildversion"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -34,7 +36,6 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/gommon/log"
 )
 
 var db *sql.DB
@@ -159,23 +160,41 @@ const (
 	buildLocation         string = "build"
 )
 
+const defaultServicePort = ":7777"
+
 const envPGHost = "PG_HOST"
 const envPGPort = "PG_PORT"
 const envPGUsername = "PG_USERNAME"
 const envPGPassword = "PG_PASSWORD"
 const envPGDBName = "PG_DB_NAME"
 const envSSLMode = "SSL_MODE"
+const envAdminUsername = "ADMIN_USERNAME"
+const envAdminPassword = "ADMIN_PASSWORD"
 
 var errRecovered error
+var logger *zap.Logger
 var upstreamEnabled bool
 
 func main() {
 	e := echo.New()
-	e.Use(
-		middleware.Logger(), // Log everything to stdout
-	)
+
+	var err error
+	config := zap.NewProductionConfig()
+	config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+	logger, err = config.Build()
+	if err != nil {
+		e.Logger.Fatal("can not initialize zap logger: %+v", err)
+	}
+	defer func() {
+		_ = logger.Sync()
+	}()
+
+	// NOTE: using middleware.Logger() makes lots of AWS ELB Healthcheck noise in server logs
+	//e.Use(middleware.Logger(), /* Log everything to stdout*/)
+	//e.Use(echozap.ZapLogger(logger))
+	e.Use(ZapLoggerFilterAwsElb(logger))
+
 	e.Debug = true
-	e.Logger.SetLevel(log.INFO)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -184,18 +203,18 @@ func main() {
 				err = fmt.Errorf("pkg: %v", r)
 			}
 			errRecovered = err
-			e.Logger.Error(err)
+			logger.Error("panic", zap.Error(err))
 		}
 	}()
 
 	buildInfoMessage := fmt.Sprintf("BuildVersion: %s, BuildTime: %s, BuildCommit: %s",
 		buildversion.BuildVersion, buildversion.BuildTime, buildversion.BuildCommit)
-	e.Logger.Infof(buildInfoMessage)
+	logger.Info("build", zap.String("buildMsg", buildInfoMessage))
 	fmt.Println(buildInfoMessage)
 
-	err := godotenv.Load(".env")
+	err = godotenv.Load(".env")
 	if err != nil {
-		e.Logger.Error(err)
+		logger.Error("env load", zap.Error(err))
 	}
 
 	if upstreamEnabled {
@@ -204,31 +223,30 @@ func main() {
 
 	host, port, dbname, _, err := openDB()
 	if err != nil {
-		e.Logger.Error(err)
+		logger.Error("db open", zap.Error(err))
 		panic(fmt.Errorf("failed to load database driver. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
 	}
 	defer func() {
-		_ = db.Close()
+		if err := db.Close(); err != nil {
+			logger.Error("db close", zap.Error(err))
+		}
 	}()
 
 	err = db.Ping()
 	if err != nil {
-		e.Logger.Error(err)
+		logger.Error("db ping", zap.Error(err))
 		panic(fmt.Errorf("failed to ping database. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
 	}
 
-	err = migrateDB(db, e)
+	err = migrateDB(db)
 	if err != nil {
-		e.Logger.Error(err)
+		logger.Error("db migrate", zap.Error(err))
 		panic(fmt.Errorf("failed to migrate database. err: %+v", err))
 	}
 
 	setupRoutes(e, buildInfoMessage)
 
-	err = e.Start(":7777")
-	if err != nil {
-		e.Logger.Error(err)
-	}
+	logger.Fatal("application end", zap.Error(e.Start(defaultServicePort)))
 }
 
 func setupRoutes(e *echo.Echo, buildInfoMessage string) {
@@ -303,7 +321,78 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) {
 	routes := e.Routes()
 
 	for _, v := range routes {
-		fmt.Printf("Registered route: %s %s as %s\n", v.Method, v.Path, v.Name)
+		routeInfo := fmt.Sprintf("%s %s as %s", v.Method, v.Path, v.Name)
+		logger.Info("route", zap.String("info", routeInfo))
+	}
+}
+
+//goland:noinspection GoUnusedParameter
+func infoBasicValidator(username, password string, c echo.Context) (isValidLogin bool, err error) {
+	// Be careful to use constant time comparison to prevent timing attacks
+	if subtle.ConstantTimeCompare([]byte(username), []byte(os.Getenv(envAdminUsername))) == 1 &&
+		subtle.ConstantTimeCompare([]byte(password), []byte(os.Getenv(envAdminPassword))) == 1 {
+		isValidLogin = true
+	} else {
+		logger.Info("failed info endpoint login",
+			zap.String("username", username),
+			zap.String("password", password),
+		)
+	}
+	return
+}
+
+// ZapLoggerFilterAwsElb is a middleware and zap to provide an "access log" like logging for each request.
+// Adapted from ZapLogger, until I find a better way to filter out AWS ELB Healthcheck messages.
+func ZapLoggerFilterAwsElb(log *zap.Logger) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			start := time.Now()
+
+			err := next(c)
+			if err != nil {
+				c.Error(err)
+			}
+
+			req := c.Request()
+			res := c.Response()
+
+			fields := []zapcore.Field{
+				zap.String("remote_ip", c.RealIP()),
+				zap.String("latency", time.Since(start).String()),
+				zap.String("host", req.Host),
+				zap.String("request", fmt.Sprintf("%s %s", req.Method, req.RequestURI)),
+				zap.Int("status", res.Status),
+				zap.Int64("size", res.Size),
+				zap.String("user_agent", req.UserAgent()),
+			}
+
+			userAgent := req.UserAgent()
+			if strings.Contains(userAgent, "ELB-HealthChecker") {
+				//fmt.Printf("userAgent: %s\n", userAgent)
+				// skip logging of this AWS ELB healthcheck
+				return nil
+			}
+
+			id := req.Header.Get(echo.HeaderXRequestID)
+			if id == "" {
+				id = res.Header().Get(echo.HeaderXRequestID)
+				fields = append(fields, zap.String("request_id", id))
+			}
+
+			n := res.Status
+			switch {
+			case n >= 500:
+				log.With(zap.Error(err)).Error("Server error", fields...)
+			case n >= 400:
+				log.With(zap.Error(err)).Warn("Client error", fields...)
+			case n >= 300:
+				log.Info("Redirection", fields...)
+			default:
+				log.Info("Success", fields...)
+			}
+
+			return nil
+		}
 	}
 }
 
@@ -1292,7 +1381,7 @@ func downgradeDB(db *sql.DB) (err error) {
 	return
 }
 
-func migrateDB(db *sql.DB, e *echo.Echo) (err error) {
+func migrateDB(db *sql.DB) (err error) {
 	m, err := migratePrep(db)
 	if err != nil {
 		return
@@ -1305,7 +1394,7 @@ func migrateDB(db *sql.DB, e *echo.Echo) (err error) {
 			err = nil
 		}
 	} else {
-		e.Logger.Infof("database migrated successfully")
+		logger.Info("db migration complete")
 	}
 
 	return
