@@ -48,7 +48,7 @@ const CampaignSelect = (props: CampaignSelectProps) => {
         const getCampaignList = async () => {
             const getCampaignsAction: Action = {
                 method: 'GET',
-                endpoint: `/campaign/list`
+                endpoint: `/campaign/active`
             }
             const res = await clientContext.query(getCampaignsAction);
             if (!res.error) {

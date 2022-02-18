@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/labstack/echo/v4/middleware"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"net/http"
@@ -143,11 +144,13 @@ const (
 	ParamBugCategory      string = "bugCategory"
 	ParamPointValue       string = "pointValue"
 	ParamOrganizationName string = "organizationName"
+	pathAdmin             string = "/admin"
 	SourceControlProvider string = "/scp"
 	Organization          string = "/organization"
 	Participant           string = "/participant"
 	Detail                string = "/detail"
 	List                  string = "/list"
+	active                string = "/active"
 	Update                string = "/update"
 	Delete                string = "/delete"
 	Team                  string = "/team"
@@ -254,12 +257,15 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) {
 		return c.String(http.StatusOK, fmt.Sprintf("I am ALIVE. %s", buildInfoMessage))
 	})
 
+	// admin endpoint group
+	adminGroup := e.Group(pathAdmin, middleware.BasicAuth(infoBasicValidator))
+
 	// Source Control Provider endpoints
-	scpGroup := e.Group(SourceControlProvider)
+	scpGroup := adminGroup.Group(SourceControlProvider)
 	scpGroup.GET(List, getSourceControlProviders).Name = "scp-list"
 
 	// Organization related endpoints
-	organizationGroup := e.Group(Organization)
+	organizationGroup := adminGroup.Group(Organization)
 
 	organizationGroup.GET(List, getOrganizations).Name = "organization-list"
 	organizationGroup.PUT(Add, addOrganization).Name = "organization-add"
@@ -269,15 +275,15 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) {
 
 	// Participant related endpoints and group
 
-	participantGroup := e.Group(Participant)
+	publicParticipantGroup := e.Group(Participant)
+	publicParticipantGroup.GET(
+		fmt.Sprintf("%s/:%s", List, ParamCampaignName),
+		getParticipantsList).Name = "participant-list"
 
+	participantGroup := adminGroup.Group(Participant)
 	participantGroup.GET(
 		fmt.Sprintf("%s/:%s/:%s/:%s", Detail, ParamCampaignName, ParamScpName, ParamLoginName),
 		getParticipantDetail).Name = "participant-detail"
-
-	participantGroup.GET(
-		fmt.Sprintf("%s/:%s", List, ParamCampaignName),
-		getParticipantsList).Name = "participant-list"
 
 	participantGroup.POST(Update, updateParticipant).Name = "participant-update"
 	participantGroup.PUT(Add, logAddParticipant).Name = "participant-add"
@@ -288,14 +294,14 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) {
 
 	// Team related endpoints and group
 
-	teamGroup := e.Group(Team)
+	teamGroup := adminGroup.Group(Team)
 
 	teamGroup.PUT(Add, addTeam)
 	teamGroup.PUT(fmt.Sprintf("%s/:%s/:%s/:%s/:%s", Person, ParamCampaignName, ParamScpName, ParamLoginName, ParamTeamName), addPersonToTeam)
 
 	// Bug related endpoints and group
 
-	bugGroup := e.Group(Bug)
+	bugGroup := adminGroup.Group(Bug)
 
 	bugGroup.PUT(Add, addBug)
 	bugGroup.POST(fmt.Sprintf("%s/:%s/:%s/:%s", Update, ParamCampaignName, ParamBugCategory, ParamPointValue), updateBug)
@@ -304,16 +310,18 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) {
 
 	// Campaign related endpoints and group
 
-	campaignGroup := e.Group(Campaign)
+	publicCampaignGroup := e.Group(Campaign)
+	publicCampaignGroup.GET(active, getActiveCampaignsEcho)
 
+	campaignGroup := adminGroup.Group(Campaign)
 	campaignGroup.GET(List, getCampaigns)
-	campaignGroup.GET("/active", getActiveCampaignsEcho)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Add, ParamCampaignName), addCampaign)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Update, ParamCampaignName), updateCampaign)
 
 	// Scoring related endpoints and group
+	// @TODO put this endpoint behind some auth, and update lift log scraper
+	//scoreGroup := adminGroup.Group(ScoreEvent)
 	scoreGroup := e.Group(ScoreEvent)
-
 	scoreGroup.POST(New, logNewScore)
 
 	e.Static("/", buildLocation)
