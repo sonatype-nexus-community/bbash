@@ -1115,12 +1115,12 @@ func TestGetParticipantsList(t *testing.T) {
 }
 
 func TestValidateBug(t *testing.T) {
-	c, _ := setupMockContext()
-	assert.EqualError(t, validateBug(c, bug{}), "bug is not valid, empty campaign: bug: {Id: Campaign: Category: PointValue:0}")
-	assert.EqualError(t, validateBug(c, bug{Campaign: "myCampaign"}), "bug is not valid, empty category: bug: {Id: Campaign:myCampaign Category: PointValue:0}")
-	assert.EqualError(t, validateBug(c, bug{Campaign: "myCampaign", Category: ""}), "bug is not valid, empty category: bug: {Id: Campaign:myCampaign Category: PointValue:0}")
-	assert.EqualError(t, validateBug(c, bug{Campaign: "myCampaign", Category: "myCategory", PointValue: -1}), "bug is not valid, negative PointValue: bug: {Id: Campaign:myCampaign Category:myCategory PointValue:-1}")
-	assert.NoError(t, validateBug(c, bug{Campaign: "myCampaign", Category: "myCategory", PointValue: 0}))
+	_, _ = setupMockContext()
+	assert.EqualError(t, validateBug(bug{}), "bug is not valid, empty campaign: bug: {Id: Campaign: Category: PointValue:0}")
+	assert.EqualError(t, validateBug(bug{Campaign: "myCampaign"}), "bug is not valid, empty category: bug: {Id: Campaign:myCampaign Category: PointValue:0}")
+	assert.EqualError(t, validateBug(bug{Campaign: "myCampaign", Category: ""}), "bug is not valid, empty category: bug: {Id: Campaign:myCampaign Category: PointValue:0}")
+	assert.EqualError(t, validateBug(bug{Campaign: "myCampaign", Category: "myCategory", PointValue: -1}), "bug is not valid, negative PointValue: bug: {Id: Campaign:myCampaign Category:myCategory PointValue:-1}")
+	assert.NoError(t, validateBug(bug{Campaign: "myCampaign", Category: "myCategory", PointValue: 0}))
 }
 
 func setupMockContextAddBug(bugJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
@@ -1394,7 +1394,7 @@ func TestPutBugsBeginTxError(t *testing.T) {
 }
 
 func TestPutBugsScanError(t *testing.T) {
-	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointvalue":5}]`)
+	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointValue":5}]`)
 
 	mock, resetMockDb := setupMockDb(t)
 	defer resetMockDb()
@@ -1411,7 +1411,7 @@ func TestPutBugsScanError(t *testing.T) {
 }
 
 func TestPutBugsCommitTxError(t *testing.T) {
-	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointvalue":5}]`)
+	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointValue":5}]`)
 
 	mock, resetMockDb := setupMockDb(t)
 	defer resetMockDb()
@@ -1442,7 +1442,7 @@ func TestPutBugsOneBugInvalidBug(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 func TestPutBugsOneBug(t *testing.T) {
-	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointvalue":5}]`)
+	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointValue":5}]`)
 
 	mock, resetMockDb := setupMockDb(t)
 	defer resetMockDb()
@@ -1461,7 +1461,7 @@ func TestPutBugsOneBug(t *testing.T) {
 }
 
 func TestPutBugsMultipleBugs(t *testing.T) {
-	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointvalue":5}, {"campaign":"myCampaign","category":"bugCat3", "pointvalue":9}]`)
+	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointValue":5}, {"campaign":"myCampaign","category":"bugCat3", "pointValue":9}]`)
 
 	mock, resetMockDb := setupMockDb(t)
 	defer resetMockDb()
@@ -1503,7 +1503,7 @@ func TestDeleteParticipant(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlDeleteParticipant)).
 		WithArgs(campaign, scpName, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"upstreamid"}).AddRow(upstreamIdDeprecated))
+		WillReturnRows(sqlmock.NewRows([]string{"upstreamId"}).AddRow(upstreamIdDeprecated))
 
 	assert.NoError(t, deleteParticipant(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
@@ -1527,7 +1527,7 @@ func TestDeleteParticipantWithDBDeleteError(t *testing.T) {
 }
 
 func TestValidScoreUnknownErrorValidatingOrganization(t *testing.T) {
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 
 	mock, resetMockDb := setupMockDb(t)
 	defer resetMockDb()
@@ -1538,13 +1538,13 @@ func TestValidScoreUnknownErrorValidatingOrganization(t *testing.T) {
 		WillReturnError(forcedError)
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid}
-	activeParticipantsToScore, err := validScore(c, msg, now)
+	activeParticipantsToScore, err := validScore(msg, now)
 	assert.EqualError(t, err, forcedError.Error())
 	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
 
 func TestValidScoreUnknownRepoOwner(t *testing.T) {
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 
 	mock, resetMockDb := setupMockDb(t)
 	defer resetMockDb()
@@ -1554,7 +1554,7 @@ func TestValidScoreUnknownRepoOwner(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid}
-	activeParticipantsToScore, err := validScore(c, msg, now)
+	activeParticipantsToScore, err := validScore(msg, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
@@ -1589,10 +1589,10 @@ func TestValidScoreParticipantNotRegistered(t *testing.T) {
 		WithArgs(now, testEventSourceValid, "unregisteredUser").
 		WillReturnRows(sqlmock.NewRows([]string{"Id"}))
 
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: "unregisteredUser"}
-	activeParticipantsToScore, err := validScore(c, msg, now)
+	activeParticipantsToScore, err := validScore(msg, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
@@ -1609,10 +1609,10 @@ func TestValidScoreParticipantScanError(t *testing.T) {
 			// force scan error via invalid datatype
 			AddRow("someId", sql.NullString{}, "someSCP", "someLoginName", ""))
 
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName}
-	activeParticipantsToScore, err := validScore(c, msg, now)
+	activeParticipantsToScore, err := validScore(msg, now)
 	assert.EqualError(t, err, "sql: Scan error on column index 1, name \"CampaignName\": converting NULL to string is unsupported")
 	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
@@ -1628,10 +1628,10 @@ func TestValidScoreParticipantErrorReadingParticipant(t *testing.T) {
 		WithArgs(now, testEventSourceValid, loginName).
 		WillReturnError(forcedError)
 
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName}
-	activeParticipantsToScore, err := validScore(c, msg, now)
+	activeParticipantsToScore, err := validScore(msg, now)
 	assert.EqualError(t, err, forcedError.Error())
 	assert.Equal(t, 0, len(activeParticipantsToScore))
 }
@@ -1649,10 +1649,10 @@ func TestValidScoreParticipant(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "loginName", "teamName"}).
 			AddRow("someId", "someCampaign", "someSCP", "someLoginName", ""))
 
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid, TriggerUser: loginName}
-	activeParticipantsToScore, err := validScore(c, msg, now)
+	activeParticipantsToScore, err := validScore(msg, now)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(activeParticipantsToScore))
 	assert.Equal(t, "someCampaign", activeParticipantsToScore[0].CampaignName)
@@ -1667,7 +1667,7 @@ func setupMockDBOrgValid(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
 
 func TestScorePointsNothing(t *testing.T) {
 	msg := scoringMessage{}
-	points := scorePoints(nil, msg, campaign)
+	points := scorePoints(msg, campaign)
 	assert.Equal(t, 0, points)
 }
 
@@ -1680,9 +1680,9 @@ func TestScorePointsScanError(t *testing.T) {
 		WithArgs("unexpectedBugType").
 		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(1))
 
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 
-	points := scorePoints(c, msg, campaign)
+	points := scorePoints(msg, campaign)
 	assert.Equal(t, 1, points)
 }
 
@@ -1696,13 +1696,13 @@ func TestScorePointsFixedTwoThreePointers(t *testing.T) {
 		WithArgs(campaign, bugType).
 		WillReturnRows(sqlmock.NewRows([]string{"Value"}).AddRow(3))
 
-	points := scorePoints(nil, msg, campaign)
+	points := scorePoints(msg, campaign)
 	assert.Equal(t, 6, points)
 }
 
 func TestScorePointsBonusForNonClassified(t *testing.T) {
 	msg := scoringMessage{TotalFixed: 1}
-	points := scorePoints(nil, msg, campaign)
+	points := scorePoints(msg, campaign)
 	assert.Equal(t, 1, points)
 }
 
@@ -1714,9 +1714,9 @@ func TestValidOrganizationFalse(t *testing.T) {
 		WithArgs(testEventSourceValid, testOrgValid).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid}
-	isValidOrg, err := validOrganization(c, msg)
+	isValidOrg, err := validOrganization(msg)
 	assert.Nil(t, err)
 	assert.False(t, isValidOrg)
 }
@@ -1730,9 +1730,9 @@ func TestValidOrganizationError(t *testing.T) {
 		WithArgs("GitHub", testOrgValid).
 		WillReturnError(forcedError)
 
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 	msg := scoringMessage{EventSource: "GitHub", RepoOwner: testOrgValid}
-	isValidOrg, err := validOrganization(c, msg)
+	isValidOrg, err := validOrganization(msg)
 	assert.EqualError(t, err, forcedError.Error())
 	assert.False(t, isValidOrg)
 }
@@ -1745,9 +1745,9 @@ func TestValidOrganization(t *testing.T) {
 		WithArgs(testEventSourceValid, testOrgValid).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 
-	c, _ := setupMockContext()
+	_, _ = setupMockContext()
 	msg := scoringMessage{EventSource: testEventSourceValid, RepoOwner: testOrgValid}
-	isValidOrg, err := validOrganization(c, msg)
+	isValidOrg, err := validOrganization(msg)
 	assert.Nil(t, err)
 	assert.True(t, isValidOrg)
 }

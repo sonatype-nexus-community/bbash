@@ -458,11 +458,11 @@ func addOrganization(c echo.Context) (err error) {
 	err = db.QueryRow(sqlAddOrganization, organization.SCPName, organization.Organization).
 		Scan(&guid)
 	if err != nil {
-		c.Logger().Errorf("error inserting organization: %+v, err: %+v", organization, err)
+		logger.Error("error inserting organization", zap.Any("organization", organization), zap.Error(err))
 		return
 	}
 
-	c.Logger().Debugf("added organization: %+v", organization)
+	logger.Debug("added organization", zap.Any("organization", organization))
 	return c.String(http.StatusCreated, guid)
 }
 
@@ -504,7 +504,10 @@ func deleteOrganization(c echo.Context) (err error) {
 		return
 	}
 	rowsAffected, _ := res.RowsAffected()
-	c.Logger().Infof("delete organization: scpName: %s, name: %s, rowsAffected: %d", scpName, orgName, rowsAffected)
+	logger.Info("delete organization",
+		zap.String("scpName", scpName),
+		zap.String("orgName", orgName),
+		zap.Int64("rowsAffected", rowsAffected))
 	if rowsAffected > 0 {
 		return c.NoContent(http.StatusNoContent)
 	}
@@ -516,15 +519,16 @@ const sqlSelectOrganizationExists = `SELECT EXISTS(
 		WHERE fk_scp = (SELECT id from source_control_provider WHERE LOWER(name) = $1) AND Organization = $2)`
 
 // check if repo is in participating set
-func validOrganization(c echo.Context, msg scoringMessage) (orgExists bool, err error) {
+func validOrganization(msg scoringMessage) (orgExists bool, err error) {
 	row := db.QueryRow(sqlSelectOrganizationExists, msg.EventSource, msg.RepoOwner)
 	err = row.Scan(&orgExists)
 	if err != nil {
-		c.Logger().Errorf("organization read error. msg: %+v, err: %v", msg, err)
+		logger.Error("organization read error", zap.Any("msg", msg), zap.Error(err))
 		return
 	}
 	if !orgExists {
-		c.Logger().Debugf("organization is not valid. scp: %s, organization: %s, err: %v", msg.EventSource, msg.RepoOwner, err)
+		logger.Debug("organization is not valid",
+			zap.String("scp", msg.EventSource), zap.String("RepoOwner", msg.RepoOwner), zap.Error(err))
 	}
 	return
 }
@@ -544,22 +548,23 @@ const sqlSelectParticipantId = `SELECT
 		    AND LOWER(source_control_provider.name) = $2 
 			AND login_name = $3`
 
-func validScore(c echo.Context, msg scoringMessage, now time.Time) (participantsToScore []participant, err error) {
+func validScore(msg scoringMessage, now time.Time) (participantsToScore []participant, err error) {
 	// check if repo is in participating set
-	isValidOrg, err := validOrganization(c, msg)
+	isValidOrg, err := validOrganization(msg)
 	if err != nil {
-		c.Logger().Debugf("skip score-error reading organization. msg: %+v, err: %+v", msg, err)
+		logger.Debug("skip score-error reading organization", zap.Any("msg", msg), zap.Error(err))
 		return
 	}
 	if !isValidOrg {
-		c.Logger().Debugf("skip score-missing organization. owner: %s, user: %s", msg.RepoOwner, msg.TriggerUser)
+		logger.Debug("skip score-missing organization",
+			zap.String("RepoOwner", msg.RepoOwner), zap.String("TriggerUser", msg.TriggerUser))
 		return
 	}
 
 	// Check if participant is registered for an active campaign
 	rows, err := db.Query(sqlSelectParticipantId, now, msg.EventSource, msg.TriggerUser)
 	if err != nil {
-		c.Logger().Errorf("skip score-error reading participant. msg: %+v, err: %v", msg, err)
+		logger.Error("skip score-error reading participant", zap.Any("msg", msg), zap.Error(err))
 		return
 	}
 	for rows.Next() {
@@ -571,13 +576,13 @@ func validScore(c echo.Context, msg scoringMessage, now time.Time) (participants
 			partier.TeamName = nullableTeamName.String
 		}
 		if err != nil {
-			c.Logger().Errorf("skip score-error scanning participant. msg: %+v, err: %v", msg, err)
+			logger.Error("skip score-error scanning participant", zap.Any("msg", msg), zap.Error(err))
 			return
 		}
 		participantsToScore = append(participantsToScore, partier)
 	}
 	if len(participantsToScore) == 0 {
-		c.Logger().Debugf("skip score-missing participant. msg: %+v, err: %v", msg, err)
+		logger.Debug("skip score-missing participant", zap.Any("msg", msg), zap.Error(err))
 		return
 	}
 	return
@@ -588,7 +593,7 @@ const sqlSelectPointValue = `SELECT pointValue FROM bug
 	WHERE fk_campaign = (SELECT campaign.Id FROM campaign WHERE name = $1) 
 	  AND category = $2`
 
-func scorePoints(c echo.Context, msg scoringMessage, campaignName string) (points int) {
+func scorePoints(msg scoringMessage, campaignName string) (points int) {
 	points = 0
 	scored := 0
 
@@ -597,7 +602,8 @@ func scorePoints(c echo.Context, msg scoringMessage, campaignName string) (point
 		var value = 1
 		if err := row.Scan(&value); err != nil {
 			// ignore (and clear return) error from scan operation
-			c.Logger().Debugf("ignoring missing pointValue. bugType: %s, err: %+v, msg: %+v", bugType, err, msg)
+			logger.Debug("ignoring missing pointValue",
+				zap.String("bugType", bugType), zap.Error(err), zap.Any("msg", msg))
 		}
 
 		points += count * value
@@ -635,7 +641,7 @@ func updateParticipantScore(c echo.Context, participant participant, delta int) 
 // was not seeing enough detail when newScore() returns error, so capturing such cases in the log.
 func logNewScore(c echo.Context) (err error) {
 	if err = newScore(c); err != nil {
-		c.Logger().Errorf("error calling newScore. err: %+v", err)
+		logger.Error("error calling newScore", zap.Error(err))
 	}
 	return
 }
@@ -663,7 +669,7 @@ func newScore(c echo.Context) (err error) {
 		return
 	}
 
-	//c.Logger().Debugf("scoringAlert: %+v", alert)
+	//logger.Debug("scoring event", zap.Any("scoringAlert", alert))
 
 	now := time.Now()
 
@@ -671,7 +677,8 @@ func newScore(c echo.Context) (err error) {
 		var msg scoringMessage
 		err = json.Unmarshal([]byte(rawMsg), &msg)
 		if err != nil {
-			c.Logger().Debugf("error unmarshalling scoringMessage, err: %+v, rawMsg: %s", err, rawMsg)
+			logger.Debug("error unmarshalling scoringMessage",
+				zap.Error(err), zap.String("rawMsg", rawMsg))
 			return
 		}
 		// force triggerUser to lower case to match database values
@@ -679,9 +686,9 @@ func newScore(c echo.Context) (err error) {
 
 		// if this particular entry is not valid, ignore it and continue processing
 		var activeParticipantsToScore []participant
-		activeParticipantsToScore, err = validScore(c, msg, now)
+		activeParticipantsToScore, err = validScore(msg, now)
 		if err != nil {
-			c.Logger().Debugf("error validating scoringMessage, err: %+v, msg: %s", err, msg)
+			logger.Debug("error validating scoringMessage", zap.Error(err), zap.Any("msg", msg))
 			return
 		}
 		if len(activeParticipantsToScore) == 0 {
@@ -689,7 +696,7 @@ func newScore(c echo.Context) (err error) {
 		}
 		for _, participantToScore := range activeParticipantsToScore {
 
-			newPoints := scorePoints(c, msg, participantToScore.CampaignName)
+			newPoints := scorePoints(msg, participantToScore.CampaignName)
 
 			var tx *sql.Tx
 			tx, err = db.Begin()
@@ -702,7 +709,7 @@ func newScore(c echo.Context) (err error) {
 			err = row.Scan(&oldPoints)
 			if err != nil {
 				// ignore error case from scan when no row exists, will occur when this is a new score event
-				c.Logger().Debugf("ignoring likely new score event. err: %+v, scoringMessage: %+v", err, msg)
+				logger.Debug("ignoring likely new score event", zap.Error(err), zap.Any("scoringMessage", msg))
 			}
 
 			_, err = db.Exec(sqlInsertScoringEvent, participantToScore.CampaignName, participantToScore.ScpName, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
@@ -720,11 +727,12 @@ func newScore(c echo.Context) (err error) {
 				return
 			}
 
-			c.Logger().Debugf("score updated. newPoints: %d, oldPoints: %d, scoringMessage: %+v", newPoints, oldPoints, msg)
+			logger.Debug("score updated",
+				zap.Int("newPoints", newPoints), zap.Int("oldPoints", oldPoints), zap.Any("scoringMessage", msg))
 		}
 	}
 
-	//c.Logger().Debugf("scoringAlert completed: %+v", alert)
+	logger.Debug("scoringAlert completed", zap.Any("alert", alert))
 
 	return c.NoContent(http.StatusAccepted)
 }
@@ -743,7 +751,8 @@ func getParticipantDetail(c echo.Context) (err error) {
 	campaignName := c.Param(ParamCampaignName)
 	scpName := c.Param(ParamScpName)
 	loginName := c.Param(ParamLoginName)
-	c.Logger().Debugf("Getting detail for campaignName: %s, scpName: %s, loginName: %s", campaignName, scpName, loginName)
+	logger.Debug("getting detail for campaign",
+		zap.String("campaignName", campaignName), zap.String("scpName", scpName), zap.String("loginName", loginName))
 
 	row := db.QueryRow(sqlSelectParticipantDetail, campaignName, scpName, loginName)
 
@@ -760,7 +769,7 @@ func getParticipantDetail(c echo.Context) (err error) {
 		&participant.JoinedAt,
 	)
 	if err != nil {
-		c.Logger().Error(err)
+		logger.Error("getParticipantDetail scan error", zap.Error(err))
 		return
 	}
 	if nullableTeamName.Valid {
@@ -780,7 +789,7 @@ const sqlSelectParticipantsByCampaign = `SELECT
 
 func getParticipantsList(c echo.Context) (err error) {
 	campaignName := c.Param(ParamCampaignName)
-	c.Logger().Debug("Getting participant list for campaign: ", campaignName)
+	logger.Debug("Getting participant list for campaign: ", zap.String("campaignName", campaignName))
 
 	rows, err := db.Query(sqlSelectParticipantsByCampaign, campaignName)
 	if err != nil {
@@ -859,13 +868,11 @@ func updateParticipant(c echo.Context) (err error) {
 	}
 
 	if rowsAffected == 1 {
-		c.Logger().Infof("Success, huzzah! Participant updated: %+v", participant)
+		logger.Info("participant updated", zap.Any("participant", participant))
 		return c.NoContent(http.StatusNoContent)
 	} else {
-		c.Logger().Errorf(
-			"No Participant row was updated, something goofy has occurred. participant: %+v, rowsAffected: %s",
-			participant, rowsAffected,
-		)
+		logger.Error("no participant row was updated, something goofy has occurred",
+			zap.Any("participant", participant), zap.Int64("rowsAffected", rowsAffected))
 		return c.NoContent(http.StatusBadRequest)
 	}
 }
@@ -884,8 +891,9 @@ func deleteParticipant(c echo.Context) (err error) {
 	var participantUpstreamId string
 	err = db.QueryRow(sqlDeleteParticipant, campaign, scpName, loginName).Scan(&participantUpstreamId)
 	if err != nil {
-		c.Logger().Errorf("error deleting participant. campaign: %s, scpName: %s, loginName: %s, err: %+v",
-			campaign, scpName, loginName, err)
+		logger.Error("error deleting participant",
+			zap.String("campaign", campaign), zap.String("scpName", scpName),
+			zap.String("loginName", loginName), zap.Error(err))
 		return
 	}
 
@@ -910,7 +918,7 @@ const sqlInsertParticipant = `INSERT INTO participant
 // was not seeing enough detail when addParticipant() returns error, so capturing such cases in the log.
 func logAddParticipant(c echo.Context) (err error) {
 	if err = addParticipant(c); err != nil {
-		c.Logger().Errorf("error calling addParticipant. err: %+v", err)
+		logger.Error("error calling addParticipant", zap.Error(err))
 	}
 	return
 }
@@ -946,7 +954,7 @@ func addParticipant(c echo.Context) (err error) {
 		webflowId, // @todo remove deprecated upstream stuff
 	).Scan(&guid, &participant.Score, &participant.JoinedAt)
 	if err != nil {
-		c.Logger().Errorf("error inserting participant: %+v, err: %+v", participant, err)
+		logger.Error("error inserting participant", zap.Any("participant", participant), zap.Error(err))
 		return
 	}
 
@@ -1023,23 +1031,21 @@ func addPersonToTeam(c echo.Context) (err error) {
 	}
 
 	if rows > 0 {
-		c.Logger().Infof(
-			"Success, huzzah! Row updated, teamName: %s, campaignName: %s, scpName: %s, login_name: %s",
-			teamName, campaignName, scpName, loginName,
-		)
+		logger.Info("team updated",
+			zap.String("teamName", teamName), zap.String("campaignName", campaignName),
+			zap.String("scpName", scpName), zap.String("loginName", loginName))
 
 		return c.NoContent(http.StatusNoContent)
 	} else {
-		c.Logger().Errorf(
-			"No row was updated, something goofy has occurred, teamName: %s, campaignName: %s, scpName: %s, login_name: %s",
-			teamName, campaignName, scpName, loginName,
-		)
+		logger.Error("no team row was updated, something goofy has occurred",
+			zap.String("teamName", teamName), zap.String("campaignName", campaignName),
+			zap.String("scpName", scpName), zap.String("loginName", loginName))
 
 		return c.NoContent(http.StatusBadRequest)
 	}
 }
 
-func validateBug(c echo.Context, bugToValidate bug) (err error) {
+func validateBug(bugToValidate bug) (err error) {
 	if len(bugToValidate.Campaign) == 0 {
 		err = fmt.Errorf("bug is not valid, empty campaign: bug: %+v", bugToValidate)
 	} else if len(bugToValidate.Category) == 0 {
@@ -1048,7 +1054,7 @@ func validateBug(c echo.Context, bugToValidate bug) (err error) {
 		err = fmt.Errorf("bug is not valid, negative PointValue: bug: %+v", bugToValidate)
 	}
 	if err != nil {
-		c.Logger().Error(err)
+		logger.Error("validateBug error", zap.Error(err))
 	}
 	return
 }
@@ -1063,18 +1069,18 @@ func addBug(c echo.Context) (err error) {
 
 	err = json.NewDecoder(c.Request().Body).Decode(&bug)
 	if err != nil {
-		c.Logger().Errorf("error decoding bug. body: err: %+v", err)
+		logger.Error("error decoding bug body", zap.Error(err))
 		return
 	}
 
-	if err = validateBug(c, bug); err != nil {
+	if err = validateBug(bug); err != nil {
 		return
 	}
 
 	var guid string
 	err = db.QueryRow(sqlInsertBug, bug.Campaign, bug.Category, bug.PointValue).Scan(&guid)
 	if err != nil {
-		c.Logger().Errorf("error inserting bug: %+v, err: %+v", bug, err)
+		logger.Error("error inserting bug", zap.Any("bug", bug), zap.Error(err))
 		return
 	}
 	bug.Id = guid
@@ -1097,11 +1103,11 @@ func updateBug(c echo.Context) (err error) {
 		return
 	}
 
-	if err = validateBug(c, bug{Campaign: campaign, Category: category, PointValue: pointValue}); err != nil {
+	if err = validateBug(bug{Campaign: campaign, Category: category, PointValue: pointValue}); err != nil {
 		return
 	}
 
-	c.Logger().Debug(category)
+	logger.Debug(category)
 
 	res, err := db.Exec(sqlUpdateBug, pointValue, campaign, category)
 	if err != nil {
@@ -1118,7 +1124,7 @@ func updateBug(c echo.Context) (err error) {
 	return c.String(http.StatusOK, "Success")
 }
 
-const sqlSelectBug = `SELECT bug.id, campaign.name, category, pointvalue FROM bug
+const sqlSelectBug = `SELECT bug.id, campaign.name, category, pointValue FROM bug
 		INNER JOIN campaign ON fk_campaign = campaign.Id`
 
 func getBugs(c echo.Context) (err error) {
@@ -1145,7 +1151,7 @@ func putBugs(c echo.Context) (err error) {
 	var bugs []bug
 	err = json.NewDecoder(c.Request().Body).Decode(&bugs)
 	if err != nil {
-		c.Logger().Errorf("error decoding bug. body: err: %+v", err)
+		logger.Error("error decoding bug body", zap.Error(err))
 		return
 	}
 
@@ -1155,13 +1161,13 @@ func putBugs(c echo.Context) (err error) {
 	}
 	var inserted []bug
 	for _, bug := range bugs {
-		if err = validateBug(c, bug); err != nil {
+		if err = validateBug(bug); err != nil {
 			return
 		}
 
 		err = db.QueryRow(sqlInsertBug, bug.Campaign, bug.Category, bug.PointValue).Scan(&bug.Id)
 		if err != nil {
-			c.Logger().Errorf("error inserting bug: %+v, err: %+v", bug, err)
+			logger.Error("error inserting bug", zap.Any("bug", bug), zap.Error(err))
 			return
 		}
 		inserted = append(inserted, bug)
@@ -1268,7 +1274,7 @@ func addCampaign(c echo.Context) (err error) {
 	campaignName := strings.TrimSpace(c.Param(ParamCampaignName))
 	if len(campaignName) == 0 {
 		err = fmt.Errorf("invalid parameter %s: %s", ParamCampaignName, campaignName)
-		c.Logger().Error(err)
+		logger.Error("addCampaign", zap.Error(err))
 
 		return c.String(http.StatusBadRequest, err.Error())
 	}
@@ -1316,7 +1322,7 @@ func updateCampaign(c echo.Context) (err error) {
 	campaignName := strings.TrimSpace(c.Param(ParamCampaignName))
 	if len(campaignName) == 0 {
 		err = fmt.Errorf("invalid parameter %s: %s", ParamCampaignName, campaignName)
-		c.Logger().Error(err)
+		logger.Error("updateCampaign", zap.Error(err))
 
 		return c.String(http.StatusBadRequest, err.Error())
 	}

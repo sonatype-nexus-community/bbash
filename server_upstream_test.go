@@ -351,7 +351,7 @@ func TestGetCampaignUpstreamId(t *testing.T) {
 	defer resetMockDb()
 	mockCampaignUpstreamId(mock)
 
-	id, err := getCampaignUpstreamId(c, campaign)
+	id, err := getCampaignUpstreamId(campaign)
 	assert.NoError(t, err)
 	assert.Equal(t, campaignUpstreamId, id)
 	assert.Equal(t, 0, c.Response().Status)
@@ -369,7 +369,7 @@ func TestGetCampaignUpstreamIdScanError(t *testing.T) {
 		WithArgs(campaign).
 		WillReturnError(forcedError)
 
-	id, err := getCampaignUpstreamId(c, campaign)
+	id, err := getCampaignUpstreamId(campaign)
 	assert.EqualError(t, err, forcedError.Error())
 	assert.Equal(t, "", id)
 	assert.Equal(t, 0, c.Response().Status)
@@ -685,7 +685,7 @@ func TestDeleteParticipantUpstreamEnabled(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlDeleteParticipant)).
 		WithArgs(campaign, scpName, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"upstreamid"}).AddRow(participantUpstreamId))
+		WillReturnRows(sqlmock.NewRows([]string{"upstreamId"}).AddRow(participantUpstreamId))
 
 	assert.NoError(t, deleteParticipant(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
@@ -713,7 +713,7 @@ func TestDeleteParticipantWithUpstreamDeleteError(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlDeleteParticipant)).
 		WithArgs(campaign, scpName, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"upstreamid"}).AddRow(participantUpstreamId))
+		WillReturnRows(sqlmock.NewRows([]string{"upstreamId"}).AddRow(participantUpstreamId))
 
 	expectedErr := &CreateError{msgPatternDeleteErrorParticipant, "400 Bad Request"}
 	assert.EqualError(t, deleteParticipant(c), expectedErr.Error())

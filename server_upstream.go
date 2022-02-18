@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/labstack/echo/v4"
+	"go.uber.org/zap"
 	"net/http"
 	"os"
 	"time"
@@ -80,10 +81,10 @@ func doUpstreamRequest(c echo.Context, req *http.Request, errMsgPattern string) 
 
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		defer res.Body.Close()
-		c.Logger().Debug(res)
+		logger.Debug("doUpstreamRequest", zap.Any("res", res))
 		var responseBody []byte
 		_, _ = res.Body.Read(responseBody)
-		c.Logger().Debug(responseBody)
+		logger.Debug("doUpstreamRequest", zap.Any("responseBody", responseBody))
 		// return a real error to the caller to indicate failure
 		err = &CreateError{MsgPattern: errMsgPattern, Status: res.Status}
 		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
@@ -134,18 +135,19 @@ func upstreamNewCampaign(c echo.Context, newCampaign *campaignStruct, isActive b
 	}
 	id = response.Id
 
-	c.Logger().Debugf("created new upstream campaign: leaderboardCampaign: %+v", item)
+	logger.Debug("created new upstream campaign", zap.Any("leaderboardCampaign", item))
 	return
 }
 
 const sqlSelectUpstreamIdCampaign = `SELECT upstream_id FROM campaign WHERE name = $1`
 
 // lookup the Upstream_id for the campaign name
-func getCampaignUpstreamId(c echo.Context, campaignName string) (campaignUpstreamId string, err error) {
+func getCampaignUpstreamId(campaignName string) (campaignUpstreamId string, err error) {
 	err = db.QueryRow(sqlSelectUpstreamIdCampaign, campaignName).
 		Scan(&campaignUpstreamId)
 	if err != nil {
-		c.Logger().Errorf("error reading campaign upstream id. campaignName: %s, err: %+v", campaignName, err)
+		logger.Error("error reading campaign upstream id",
+			zap.String("campaignName", campaignName), zap.Error(err))
 		return
 	}
 
@@ -193,7 +195,7 @@ func upstreamActivateCampaign(c echo.Context, campaign campaignStruct, isActive 
 	}
 	id = response.Id
 
-	c.Logger().Debugf("updated upstream campaign: leaderboardCampaign: %+v", item)
+	logger.Debug("updated upstream campaign", zap.Any("leaderboardCampaign", item))
 	return
 }
 
@@ -219,9 +221,9 @@ func updateUpstreamCampaignActiveStatus(c echo.Context, campaignName string) (er
 func upstreamNewParticipant(c echo.Context, p participant) (id string, err error) {
 	// @todo Sanity check the campaign/scp/login doesn't already exist before creating Upstream record
 
-	campaignUpstreamId, err := getCampaignUpstreamId(c, p.CampaignName)
+	campaignUpstreamId, err := getCampaignUpstreamId(p.CampaignName)
 	if err != nil {
-		c.Logger().Errorf("error reading campaign upstream id for new participant: %+v", p)
+		logger.Error("error reading campaign upstream id for new participant", zap.Any("participant", p))
 		return
 	}
 	item := leaderboardItem{}
@@ -258,7 +260,7 @@ func upstreamNewParticipant(c echo.Context, p participant) (id string, err error
 	}
 	id = response.Id
 
-	c.Logger().Debugf("created new upstream user: leaderboardItem: %+v", item)
+	logger.Debug("created new upstream user", zap.Any("leaderboardItem", item))
 	return
 }
 
@@ -312,7 +314,7 @@ func upstreamDeleteParticipant(c echo.Context, participantUpstreamId string) (id
 	}
 	id = response.Id
 
-	c.Logger().Debugf("deleted upstream user: participantUpstreamId: %s", participantUpstreamId)
+	logger.Debug("deleted upstream user", zap.String("participantUpstreamId", participantUpstreamId))
 	return
 }
 
@@ -341,10 +343,10 @@ func upstreamUpdateScore(c echo.Context, webflowId string, score int) (err error
 	if err != nil {
 		return
 	} else if res.StatusCode < 200 || res.StatusCode >= 300 {
-		c.Logger().Debug(req)
+		logger.Debug("upstreamUpdateScore", zap.Any("req", req))
 		var responseBody []byte
 		_, _ = res.Body.Read(responseBody)
-		c.Logger().Debug(responseBody)
+		logger.Debug("upstreamUpdateScore", zap.Any("responseBody", responseBody))
 		// return a real error to the caller to indicate failure
 		err = &ParticipantUpdateError{res.Status}
 		if errContext := c.String(http.StatusInternalServerError, err.Error()); errContext != nil {
