@@ -71,9 +71,8 @@ func resetEnvVarPGHost(t *testing.T, origEnvPGHost string) {
 func TestZapLoggerFilterSkipsELB(t *testing.T) {
 	req := httptest.NewRequest("", "/", nil)
 	req.Header.Set("User-Agent", "bing ELB-HealthChecker yadda")
-	//logger := zaptest.NewLogger(t)
-
-	//result := ZapLoggerFilterAWS_ELB(logger)
+	logger := zaptest.NewLogger(t)
+	result := ZapLoggerFilterAwsElb(logger)
 
 	//handlerFunc := func(next echo.HandlerFunc) echo.HandlerFunc {
 	//	return func(c echo.Context) error {
@@ -83,7 +82,7 @@ func TestZapLoggerFilterSkipsELB(t *testing.T) {
 	//r2 := result(handlerFunc)
 	//assert.Nil(t, result)
 	// @TODO figure out how to test these hoops
-	//result(nil)
+	result(nil)
 }
 
 func TestMainDBPingError(t *testing.T) {
