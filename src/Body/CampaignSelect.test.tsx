@@ -39,7 +39,7 @@ describe("<CampaignSelect></CampaignSelect>", () => {
         let mockResponse: MockResponseObject = {
             throws: myError,
         }
-        fetchMock.get('/campaign/list',
+        fetchMock.get('/campaign/active',
             mockResponse
         );
 
