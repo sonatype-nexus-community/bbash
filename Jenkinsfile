@@ -30,7 +30,6 @@ dockerizedBuildPipeline(
     withDockerImage(env.DOCKER_IMAGE_ID, {
       withCredentials([usernamePassword(credentialsId: 'jenkins-iq',
         usernameVariable: 'IQ_USERNAME', passwordVariable: 'IQ_PASSWORD')]) {
-        sh 'npx auditjs@latest iq -x -a bbash -s release -u $IQ_USERNAME -p $IQ_PASSWORD -h https://iq.sonatype.dev'
         sh 'go list -json -deps | /home/jenkins/go/bin/nancy iq --iq-application bbash --iq-stage release --iq-username $IQ_USERNAME --iq-token $IQ_PASSWORD --iq-server-url https://iq.sonatype.dev'
       }
     })

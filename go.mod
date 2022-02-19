@@ -53,3 +53,6 @@ replace github.com/coreos/etcd => github.com/coreos/etcd v3.3.24+incompatible
 
 // fix: sonatype-2021-0853 in github.com/jackc/pgproto3 v1.1.0
 replace github.com/jackc/pgproto3 => github.com/jackc/pgproto3/v2 v2.1.1
+
+// fix vulnerability: CVE-2021-38561 in golang.org/x/text v0.3.5
+replace golang.org/x/text => golang.org/x/text v0.3.7
