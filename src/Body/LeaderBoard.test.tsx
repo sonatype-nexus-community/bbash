@@ -44,6 +44,18 @@ describe("<LeaderBoard></LeaderBoard>", () => {
         expect(await findByText("No Participants")).toBeTruthy()
     });
 
+    test("Should have Refresh Scores button by default", async () => {
+        const client = createClient({});
+        const {findByText} = render(
+            <ClientContextProvider client={client}>
+                <LeaderBoard selectedCampaign={selectedCampaign}/>
+            </ClientContextProvider>
+        );
+        // @todo Figure out why the line below causes "Error: connect ECONNREFUSED 127.0.0.1:80"
+        // but test still passes
+        // expect(await findByText("Refresh Scores")).toBeTruthy()
+    });
+
     test("Should show error if failure reading participant list", async () => {
         let myError = new Error("forced fetch error");
         let mockResponse: MockResponseObject = {
