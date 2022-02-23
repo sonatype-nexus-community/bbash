@@ -25,6 +25,8 @@ dockerizedBuildPipeline(
     sh '''
     make all
     mkdir tools && cd tools && git clone https://github.com/sonatype-nexus-community/nancy && cd nancy && go install
+    pwd
+    find / | grep nancy
     '''
   },
   vulnerabilityScan: {
