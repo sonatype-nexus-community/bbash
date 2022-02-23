@@ -24,8 +24,6 @@ dockerizedBuildPipeline(
   buildAndTest: {
     sh '''
     make all
-    mkdir tools && cd tools && git clone https://github.com/sonatype-nexus-community/nancy && cd nancy && go install
-    ls -alh /home/jenkins/go/bin/nancy
     '''
   },
   vulnerabilityScan: {
@@ -34,8 +32,8 @@ dockerizedBuildPipeline(
         usernameVariable: 'IQ_USERNAME', passwordVariable: 'IQ_PASSWORD')]) {
         sh 'echo "Running scan"'
         sh 'mkdir tools && cd tools && git clone https://github.com/sonatype-nexus-community/nancy && cd nancy && go install'
-        sh 'ls -alh /home/jenkins/go/bin/nancy'
-        sh 'go list -json -deps | /home/jenkins/go/bin/nancy iq --iq-application bbash --iq-stage release --iq-username $IQ_USERNAME --iq-token $IQ_PASSWORD --iq-server-url https://iq.sonatype.dev'
+        sh 'ls -alh /tmp/tools/nancy'
+        sh 'go list -json -deps | /tmp/tools/nancy iq --iq-application bbash --iq-stage release --iq-username $IQ_USERNAME --iq-token $IQ_PASSWORD --iq-server-url https://iq.sonatype.dev'
       }
     })
   },
