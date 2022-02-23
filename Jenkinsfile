@@ -31,7 +31,6 @@ dockerizedBuildPipeline(
       withCredentials([usernamePassword(credentialsId: 'jenkins-iq',
         usernameVariable: 'IQ_USERNAME', passwordVariable: 'IQ_PASSWORD')]) {
         sh 'echo "Running scan"'
-        sh 'mkdir tools && cd tools && git clone https://github.com/sonatype-nexus-community/nancy && cd nancy && go install'
         sh 'ls -alh /tmp/tools/nancy'
         sh 'go list -json -deps | /tmp/tools/nancy iq --iq-application bbash --iq-stage release --iq-username $IQ_USERNAME --iq-token $IQ_PASSWORD --iq-server-url https://iq.sonatype.dev'
       }

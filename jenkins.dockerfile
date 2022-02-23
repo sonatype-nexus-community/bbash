@@ -28,10 +28,10 @@ ENV GOPATH=
 # install nancy so we can run scans
 USER jenkins
 #RUN go install github.com/sonatype-nexus-community/nancy@latest
-# Goofy, but gets around the new 'go install'/w/'replace' issue
+# Goofy attempt to get around the new 'go install'/w/'replace' issue
 #RUN mkdir tools
 #RUN cd tools && git clone https://github.com/sonatype-nexus-community/nancy.git && cd nancy && go install
-# Slightly less goofy?
+# Slightly less goofy? Install prebuild binary.
 RUN  cd /tmp && mkdir tools && cd - && \
      latest_version_is=$(curl --fail -s https://api.github.com/repos/sonatype-nexus-community/nancy/releases/latest | grep -oP '"tag_name": "\K(.*)(?=")') && \
      desiredVersion=${latest_version_is} && \
