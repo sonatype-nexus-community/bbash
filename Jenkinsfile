@@ -24,6 +24,7 @@ dockerizedBuildPipeline(
   buildAndTest: {
     sh '''
     make all
+    cd tools && git clone https://github.com/sonatype-nexus-community/nancy && cd nancy && go install
     '''
   },
   vulnerabilityScan: {
