@@ -16,6 +16,7 @@
 @Library(['private-pipeline-library', 'jenkins-shared']) _
 
 dockerizedBuildPipeline(
+  pathToDockerfile: "jenkins.dockerfile",
   deployBranch: 'main',
   prepare: {
     githubStatusUpdate('pending')
@@ -26,12 +27,14 @@ dockerizedBuildPipeline(
     '''
   },
   vulnerabilityScan: {
-    withSonatypeDockerRegistry() {
+    withDockerImage(env.DOCKER_IMAGE_ID, {
       withCredentials([usernamePassword(credentialsId: 'jenkins-iq',
         usernameVariable: 'IQ_USERNAME', passwordVariable: 'IQ_PASSWORD')]) {
-        sh 'go list -json -deps | run -i docker-all.repo.sonatype.com/sonatypecommunity/nancy:latest iq --iq-application bbash --iq-stage release --iq-username $IQ_USERNAME --iq-token $IQ_PASSWORD --iq-server-url https://iq.sonatype.dev'
+        sh 'echo "Running scan"'
+        sh 'ls -alh /tmp/tools/nancy'
+        sh 'go list -json -deps | /tmp/tools/nancy iq --iq-application bbash --iq-stage release --iq-username $IQ_USERNAME --iq-token $IQ_PASSWORD --iq-server-url https://iq.sonatype.dev'
       }
-    }
+    })
   },
   onSuccess: {
     githubStatusUpdate('success')
