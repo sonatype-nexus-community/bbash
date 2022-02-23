@@ -25,8 +25,12 @@ RUN apt-get update && apt-get install -y nodejs
 RUN npm install --global yarn
 ENV GOPATH=
 
+# install nancy so we can run scans
 USER jenkins
-RUN go install github.com/sonatype-nexus-community/nancy@latest
+#RUN go install github.com/sonatype-nexus-community/nancy@latest
+# Goofy, but gets around the new 'go install'/w/'replace' issue
+RUN mkdir tools
+RUN cd tools && git clone https://github.com/sonatype-nexus-community/nancy && cd nancy && go install
 
 #  root dir mounted as workspace. instead, for local testing, use: docker run -it -v $(pwd):/ws ...
 #COPY . .
