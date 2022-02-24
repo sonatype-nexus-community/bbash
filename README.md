@@ -145,7 +145,7 @@ aws-vault exec <your_profile> -- aws ecs update-service --cluster bug-bash-clust
 
 Replace the stuff in the `<>` with your values (and remove the `<>` characters if that isn't immediately apparent), `chmod +x docker.sh`, and `./docker.sh`
 
-After you have done this, you SHOULD have a running service, somewhere in AWS :)
+After you have done this, you SHOULD have a running service, somewhere in AWS :) - maybe someplace like this? [sandbox-dev](https://bug-bash.innovations-sandbox.sonatype.dev) 
 
 With all the above configured, here's the deployment command in full:
 
