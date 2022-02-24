@@ -38,7 +38,7 @@ You can run:
 - `go get -u github.com/cosmtrek/air` in a folder outside this project (so it is not added as a dependency).
 
   The `air` binary will be located in your `~/go/bin` folder, which may need to added to your commands and/or path.
-  The [AIRCMD](Makefile#L5) setting in the Makefile may need to be adjusted if a different location is used. 
+  The [AIRCMD](Makefile#L6) setting in the Makefile may need to be adjusted if a different location is used. 
 
 ### Running/Developing
 
@@ -68,9 +68,6 @@ For frontend work (with a previously manually launched database), this command i
 ```shell
 make run-air-alone
 ```
-
-For full round trip testing with a local environment, (debug) run the test: [server_upstream_test.go->TestMockWebflow_WithServerUpstreamEnabled](./server_upstream_test.go#L561).
-Don't forget to temporarily uncomment the call to [main()](./server_upstream_test.go#L576).
 
 ## Deployment
 

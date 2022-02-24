@@ -10,7 +10,6 @@ CREATE TABLE campaign(
     create_order SERIAL,
     start_on timestamp NOT NULL DEFAULT NOW(),
     end_on timestamp NOT NULL DEFAULT NOW(),
-    upstream_id varchar(250) NOT NULL,
     note TEXT
 );
 
@@ -66,7 +65,6 @@ CREATE TABLE participant(
     Score int,
     fk_team UUID references team (Id),
     JoinedAt timestamp NOT NULL DEFAULT NOW(),
-    UpstreamId varchar(250) NOT NULL,
     unique (fk_campaign, fk_scp, login_name)
 );
 

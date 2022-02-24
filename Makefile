@@ -39,13 +39,13 @@ go-build:
 	echo "VERSION: $(VERSION)"
 	echo "DATE: $(DATE)"
 	echo "COMMIT: $(COMMIT)"
-	$(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go ./server_upstream.go
+	$(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go
 
 go-alpine-build:
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go ./server_upstream.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) -o bbash $(GOBUILD_FLAGS) ./server.go
 
 air: yarn
-	$(GOBUILD) -o ./tmp/bbash $(GOBUILD_FLAGS) ./server.go ./server_upstream.go
+	$(GOBUILD) -o ./tmp/bbash $(GOBUILD_FLAGS) ./server.go
 
 run-air: air
 	docker run --name bug_bash_postgres -p 5432:5432 -e POSTGRES_PASSWORD=bug_bash -e POSTGRES_DB=db -d postgres

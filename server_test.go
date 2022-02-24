@@ -337,9 +337,9 @@ func TestGetCampaignsScanError(t *testing.T) {
 	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstream_id", "note"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "note"}).
 			// force scan error due to time.Time type mismatch at CreatedOn column
-			AddRow("campaignId", campaign, "badness", 1, time.Time{}, time.Time{}, "", ""))
+			AddRow("campaignId", campaign, "badness", 1, time.Time{}, time.Time{}, ""))
 
 	assert.EqualError(t, getCampaigns(c), `sql: Scan error on column index 2, name "createdOn": unsupported Scan, storing driver.Value type string into type *time.Time`)
 	assert.Equal(t, 0, c.Response().Status)
@@ -353,13 +353,13 @@ func TestGetCampaigns(t *testing.T) {
 	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstream_id", "note"}).
-			AddRow(campaignId, campaign, time.Time{}, 1, now, now, campaignUpstreamId, nil))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "note"}).
+			AddRow(campaignId, campaign, time.Time{}, 1, now, now, nil))
 
 	assert.NoError(t, getCampaigns(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
 	expectedCampaigns := []campaignStruct{
-		{ID: campaignId, Name: campaign, CreatedOn: time.Time{}, CreatedOrder: 1, StartOn: now, EndOn: now, UpstreamId: campaignUpstreamId},
+		{ID: campaignId, Name: campaign, CreatedOn: time.Time{}, CreatedOrder: 1, StartOn: now, EndOn: now},
 	}
 	jsonExpectedCampaign, err := json.Marshal(expectedCampaigns)
 	assert.NoError(t, err)
@@ -371,9 +371,9 @@ func TestGetActiveCampaignsScanError(t *testing.T) {
 	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstreamId", "note"}).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "note"}).
 			// force scan error due to time.Time type mismatch at CreatedOn column
-			AddRow(campaignId, campaign, "badness", 0, now, now, "myUpstreamId", sql.NullString{}))
+			AddRow(campaignId, campaign, "badness", 0, now, now, sql.NullString{}))
 
 	activeCampaigns, err := getActiveCampaigns(now)
 	assert.EqualError(t, err, `sql: Scan error on column index 2, name "createdOn": unsupported Scan, storing driver.Value type string into type *time.Time`)
@@ -390,15 +390,15 @@ func TestGetActiveCampaigns(t *testing.T) {
 	activeCampaigns, err := getActiveCampaigns(now)
 	assert.NoError(t, err)
 	expectedCampaigns := []campaignStruct{
-		{ID: campaignId, Name: campaign, UpstreamId: campaignUpstreamId, StartOn: now, EndOn: now},
+		{ID: campaignId, Name: campaign, StartOn: now, EndOn: now},
 	}
 	assert.Equal(t, expectedCampaigns, activeCampaigns)
 }
 
 func mockCurrentCampaigns(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstreamId", "note"}).
-			AddRow(campaignId, campaign, time.Time{}, 0, now, now, campaignUpstreamId, sql.NullString{}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "note"}).
+			AddRow(campaignId, campaign, time.Time{}, 0, now, now, sql.NullString{}))
 }
 
 func TestGetActiveCampaignsEchoError(t *testing.T) {
@@ -423,13 +423,13 @@ func TestGetActiveCampaignsEcho(t *testing.T) {
 	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCurrentCampaigns)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "upstreamId", "note"}).
-			AddRow(campaignId, campaign, time.Time{}, 0, now, now, "myUpstreamId", sql.NullString{}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "createdOn", "createOrder", "startOn", "endOn", "note"}).
+			AddRow(campaignId, campaign, time.Time{}, 0, now, now, sql.NullString{}))
 
 	assert.NoError(t, getActiveCampaignsEcho(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
 	expectedCampaigns := []campaignStruct{
-		{ID: campaignId, Name: campaign, StartOn: now, EndOn: now, UpstreamId: "myUpstreamId"},
+		{ID: campaignId, Name: campaign, StartOn: now, EndOn: now},
 	}
 	jsonExpectedCampaign, err := json.Marshal(expectedCampaigns)
 	assert.NoError(t, err)
@@ -452,7 +452,7 @@ func TestAddCampaignScanError(t *testing.T) {
 
 	forcedError := fmt.Errorf("forced Scan error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign, upstreamIdDeprecated, testStartOn, testEndOn).
+		WithArgs(campaign, testStartOn, testEndOn).
 		WillReturnError(forcedError)
 
 	assert.EqualError(t, addCampaign(c), forcedError.Error())
@@ -467,7 +467,7 @@ func TestAddCampaign(t *testing.T) {
 	defer resetMockDb()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertCampaign)).
-		WithArgs(campaign, upstreamIdDeprecated, testStartOn, testEndOn).
+		WithArgs(campaign, testStartOn, testEndOn).
 		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString(campaignId))
 
 	assert.NoError(t, addCampaign(c))
@@ -528,24 +528,6 @@ func TestUpdateCampaign(t *testing.T) {
 	assert.Equal(t, campaignId, rec.Body.String())
 }
 
-func TestGetNetClient(t *testing.T) {
-	netClient := getNetClient()
-	assert.Equal(t, 10.0, netClient.Timeout.Seconds())
-}
-
-func TestRequestHeaderSetup(t *testing.T) {
-	req, err := http.NewRequest("myMethod", "myUrl", nil)
-	assert.NoError(t, err)
-	requestHeaderSetup(req)
-	verifyRequestHeaders(t, req)
-}
-
-func verifyRequestHeaders(t *testing.T, req *http.Request) {
-	assert.Equal(t, fmt.Sprintf("Bearer %s", upstreamConfig.token), req.Header.Get("Authorization"))
-	assert.Equal(t, "application/json", req.Header.Get("Content-Type"))
-	assert.Equal(t, "1.0.0", req.Header.Get("accept-version"))
-}
-
 func TestGetCampaignQueryError(t *testing.T) {
 	mock, resetMockDb := setupMockDb(t)
 	defer resetMockDb()
@@ -566,9 +548,9 @@ func TestGetCampaignScanError(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
 		WithArgs(campaign).
-		WillReturnRows(sqlmock.NewRows([]string{"ID", "name", "created_on", "create_order", "start_on", "end_on", "upstream_id", "note"}).
+		WillReturnRows(sqlmock.NewRows([]string{"ID", "name", "created_on", "create_order", "start_on", "end_on", "note"}).
 			// force scan error due to invalid type
-			AddRow(campaignId, campaign, "", 0, now, now, campaignUpstreamId, sql.NullString{}))
+			AddRow(campaignId, campaign, "", 0, now, now, sql.NullString{}))
 
 	actualCampaign, err := getCampaign(campaign)
 	assert.EqualError(t, err, "sql: Scan error on column index 2, name \"created_on\": unsupported Scan, storing driver.Value type string into type *time.Time")
@@ -591,7 +573,6 @@ func TestGetCampaign(t *testing.T) {
 		CreatedOrder: 0,
 		StartOn:      now,
 		EndOn:        now,
-		UpstreamId:   campaignUpstreamId,
 		Note:         sql.NullString{},
 	}, actualCampaign)
 }
@@ -599,8 +580,8 @@ func TestGetCampaign(t *testing.T) {
 func mockSelectCampaigns(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
 	return mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectCampaigns)).
 		WithArgs(campaign).
-		WillReturnRows(sqlmock.NewRows([]string{"ID", "name", "created_on", "create_order", "start_on", "end_on", "upstream_id", "note"}).
-			AddRow(campaignId, campaign, now, 0, now, now, campaignUpstreamId, sql.NullString{}))
+		WillReturnRows(sqlmock.NewRows([]string{"ID", "name", "created_on", "create_order", "start_on", "end_on", "note"}).
+			AddRow(campaignId, campaign, now, 0, now, now, sql.NullString{}))
 }
 
 func setupMockDb(t *testing.T) (mock sqlmock.Sqlmock, resetMockDb func()) {
@@ -655,7 +636,7 @@ func TestAddParticipant(t *testing.T) {
 	mock, resetMockDb := setupMockDb(t)
 	defer resetMockDb()
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
-		WithArgs(scpName, campaign, loginName, "", "", 0, upstreamIdDeprecated).
+		WithArgs(scpName, campaign, loginName, "", "", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Score", "JoinedAt"}).AddRow(participantID, 0, time.Time{}))
 
 	assert.NoError(t, addParticipant(c))
@@ -731,7 +712,7 @@ func TestLogAddParticipantNoError(t *testing.T) {
 	mock, resetMockDb := setupMockDb(t)
 	defer resetMockDb()
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlInsertParticipant)).
-		WithArgs(scpName, campaign, loginName, "", "", 0, upstreamIdDeprecated).
+		WithArgs(scpName, campaign, loginName, "", "", 0).
 		WillReturnRows(sqlmock.NewRows([]string{"Id", "Score", "JoinedAt"}).AddRow(participantID, 0, time.Time{}))
 
 	err := logAddParticipant(c)
@@ -760,13 +741,8 @@ func TestUpdateParticipantBodyInvalid(t *testing.T) {
 // unit test values
 const campaignId = "myCampaignId"
 const campaign = "myCampaignName"
-const tokenUpstream = "testWfToken"
-const campaignUpstreamCollection = "testWfCollectionCampaign"
-const campaignUpstreamId = "myCampaignUpstreamId"
 const scpName = "myScpName"
 const participantID = "participantUUId"
-const participantUpstreamCollection = "testWfCollectionParticipant"
-const participantUpstreamId = "myParticipantUpstreamId"
 const loginName = "loginName"
 const teamName = "myTeamName"
 
@@ -804,32 +780,6 @@ func TestUpdateParticipantUpdateError(t *testing.T) {
 	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestUpdateParticipantScoreError(t *testing.T) {
-	participantJson := fmt.Sprintf(`{"guid": "%s","campaignName": "%s", "scpName": "%s", "loginName": "%s"}`, participantID, campaign, scpName, loginName)
-	c, rec := setupMockContextUpdateParticipant(participantJson)
-
-	mock, resetMockDb := setupMockDb(t)
-	defer resetMockDb()
-
-	mock.ExpectExec(convertSqlToDbMockExpect(sqlUpdateParticipant)).
-		WithArgs(campaign, scpName, loginName, "", "", 0, "", participantID).
-		WillReturnResult(sqlmock.NewResult(0, 0))
-
-	err := updateParticipant(c)
-	assert.NotNil(t, err)
-	assert.True(t, strings.HasPrefix(err.Error(), "all expectations were already fulfilled, call to Query 'UPDATE participant"))
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func setupMockContextUpstreamUpdateScore() (c echo.Context, rec *httptest.ResponseRecorder) {
-	e := echo.New()
-	req := httptest.NewRequest("", "/", nil)
-	rec = httptest.NewRecorder()
-	c = e.NewContext(req, rec)
-	return
-}
-
 func TestUpdateParticipantNoRowsUpdated(t *testing.T) {
 	participantJson := fmt.Sprintf(`{"guid": "%s", "campaignName": "%s", "scpName": "%s", "loginName": "%s", "teamName": "%s"}`, participantID, campaign, scpName, loginName, teamName)
 	c, rec := setupMockContextUpdateParticipant(participantJson)
@@ -842,7 +792,9 @@ func TestUpdateParticipantNoRowsUpdated(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
 		WithArgs(0, participantID).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(upstreamIdDeprecated, 0))
+		WillReturnRows(sqlmock.NewRows([]string{"Score"}).AddRow(0))
+
+	logger = zaptest.NewLogger(t)
 
 	assert.NoError(t, updateParticipant(c))
 	assert.Equal(t, http.StatusBadRequest, c.Response().Status)
@@ -861,7 +813,7 @@ func TestUpdateParticipant(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
 		WithArgs(0, participantID).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(upstreamIdDeprecated, 0))
+		WillReturnRows(sqlmock.NewRows([]string{"Score"}).AddRow(0))
 
 	assert.NoError(t, updateParticipant(c))
 	assert.Equal(t, http.StatusNoContent, c.Response().Status)
@@ -1048,7 +1000,7 @@ func TestGetParticipantDetail(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantDetail)).
 		WithArgs(campaign, scpName, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignUpstreamId", "SCPName", "LoginName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt"}).AddRow(participantID, campaign, scpName, loginName, "", "", 0, "", time.Time{}))
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "LoginName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt"}).AddRow(participantID, campaign, scpName, loginName, "", "", 0, "", time.Time{}))
 
 	assert.NoError(t, getParticipantDetail(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
@@ -1108,7 +1060,7 @@ func TestGetParticipantsList(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
 		WithArgs(campaign).
-		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignUpstreamId", "SCPName", "LoginName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt"}).
+		WillReturnRows(sqlmock.NewRows([]string{"Id", "CampaignName", "SCPName", "LoginName", "Email", "DisplayName", "Score", "TeamName", "JoinedAt"}).
 			AddRow(participantID, campaign, "", "", "", "", 0, "", time.Time{}))
 
 	assert.NoError(t, getParticipantsList(c))
@@ -1505,11 +1457,11 @@ func TestDeleteParticipant(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlDeleteParticipant)).
 		WithArgs(campaign, scpName, loginName).
-		WillReturnRows(sqlmock.NewRows([]string{"upstreamId"}).AddRow(upstreamIdDeprecated))
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(participantID))
 
 	assert.NoError(t, deleteParticipant(c))
 	assert.Equal(t, http.StatusOK, c.Response().Status)
-	assert.Equal(t, fmt.Sprintf("\"deleted participant: campaign: %s, scpName: %s, loginName: %s, participantUpstreamId: %s\"\n", campaign, scpName, loginName, upstreamIdDeprecated), rec.Body.String())
+	assert.Equal(t, fmt.Sprintf("\"deleted participant: campaign: %s, scpName: %s, loginName: %s, participant.id: %s\"\n", campaign, scpName, loginName, participantID), rec.Body.String())
 }
 
 func TestDeleteParticipantWithDBDeleteError(t *testing.T) {
@@ -2014,7 +1966,7 @@ func TestNewScoreOneAlertCommitErrorNotIgnored(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
 		WithArgs(8, participantID).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(strings.ToLower(loginName), 0))
+		WillReturnRows(sqlmock.NewRows([]string{"Score"}).AddRow(0))
 
 	err = newScore(c)
 	assert.EqualError(t, err, "all expectations were already fulfilled, call to Commit transaction was not expected")
@@ -2056,7 +2008,7 @@ func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
 		WithArgs(8, participantID).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(loginNameLowerCase, 0))
+		WillReturnRows(sqlmock.NewRows([]string{"Score"}).AddRow(0))
 
 	mock.ExpectCommit()
 
@@ -2098,7 +2050,7 @@ func TestNewScoreOneAlert(t *testing.T) {
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
 		WithArgs(8, participantID).
-		WillReturnRows(sqlmock.NewRows([]string{"UpstreamId", "Score"}).AddRow(loginName, 0))
+		WillReturnRows(sqlmock.NewRows([]string{"Score"}).AddRow(0))
 
 	mock.ExpectCommit()
 

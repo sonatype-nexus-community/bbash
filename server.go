@@ -41,19 +41,14 @@ import (
 
 var db *sql.DB
 
-// todo remove this when upstream stuff is removed
-const upstreamIdDeprecated = "deprecatedUpstreamId"
-
 type campaignStruct struct {
-	ID           string    `json:"guid"`
-	Name         string    `json:"name"`
-	CreatedOn    time.Time `json:"createdOn"`
-	CreatedOrder int       `json:"createdOrder"`
-	StartOn      time.Time `json:"startOn"`
-	EndOn        time.Time `json:"endOn"`
-	// todo remove this when upstream stuff is removed
-	UpstreamId string         `json:"upstreamId"`
-	Note       sql.NullString `json:"note"`
+	ID           string         `json:"guid"`
+	Name         string         `json:"name"`
+	CreatedOn    time.Time      `json:"createdOn"`
+	CreatedOrder int            `json:"createdOrder"`
+	StartOn      time.Time      `json:"startOn"`
+	EndOn        time.Time      `json:"endOn"`
+	Note         sql.NullString `json:"note"`
 }
 
 type sourceControlProvider struct {
@@ -118,24 +113,6 @@ type scoringMessage struct {
 	PullRequest int            `json:"pullRequestId"`
 }
 
-type leaderboardCampaign struct {
-	CampaignName string `json:"name"`
-	Slug         string `json:"slug"`
-	CreateOrder  int    `json:"create-order"`
-	Active       bool   `json:"active"`
-	Note         string `json:"note"`
-	Archived     bool   `json:"_archived"`
-	Draft        bool   `json:"_draft"`
-}
-
-type leaderboardCampaignPayload struct {
-	Fields leaderboardCampaign `json:"fields"`
-}
-
-type leaderboardCampaignResponse struct {
-	Id string `json:"_id"`
-}
-
 const (
 	ParamScpName          string = "scpName"
 	ParamLoginName        string = "loginName"
@@ -176,7 +153,6 @@ const envAdminPassword = "ADMIN_PASSWORD"
 
 var errRecovered error
 var logger *zap.Logger
-var upstreamEnabled bool
 
 func main() {
 	e := echo.New()
@@ -218,10 +194,6 @@ func main() {
 	err = godotenv.Load(".env")
 	if err != nil {
 		logger.Error("env load", zap.Error(err))
-	}
-
-	if upstreamEnabled {
-		setupUpstream()
 	}
 
 	host, port, dbname, _, err := openDB()
@@ -417,15 +389,6 @@ func openDB() (host string, port int, dbname, sslMode string, err error) {
 		host, port, user, password, dbname, sslMode)
 	db, err = sql.Open("postgres", psqlInfo)
 	return
-}
-
-type CreateError struct {
-	MsgPattern string
-	Status     string
-}
-
-func (e *CreateError) Error() string {
-	return fmt.Sprintf(e.MsgPattern, e.Status)
 }
 
 const sqlSelectSourceControlProvider = `SELECT * FROM source_control_provider`
@@ -629,20 +592,16 @@ func scorePoints(msg scoringMessage, campaignName string) (points int) {
 const sqlUpdateParticipantScore = `UPDATE participant 
 		SET Score = Score + $1 
 		WHERE id = $2 
-		RETURNING UpstreamId, Score`
+		RETURNING Score`
 
-func updateParticipantScore(c echo.Context, participant participant, delta int) (err error) {
-	var upstreamId string
+func updateParticipantScore(participant participant, delta int) (err error) {
 	var score int
 	row := db.QueryRow(sqlUpdateParticipantScore, delta, participant.ID)
-	err = row.Scan(&upstreamId, &score)
+	err = row.Scan(&score)
 	if err != nil {
 		return
 	}
 
-	if upstreamEnabled {
-		err = upstreamUpdateScore(c, upstreamId, score)
-	}
 	return
 }
 
@@ -725,7 +684,7 @@ func newScore(c echo.Context) (err error) {
 				return
 			}
 
-			err = updateParticipantScore(c, participantToScore, newPoints-oldPoints)
+			err = updateParticipantScore(participantToScore, newPoints-oldPoints)
 			if err != nil {
 				return
 			}
@@ -869,12 +828,6 @@ func updateParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	// @todo updateParticipantScore() only done here to update upstream. can probably remove later
-	err = updateParticipantScore(c, participant, 0)
-	if err != nil {
-		return
-	}
-
 	if rowsAffected == 1 {
 		logger.Info("participant updated", zap.Any("participant", participant))
 		return c.NoContent(http.StatusNoContent)
@@ -889,15 +842,15 @@ const sqlDeleteParticipant = `DELETE FROM participant WHERE
                           fk_campaign = (SELECT id from campaign where name =$1)
                           AND fk_scp = (SELECT id from source_control_provider where name =$2)
                           AND login_name = $3
-                          RETURNING upstreamid`
+                          RETURNING id`
 
 func deleteParticipant(c echo.Context) (err error) {
 	campaign := c.Param(ParamCampaignName)
 	scpName := c.Param(ParamScpName)
 	loginName := c.Param(ParamLoginName)
 
-	var participantUpstreamId string
-	err = db.QueryRow(sqlDeleteParticipant, campaign, scpName, loginName).Scan(&participantUpstreamId)
+	var participantId string
+	err = db.QueryRow(sqlDeleteParticipant, campaign, scpName, loginName).Scan(&participantId)
 	if err != nil {
 		logger.Error("error deleting participant",
 			zap.String("campaign", campaign), zap.String("scpName", scpName),
@@ -905,22 +858,15 @@ func deleteParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	if upstreamEnabled {
-		_, err = upstreamDeleteParticipant(c, participantUpstreamId)
-		if err != nil {
-			return
-		}
-	}
-
-	return c.JSON(http.StatusOK, fmt.Sprintf("deleted participant: campaign: %s, scpName: %s, loginName: %s, participantUpstreamId: %s",
-		campaign, scpName, loginName, participantUpstreamId))
+	return c.JSON(http.StatusOK, fmt.Sprintf("deleted participant: campaign: %s, scpName: %s, loginName: %s, participant.id: %s",
+		campaign, scpName, loginName, participantId))
 }
 
 const sqlInsertParticipant = `INSERT INTO participant 
-		(fk_scp, fk_campaign, login_name, Email, DisplayName, Score, UpstreamId) 
+		(fk_scp, fk_campaign, login_name, Email, DisplayName, Score) 
 		VALUES ((SELECT Id FROM source_control_provider WHERE Name = $1),
 		        (SELECT Id FROM campaign WHERE name = $2),
-		        $3, $4, $5, $6, $7)
+		        $3, $4, $5, $6)
 		RETURNING Id, Score, JoinedAt`
 
 // was not seeing enough detail when addParticipant() returns error, so capturing such cases in the log.
@@ -939,17 +885,6 @@ func addParticipant(c echo.Context) (err error) {
 		return
 	}
 
-	// @todo remove deprecated upstream stuff
-	var webflowId string
-	if upstreamEnabled {
-		webflowId, err = upstreamNewParticipant(c, participant)
-		if err != nil {
-			return
-		}
-	} else {
-		webflowId = upstreamIdDeprecated
-	}
-
 	var guid string
 	err = db.QueryRow(
 		sqlInsertParticipant,
@@ -959,7 +894,6 @@ func addParticipant(c echo.Context) (err error) {
 		participant.Email,
 		participant.DisplayName,
 		0,
-		webflowId, // @todo remove deprecated upstream stuff
 	).Scan(&guid, &participant.Score, &participant.JoinedAt)
 	if err != nil {
 		logger.Error("error inserting participant", zap.Any("participant", participant), zap.Error(err))
@@ -1193,7 +1127,7 @@ func putBugs(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, response)
 }
 
-const sqlSelectCampaigns = `SELECT ID, name, created_on, create_order, start_on, end_on, upstream_id, note FROM campaign`
+const sqlSelectCampaigns = `SELECT ID, name, created_on, create_order, start_on, end_on, note FROM campaign`
 
 func getCampaigns(c echo.Context) (err error) {
 	rows, err := db.Query(
@@ -1204,11 +1138,8 @@ func getCampaigns(c echo.Context) (err error) {
 
 	var campaigns []campaignStruct
 	for rows.Next() {
-		campaign := campaignStruct{
-			// todo remove this when upstream stuff is removed
-			UpstreamId: upstreamIdDeprecated,
-		}
-		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.StartOn, &campaign.EndOn, &campaign.UpstreamId, &campaign.Note)
+		campaign := campaignStruct{}
+		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.StartOn, &campaign.EndOn, &campaign.Note)
 		if err != nil {
 			return
 		}
@@ -1218,7 +1149,7 @@ func getCampaigns(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, campaigns)
 }
 
-const sqlSelectCampaign = `SELECT ID, name, created_on, create_order, start_on, end_on, upstream_id, note 
+const sqlSelectCampaign = `SELECT ID, name, created_on, create_order, start_on, end_on, note 
 	FROM campaign
 	WHERE name = $1`
 
@@ -1229,7 +1160,7 @@ func getCampaign(campaignName string) (campaign campaignStruct, err error) {
 	}
 
 	for rows.Next() {
-		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.StartOn, &campaign.EndOn, &campaign.UpstreamId, &campaign.Note)
+		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.StartOn, &campaign.EndOn, &campaign.Note)
 		if err != nil {
 			return
 		}
@@ -1249,12 +1180,9 @@ func getActiveCampaigns(now time.Time) (activeCampaigns []campaignStruct, err er
 	}
 
 	for rows.Next() {
-		activeCampaign := campaignStruct{
-			// todo remove this when upstream stuff is removed
-			UpstreamId: upstreamIdDeprecated,
-		}
+		activeCampaign := campaignStruct{}
 
-		err = rows.Scan(&activeCampaign.ID, &activeCampaign.Name, &activeCampaign.CreatedOn, &activeCampaign.CreatedOrder, &activeCampaign.StartOn, &activeCampaign.EndOn, &activeCampaign.UpstreamId, &activeCampaign.Note)
+		err = rows.Scan(&activeCampaign.ID, &activeCampaign.Name, &activeCampaign.CreatedOn, &activeCampaign.CreatedOrder, &activeCampaign.StartOn, &activeCampaign.EndOn, &activeCampaign.Note)
 		if err != nil {
 			return
 		}
@@ -1274,8 +1202,8 @@ func getActiveCampaignsEcho(c echo.Context) (err error) {
 }
 
 const sqlInsertCampaign = `INSERT INTO campaign 
-		(name, upstream_id, start_on, end_on) 
-		VALUES ($1, $2, $3, $4)
+		(name, start_on, end_on) 
+		VALUES ($1, $2, $3)
 		RETURNING Id`
 
 func addCampaign(c echo.Context) (err error) {
@@ -1294,22 +1222,10 @@ func addCampaign(c echo.Context) (err error) {
 	}
 	campaignFromRequest.Name = campaignName
 
-	// @todo remove deprecated upstream stuff
-	var webflowId string
-	if upstreamEnabled {
-		webflowId, err = createNewWebflowId(c, &campaignFromRequest)
-		if err != nil {
-			return
-		}
-	} else {
-		webflowId = upstreamIdDeprecated
-	}
-
 	var guid string
 	err = db.QueryRow(
 		sqlInsertCampaign,
 		campaignName,
-		webflowId, // @todo remove deprecated upstream stuff
 		campaignFromRequest.StartOn,
 		campaignFromRequest.EndOn,
 	).Scan(&guid)
@@ -1350,13 +1266,6 @@ func updateCampaign(c echo.Context) (err error) {
 	).Scan(&guid)
 	if err != nil {
 		return
-	}
-
-	if upstreamEnabled {
-		err = updateUpstreamCampaignActiveStatus(c, campaignName)
-		if err != nil {
-			return
-		}
 	}
 
 	return c.String(http.StatusOK, guid)
