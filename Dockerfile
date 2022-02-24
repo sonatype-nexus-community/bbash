@@ -60,6 +60,7 @@ WORKDIR /
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /etc/passwd /etc/passwd
 COPY --from=build /etc/group /etc/group
+COPY --from=build /src/build /build
 COPY --from=build /src/bbash /
 COPY *.env /
 ADD db/migrations /db/migrations
