@@ -35,11 +35,16 @@ To install air:
 
 You can run:
 
-- `go get -u github.com/cosmtrek/air` in a folder outside this project (so it is not added as a dependency)
+- `go get -u github.com/cosmtrek/air` in a folder outside this project (so it is not added as a dependency).
+
+  The `air` binary will be located in your `~/go/bin` folder, which may need to added to your commands and/or path.
+  The [AIRCMD](Makefile#L6) setting in the Makefile may need to be adjusted if a different location is used. 
 
 ### Running/Developing
 
-Thanks to Air, there is some amount of "live-reload". To run the project, you can run `air -c .air.toml` in the project root. Once it is built, you should be able to access the site at `http://localhost:7777/`
+Thanks to Air, there is some amount of "live-reload". To run the project, you can run `air -c .air.toml` in the project root. 
+Once it is built, you should be able to access the site at http://localhost:7777/.
+The app pages live at: http://localhost:7777/index.html
 
 Any code changes to golang files will cause a rebuild and restart, and will be accessible via the browser with a refresh!
 
@@ -59,8 +64,10 @@ b6ac8769bab3b19b3e5818e726272bcee6957863b9a7af4261a0ae29ec5bc68e...
 Then run [server.go](./server.go) in debug mode in your favorite IDE, and enjoy break points activating when you connect to 
 endpoints. Wee!
 
-For full round trip testing with a local environment, (debug) run the test: [server_test.go->TestMockWebflow_WithServer](./server_test.go#L506).
-Don't forget to temporarily uncomment the call to [main()](./server_test.go#L527).
+For frontend work (with a previously manually launched database), this command is helpful for development:
+```shell
+make run-air-alone
+```
 
 ## Deployment
 
@@ -126,7 +133,7 @@ Some pre-requisite/one-time setup steps:
         $ aws-vault exec <your_profile> terraform plan
 
 
-An executable bash script similar to the following will make pushing images easier:
+An executable bash script (`docker.sh`?) similar to the following will make pushing images easier:
 
 ```bash
 #!/bin/bash
@@ -138,7 +145,8 @@ aws-vault exec <your_profile> -- aws ecs update-service --cluster bug-bash-clust
 
 Replace the stuff in the `<>` with your values (and remove the `<>` characters if that isn't immediately apparent), `chmod +x docker.sh`, and `./docker.sh`
 
-After you have done this, you SHOULD have a running service, somewhere in AWS :)
+After you have done this, you SHOULD have a running service, somewhere in AWS :) - maybe someplace like this? :
+[sandbox-dev](https://bug-bash.innovations-sandbox.sonatype.dev) or [sandbox-dev/index.html](https://bug-bash.innovations-sandbox.sonatype.dev/index.html) 
 
 With all the above configured, here's the deployment command in full:
 

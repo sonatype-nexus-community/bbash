@@ -13,6 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+FROM node:16.13.2-alpine3.15 as yarn-build
+LABEL stage=builder
+
+RUN apk add --update build-base
+
+WORKDIR /src
+
+COPY . .
+
+RUN make yarn
 
 FROM golang:1.16.2-alpine AS build
 LABEL stage=builder
@@ -35,6 +45,9 @@ RUN adduser \
 
 COPY . .
 
+# Ensures that the build from yarn is used, not an existing build on the local device
+COPY --from=yarn-build /src/build /src/build
+
 RUN make go-alpine-build
 
 FROM scratch AS bin
@@ -47,6 +60,7 @@ WORKDIR /
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /etc/passwd /etc/passwd
 COPY --from=build /etc/group /etc/group
+COPY --from=build /src/build /build
 COPY --from=build /src/bbash /
 COPY *.env /
 ADD db/migrations /db/migrations

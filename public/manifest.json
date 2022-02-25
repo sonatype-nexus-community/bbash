@@ -1,0 +1,22 @@
+{
+  "short_name": "Bug Bash",
+  "name": "Sonatype Bug Bash",
+  "description": "Sonatype's Bug Bash, for all your Bug Bash needs",
+  "icons": [
+    {
+      "src": "smash@2x.png",
+      "type": "image/png",
+      "sizes": "801x801",
+      "purpose": "any"
+    },
+    {
+      "src": "SON_logo_white_.svg",
+      "type": "image/svg",
+      "sizes": "92x16"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}
