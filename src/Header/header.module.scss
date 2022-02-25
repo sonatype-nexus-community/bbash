@@ -21,6 +21,14 @@
     }
   }
 
+  :global(.nx-product__version) {
+    color: var(--nx-swatch-white);
+
+    @media screen and (max-width: 800px) {
+      display: none;
+    }
+  }
+
   :global(.nx-page-header__extra-content) {
     margin-left: 1em;
     flex-grow: inherit;

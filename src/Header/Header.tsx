@@ -23,7 +23,8 @@ const Header = () => {
     return (
         <NxPageHeader className={styles["nx-page-header"]}
             productInfo={{
-                name: `${(process.env.REACT_APP_BUG_BASH_APP_NAME) ? process.env.REACT_APP_BUG_BASH_APP_NAME : packageJson.name} - ${(process.env.REACT_APP_BUG_BASH_VERSION) ? process.env.REACT_APP_BUG_BASH_VERSION : packageJson.version}`
+                name: (process.env.REACT_APP_BUG_BASH_APP_NAME) ? process.env.REACT_APP_BUG_BASH_APP_NAME : packageJson.name,
+                version: (process.env.REACT_APP_BUG_BASH_VERSION) ? process.env.REACT_APP_BUG_BASH_VERSION : packageJson.version
             }}
         />
     )
