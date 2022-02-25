@@ -1,21 +1,18 @@
 {
   "short_name": "Bug Bash",
-  "name": "Bug Bash",
+  "name": "Sonatype Bug Bash",
+  "description": "Sonatype's Bug Bash, for all your Bug Bash needs",
   "icons": [
     {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
+      "src": "smash@2x.png",
+      "type": "image/png",
+      "sizes": "801x801",
+      "purpose": "any"
     },
     {
-      "src": "logo192.png",
-      "type": "image/png",
-      "sizes": "192x192"
-    },
-    {
-      "src": "logo512.png",
-      "type": "image/png",
-      "sizes": "512x512"
+      "src": "SON_logo_white_.svg",
+      "type": "image/svg",
+      "sizes": "92x16"
     }
   ],
   "start_url": ".",

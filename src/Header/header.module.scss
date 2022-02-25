@@ -1,0 +1,48 @@
+/*
+ * Copyright (c) 2022-present Sonatype, Inc. All rights reserved.
+ * Includes the third-party code listed at http://links.sonatype.com/products/clm/attributions.
+ * "Sonatype" is a trademark of Sonatype, Inc.
+ */
+.nx-page-header {
+  background-color: var(--nx-swatch-indigo-15) !important;
+  box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.3);
+  border-color: transparent;
+
+  :global(.nx-product__logo-image) {
+    // Danger here, move this component around, this breaks
+    content: url('../../public/SON_logo_white_.svg');
+  }
+
+  :global(.nx-product__name) {
+    color: var(--nx-swatch-white);
+
+    @media screen and (max-width: 800px) {
+      display: none;
+    }
+  }
+
+  :global(.nx-page-header__extra-content) {
+    margin-left: 1em;
+    flex-grow: inherit;
+  }
+
+  :global(.nx-product__name::before) {
+    color: var(--nx-swatch-white);
+
+    @media screen and (max-width: 800px) {
+      display: none;
+    }
+  }
+
+  :global(.nx-text-link) {
+    color: var(--nx-swatch-white);
+    padding: 0.5em;
+    :hover {
+      color: grey;
+    }
+
+    @media screen and (max-width: 800px) {
+      display: none;
+    }
+  }
+}
