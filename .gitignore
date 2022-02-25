@@ -11,7 +11,7 @@ bbash.exe
 .circleci/local-config.yml
 
 # Ignore
-.env
+.env*
 
 # terraform
 *.hcl
