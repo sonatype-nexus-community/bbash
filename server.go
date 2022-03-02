@@ -785,8 +785,8 @@ func logTelemetry(c echo.Context) {
 	caller := c.QueryParam(qpCall)
 	if feature != "" && caller != "" {
 		logger.Info(msgTelemetry,
-			zap.String("feature", feature),
-			zap.String("caller", caller),
+			zap.String(qpFeature, feature),
+			zap.String(qpCall, caller),
 		)
 	}
 }
