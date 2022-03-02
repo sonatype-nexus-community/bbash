@@ -481,18 +481,20 @@ func newScore(c echo.Context) (err error) {
 		if len(activeParticipantsToScore) == 0 {
 			continue
 		}
-		for _, participantToScore := range activeParticipantsToScore {
+		for i, participantToScore := range activeParticipantsToScore {
 
 			newPoints := scorePoints(&msg, participantToScore.CampaignName)
 
-			oldPoints := postgresDB.SelectPriorScore(&participantToScore, &msg)
+			// fix warning: Implicit memory aliasing in for loop.
+			//oldPoints := postgresDB.SelectPriorScore(&participantToScore, &msg)
+			oldPoints := postgresDB.SelectPriorScore(&activeParticipantsToScore[i], &msg)
 
-			err = postgresDB.InsertScoringEvent(&participantToScore, &msg, newPoints)
+			err = postgresDB.InsertScoringEvent(&activeParticipantsToScore[i], &msg, newPoints)
 			if err != nil {
 				return
 			}
 
-			err = postgresDB.UpdateParticipantScore(&participantToScore, newPoints-oldPoints)
+			err = postgresDB.UpdateParticipantScore(&activeParticipantsToScore[i], newPoints-oldPoints)
 			if err != nil {
 				return
 			}
@@ -743,12 +745,14 @@ func putBugs(c echo.Context) (err error) {
 	}
 
 	var inserted []types.BugStruct
-	for _, bug := range bugs {
+	for i, bug := range bugs {
 		if err = validateBug(bug); err != nil {
 			return
 		}
 
-		err = postgresDB.InsertBug(&bug)
+		// fix warning: Implicit memory aliasing in for loop.
+		//err = postgresDB.InsertBug(&bug)
+		err = postgresDB.InsertBug(&bugs[i])
 		if err != nil {
 			logger.Error("error inserting bug", zap.Any("bug", bug), zap.Error(err))
 			return
