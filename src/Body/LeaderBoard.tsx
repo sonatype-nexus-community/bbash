@@ -39,6 +39,8 @@ type queryError = {
     errorMessage: string
 }
 
+const qpFeature = "feature"
+const qpCaller = "caller"
 
 const LeaderBoard = (props: CampaignSelectProps) => {
 
@@ -47,7 +49,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
     const clientContext = useContext(ClientContext);
 
-    const getLeaders = useCallback(async (campaign: Campaign | undefined) => {
+    const getLeaders = useCallback(async (campaign: Campaign | undefined, caller) => {
         if (!campaign) {
             console.debug("no selectedCampaign, skipping getLeaders")
             return
@@ -55,7 +57,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
         const getLeadersAction: Action = {
             method: 'GET',
-            endpoint: `/participant/list/${campaign.name}`
+            endpoint: `/participant/list/${campaign.name}?${qpFeature}=getLeaders&${qpCaller}=${caller}`
         }
         const res = await clientContext.query(getLeadersAction);
 
@@ -69,13 +71,13 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
     useEffect(() => {
         // noinspection JSIgnoredPromiseFromCall
-        getLeaders(props.selectedCampaign);
+        getLeaders(props.selectedCampaign, "useEffect");
     }, [clientContext, props.selectedCampaign, getLeaders]) // rebuilds the list only when selectedCampaign changes
 
     // noinspection JSUnusedLocalSymbols
     const onClick = (evt: MouseEvent<HTMLButtonElement>) => {
         // noinspection JSIgnoredPromiseFromCall
-        getLeaders(props.selectedCampaign);
+        getLeaders(props.selectedCampaign, "refreshScores");
     }
 
     const doRender = () => {

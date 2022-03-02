@@ -524,6 +524,8 @@ func getParticipantDetail(c echo.Context) (err error) {
 }
 
 func getParticipantsList(c echo.Context) (err error) {
+	logTelemetry(c)
+
 	campaignName := c.Param(ParamCampaignName)
 	logger.Debug("Getting participant list for campaign", zap.String("campaignName", campaignName))
 
@@ -774,7 +776,24 @@ func getCampaigns(c echo.Context) (err error) {
 	return c.JSON(http.StatusOK, campaigns)
 }
 
+const msgTelemetry = "log-telemetry"
+const qpFeature = "feature"
+const qpCaller = "caller"
+
+func logTelemetry(c echo.Context) {
+	feature := c.QueryParam(qpFeature)
+	caller := c.QueryParam(qpCaller)
+	if feature != "" && caller != "" {
+		logger.Info(msgTelemetry,
+			zap.String("feature", feature),
+			zap.String("caller", caller),
+		)
+	}
+}
+
 func getActiveCampaigns(c echo.Context) (err error) {
+	logTelemetry(c)
+
 	current, err := postgresDB.GetActiveCampaigns(time.Now())
 	if err != nil {
 		return c.String(http.StatusBadRequest, err.Error())

@@ -137,9 +137,9 @@ type MockBBashDB struct {
 	insertParticipantJoinedAt time.Time
 	insertParticipantErr      error
 
-	updateParticipantPartier     *types.ParticipantStruct
-	updateParticipantRowsAffectd int64
-	updateParticipantErr         error
+	updateParticipantPartier      *types.ParticipantStruct
+	updateParticipantRowsAffected int64
+	updateParticipantErr          error
 
 	selectPartDetailCampName  string
 	selectPartDetailSCPName   string
@@ -358,7 +358,7 @@ func (m MockBBashDB) UpdateParticipant(participant *types.ParticipantStruct) (ro
 	if m.assertParameters {
 		assert.Equal(m.t, m.updateParticipantPartier, participant)
 	}
-	return m.updateParticipantRowsAffectd, m.updateParticipantErr
+	return m.updateParticipantRowsAffected, m.updateParticipantErr
 }
 
 func (m MockBBashDB) UpdateParticipantTeam(teamName, campaignName, scpName, loginName string) (rowsAffected int64, err error) {
@@ -877,7 +877,7 @@ func TestUpdateParticipant(t *testing.T) {
 		ScpName:      scpName,
 		LoginName:    loginName,
 	}
-	mock.updateParticipantRowsAffectd = 1
+	mock.updateParticipantRowsAffected = 1
 
 	mock.updateScoreParticipant = &types.ParticipantStruct{
 		ID: participantID,
@@ -2095,4 +2095,30 @@ func TestInfoBasicValidatorValid(t *testing.T) {
 	isValid, err := infoBasicValidator("yadda", "bing", nil)
 	assert.NoError(t, err)
 	assert.True(t, isValid)
+}
+
+func TestLogTelemetry(t *testing.T) {
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	q := req.URL.Query()
+	q.Add(qpFeature, "testFeature")
+	q.Add(qpCaller, "testCaller")
+	req.URL.RawQuery = q.Encode()
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	logger = zaptest.NewLogger(t)
+	logTelemetry(c)
+}
+
+func TestLogTelemetryNoQueryParameters(t *testing.T) {
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	logger = zaptest.NewLogger(t)
+	logTelemetry(c)
 }
