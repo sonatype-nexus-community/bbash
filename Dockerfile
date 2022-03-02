@@ -34,13 +34,13 @@ ENV UID=10001
 
 WORKDIR /src
 
-RUN adduser \    
-    --disabled-password \    
-    --gecos "" \    
-    --home "/nonexistent" \    
-    --shell "/sbin/nologin" \    
-    --no-create-home \    
-    --uid "${UID}" \    
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
     "${USER}"
 
 COPY . .
@@ -63,7 +63,7 @@ COPY --from=build /etc/group /etc/group
 COPY --from=build /src/build /build
 COPY --from=build /src/bbash /
 COPY *.env /
-ADD db/migrations /db/migrations
+ADD internal/db/migrations /db/migrations
 
 USER bbashuser:bbashuser
 

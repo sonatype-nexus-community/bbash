@@ -19,9 +19,12 @@ package main
 import (
 	"crypto/subtle"
 	"database/sql"
+
 	"encoding/json"
 	"fmt"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/sonatype-nexus-community/bbash/internal/db"
+	"github.com/sonatype-nexus-community/bbash/internal/types"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"net/http"
@@ -32,54 +35,12 @@ import (
 
 	"github.com/sonatype-nexus-community/bbash/buildversion"
 
-	"github.com/golang-migrate/migrate/v4"
-	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 )
 
-var db *sql.DB
-
-type campaignStruct struct {
-	ID           string         `json:"guid"`
-	Name         string         `json:"name"`
-	CreatedOn    time.Time      `json:"createdOn"`
-	CreatedOrder int            `json:"createdOrder"`
-	StartOn      time.Time      `json:"startOn"`
-	EndOn        time.Time      `json:"endOn"`
-	Note         sql.NullString `json:"note"`
-}
-
-type sourceControlProvider struct {
-	ID      string `json:"guid"`
-	SCPName string `json:"scpName"`
-	Url     string `json:"url"`
-}
-
-type organization struct {
-	ID           string `json:"guid"`
-	SCPName      string `json:"scpName"`
-	Organization string `json:"organization"`
-}
-
-type participant struct {
-	ID           string    `json:"guid"`
-	CampaignName string    `json:"campaignName"`
-	ScpName      string    `json:"scpName"`
-	LoginName    string    `json:"loginName"`
-	Email        string    `json:"email"`
-	DisplayName  string    `json:"displayName"`
-	Score        int       `json:"score"`
-	TeamName     string    `json:"teamName"`
-	JoinedAt     time.Time `json:"joinedAt"`
-}
-
-type team struct {
-	Id           string `json:"guid"`
-	CampaignName string `json:"campaignName"`
-	Name         string `json:"name"`
-}
+var postgresDB db.IBBashDB
 
 type creationResponse struct {
 	Id        string                 `json:"guid"`
@@ -92,25 +53,8 @@ type endpointDetail struct {
 	Verb string `json:"httpVerb"`
 }
 
-type bug struct {
-	Id         string `json:"guid"`
-	Campaign   string `json:"campaign"`
-	Category   string `json:"category"`
-	PointValue int    `json:"pointValue"`
-}
-
 type scoringAlert struct {
 	RecentHits []string `json:"recent_hits"` // encoded scoring message
-}
-
-type scoringMessage struct {
-	EventSource string         `json:"eventSource"`
-	RepoOwner   string         `json:"repositoryOwner"`
-	RepoName    string         `json:"repositoryName"`
-	TriggerUser string         `json:"triggerUser"`
-	TotalFixed  int            `json:"fixed-bugs"`
-	BugCounts   map[string]int `json:"fixed-bug-types"`
-	PullRequest int            `json:"pullRequestId"`
 }
 
 const (
@@ -196,27 +140,31 @@ func main() {
 		logger.Error("env load", zap.Error(err))
 	}
 
-	host, port, dbname, _, err := openDB()
+	pg, host, port, dbname, _, err := openDB()
 	if err != nil {
 		logger.Error("db open", zap.Error(err))
 		panic(fmt.Errorf("failed to load database driver. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
 	}
 	defer func() {
-		if err := db.Close(); err != nil {
+		if err := pg.Close(); err != nil {
 			logger.Error("db close", zap.Error(err))
 		}
 	}()
 
-	err = db.Ping()
+	err = pg.Ping()
 	if err != nil {
 		logger.Error("db ping", zap.Error(err))
 		panic(fmt.Errorf("failed to ping database. host: %s, port: %d, dbname: %s, err: %+v", host, port, dbname, err))
 	}
 
-	err = migrateDB(db)
+	postgresDB = db.New(pg, logger)
+
+	err = postgresDB.MigrateDB("file://db/migrations/v2")
 	if err != nil {
 		logger.Error("db migrate", zap.Error(err))
 		panic(fmt.Errorf("failed to migrate database. err: %+v", err))
+	} else {
+		logger.Info("db migration complete")
 	}
 
 	setupRoutes(e, buildInfoMessage)
@@ -239,11 +187,11 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) {
 	// Organization related endpoints
 	organizationGroup := adminGroup.Group(Organization)
 
-	organizationGroup.GET(List, getOrganizations).Name = "organization-list"
-	organizationGroup.PUT(Add, addOrganization).Name = "organization-add"
+	organizationGroup.GET(List, getOrganizations).Name = "OrganizationStruct-list"
+	organizationGroup.PUT(Add, addOrganization).Name = "OrganizationStruct-add"
 	organizationGroup.DELETE(
 		fmt.Sprintf("%s/:%s/:%s", Delete, ParamScpName, ParamOrganizationName),
-		deleteOrganization).Name = "organization-delete"
+		deleteOrganization).Name = "OrganizationStruct-delete"
 
 	// Participant related endpoints and group
 
@@ -283,7 +231,7 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) {
 	// Campaign related endpoints and group
 
 	publicCampaignGroup := e.Group(Campaign)
-	publicCampaignGroup.GET(active, getActiveCampaignsEcho)
+	publicCampaignGroup.GET(active, getActiveCampaigns)
 
 	campaignGroup := adminGroup.Group(Campaign)
 	campaignGroup.GET(List, getCampaigns)
@@ -376,7 +324,7 @@ func ZapLoggerFilterAwsElb(log *zap.Logger) echo.MiddlewareFunc {
 	}
 }
 
-func openDB() (host string, port int, dbname, sslMode string, err error) {
+func openDB() (db *sql.DB, host string, port int, dbname, sslMode string, err error) {
 	host = os.Getenv(envPGHost)
 	port, _ = strconv.Atoi(os.Getenv(envPGPort))
 	user := os.Getenv(envPGUsername)
@@ -391,34 +339,18 @@ func openDB() (host string, port int, dbname, sslMode string, err error) {
 	return
 }
 
-const sqlSelectSourceControlProvider = `SELECT * FROM source_control_provider`
-
 func getSourceControlProviders(c echo.Context) (err error) {
-	rows, err := db.Query(sqlSelectSourceControlProvider)
+	var scps []types.SourceControlProviderStruct
+	scps, err = postgresDB.GetSourceControlProviders()
 	if err != nil {
 		return
-	}
-
-	var scps []sourceControlProvider
-	for rows.Next() {
-		scp := sourceControlProvider{}
-		err = rows.Scan(&scp.ID, &scp.SCPName, &scp.Url)
-		if err != nil {
-			return
-		}
-		scps = append(scps, scp)
 	}
 
 	return c.JSON(http.StatusOK, scps)
 }
 
-const sqlAddOrganization = `INSERT INTO organization
-		(fk_scp, organization)
-		VALUES ((SELECT id FROM source_control_provider WHERE name = $1), $2)
-		RETURNING Id`
-
 func addOrganization(c echo.Context) (err error) {
-	organization := organization{}
+	organization := types.OrganizationStruct{}
 
 	err = json.NewDecoder(c.Request().Body).Decode(&organization)
 	if err != nil {
@@ -426,131 +358,63 @@ func addOrganization(c echo.Context) (err error) {
 	}
 
 	var guid string
-	err = db.QueryRow(sqlAddOrganization, organization.SCPName, organization.Organization).
-		Scan(&guid)
+	guid, err = postgresDB.InsertOrganization(&organization)
 	if err != nil {
-		logger.Error("error inserting organization", zap.Any("organization", organization), zap.Error(err))
+		logger.Error("error inserting OrganizationStruct", zap.Any("OrganizationStruct", organization), zap.Error(err))
 		return
 	}
 
-	logger.Debug("added organization", zap.Any("organization", organization))
+	logger.Debug("added OrganizationStruct", zap.Any("OrganizationStruct", organization))
 	return c.String(http.StatusCreated, guid)
 }
 
-const sqlSelectOrganization = `SELECT
-		organization.Id,
-        Name,
-        Organization
-		FROM organization
-		INNER JOIN source_control_provider ON fk_scp = source_control_provider.Id`
-
 func getOrganizations(c echo.Context) (err error) {
-	rows, err := db.Query(sqlSelectOrganization)
+	var orgs []types.OrganizationStruct
+	orgs, err = postgresDB.GetOrganizations()
 	if err != nil {
 		return
-	}
-
-	var orgs []organization
-	for rows.Next() {
-		org := organization{}
-		err = rows.Scan(&org.ID, &org.SCPName, &org.Organization)
-		if err != nil {
-			return
-		}
-		orgs = append(orgs, org)
 	}
 
 	return c.JSON(http.StatusOK, orgs)
 }
 
-const sqlDeleteOrganization = `DELETE FROM organization 
-	WHERE fk_scp = (SELECT id from source_control_provider WHERE name = $1) 
-	AND organization = $2`
-
 func deleteOrganization(c echo.Context) (err error) {
 	scpName := c.Param(ParamScpName)
 	orgName := c.Param(ParamOrganizationName)
-	res, err := db.Exec(sqlDeleteOrganization, scpName, orgName)
+
+	var rowsAffected int64
+	rowsAffected, err = postgresDB.DeleteOrganization(scpName, orgName)
 	if err != nil {
 		return
 	}
-	rowsAffected, _ := res.RowsAffected()
-	logger.Info("delete organization",
+	logger.Info("delete OrganizationStruct",
 		zap.String("scpName", scpName),
 		zap.String("orgName", orgName),
 		zap.Int64("rowsAffected", rowsAffected))
 	if rowsAffected > 0 {
 		return c.NoContent(http.StatusNoContent)
 	}
-	return c.JSON(http.StatusNotFound, fmt.Sprintf("no organization: scpName: %s, name: %s", scpName, orgName))
+	return c.JSON(http.StatusNotFound, fmt.Sprintf("no OrganizationStruct: scpName: %s, name: %s", scpName, orgName))
 }
 
-const sqlSelectOrganizationExists = `SELECT EXISTS(
-		SELECT Id FROM organization
-		WHERE fk_scp = (SELECT id from source_control_provider WHERE LOWER(name) = $1) AND Organization = $2)`
-
-// check if repo is in participating set
-func validOrganization(msg scoringMessage) (orgExists bool, err error) {
-	row := db.QueryRow(sqlSelectOrganizationExists, msg.EventSource, msg.RepoOwner)
-	err = row.Scan(&orgExists)
-	if err != nil {
-		logger.Error("organization read error", zap.Any("msg", msg), zap.Error(err))
-		return
-	}
-	if !orgExists {
-		logger.Debug("organization is not valid",
-			zap.String("scp", msg.EventSource), zap.String("RepoOwner", msg.RepoOwner), zap.Error(err))
-	}
-	return
-}
-
-const sqlSelectParticipantId = `SELECT
-		participant.Id,
-        campaign.name,
-       	source_control_provider.name,
-        participant.login_name,
-        team.name
-		FROM participant
-		INNER JOIN campaign ON campaign.Id = fk_campaign
-		INNER JOIN source_control_provider ON source_control_provider.Id = fk_scp
-		LEFT JOIN team ON team.Id = participant.fk_team
-		WHERE $1 >= campaign.start_on
-			AND $1 < campaign.end_on
-		    AND LOWER(source_control_provider.name) = $2 
-			AND login_name = $3`
-
-func validScore(msg scoringMessage, now time.Time) (participantsToScore []participant, err error) {
+func validScore(msg *types.ScoringMessage, now time.Time) (participantsToScore []types.ParticipantStruct, err error) {
 	// check if repo is in participating set
-	isValidOrg, err := validOrganization(msg)
+	isValidOrg, err := postgresDB.ValidOrganization(msg)
 	if err != nil {
-		logger.Debug("skip score-error reading organization", zap.Any("msg", msg), zap.Error(err))
+		logger.Debug("skip score-error reading OrganizationStruct", zap.Any("msg", msg), zap.Error(err))
 		return
 	}
 	if !isValidOrg {
-		logger.Debug("skip score-missing organization",
+		logger.Debug("skip score-missing OrganizationStruct",
 			zap.String("RepoOwner", msg.RepoOwner), zap.String("TriggerUser", msg.TriggerUser))
 		return
 	}
 
 	// Check if participant is registered for an active campaign
-	rows, err := db.Query(sqlSelectParticipantId, now, msg.EventSource, msg.TriggerUser)
+	participantsToScore, err = postgresDB.SelectParticipantsToScore(msg, now)
 	if err != nil {
 		logger.Error("skip score-error reading participant", zap.Any("msg", msg), zap.Error(err))
 		return
-	}
-	for rows.Next() {
-		partier := participant{}
-		var nullableTeamName sql.NullString
-		// note: reads the db (capitalized) scpName
-		err = rows.Scan(&partier.ID, &partier.CampaignName, &partier.ScpName, &partier.LoginName, &nullableTeamName)
-		if nullableTeamName.Valid {
-			partier.TeamName = nullableTeamName.String
-		}
-		if err != nil {
-			logger.Error("skip score-error scanning participant", zap.Any("msg", msg), zap.Error(err))
-			return
-		}
-		participantsToScore = append(participantsToScore, partier)
 	}
 	if len(participantsToScore) == 0 {
 		logger.Debug("skip score-missing participant", zap.Any("msg", msg), zap.Error(err))
@@ -559,24 +423,12 @@ func validScore(msg scoringMessage, now time.Time) (participantsToScore []partic
 	return
 }
 
-const sqlSelectPointValue = `SELECT pointValue FROM bug 
-	INNER JOIN campaign ON campaign.Id = fk_campaign	
-	WHERE fk_campaign = (SELECT campaign.Id FROM campaign WHERE name = $1) 
-	  AND category = $2`
-
-func scorePoints(msg scoringMessage, campaignName string) (points int) {
+func scorePoints(msg *types.ScoringMessage, campaignName string) (points int) {
 	points = 0
 	scored := 0
 
 	for bugType, count := range msg.BugCounts {
-		row := db.QueryRow(sqlSelectPointValue, campaignName, bugType)
-		var value = 1
-		if err := row.Scan(&value); err != nil {
-			// ignore (and clear return) error from scan operation
-			logger.Debug("ignoring missing pointValue",
-				zap.String("bugType", bugType), zap.Error(err), zap.Any("msg", msg))
-		}
-
+		value := postgresDB.SelectPointValue(msg, campaignName, bugType)
 		points += count * value
 		scored += count
 	}
@@ -584,22 +436,6 @@ func scorePoints(msg scoringMessage, campaignName string) (points int) {
 	// add 1 point for all non-classified fixed bugs
 	if scored < msg.TotalFixed {
 		points += msg.TotalFixed - scored
-	}
-
-	return
-}
-
-const sqlUpdateParticipantScore = `UPDATE participant 
-		SET Score = Score + $1 
-		WHERE id = $2 
-		RETURNING Score`
-
-func updateParticipantScore(participant participant, delta int) (err error) {
-	var score int
-	row := db.QueryRow(sqlUpdateParticipantScore, delta, participant.ID)
-	err = row.Scan(&score)
-	if err != nil {
-		return
 	}
 
 	return
@@ -613,22 +449,6 @@ func logNewScore(c echo.Context) (err error) {
 	return
 }
 
-const sqlScoreQuery = `SELECT points
-			FROM scoring_event
-			WHERE fk_campaign = (SELECT id FROM campaign WHERE name = $1)
-			    AND fk_scp = (SELECT id FROM source_control_provider WHERE name = $2)
-			    AND repoOwner = $3
-				AND repoName = $4
-				AND pr = $5`
-
-const sqlInsertScoringEvent = `INSERT INTO scoring_event
-			(fk_campaign, fk_scp, repoOwner, repoName, pr, username, points)
-			VALUES ((SELECT id FROM campaign WHERE name = $1), 
-			        (SELECT id FROM source_control_provider WHERE name = $2),
-			        $3, $4, $5, $6, $7)
-			ON CONFLICT (fk_campaign, fk_scp, repoOwner, repoName, pr) DO
-				UPDATE SET points = $7`
-
 func newScore(c echo.Context) (err error) {
 	var alert scoringAlert
 	err = json.NewDecoder(c.Request().Body).Decode(&alert)
@@ -641,10 +461,10 @@ func newScore(c echo.Context) (err error) {
 	now := time.Now()
 
 	for _, rawMsg := range alert.RecentHits {
-		var msg scoringMessage
+		var msg types.ScoringMessage
 		err = json.Unmarshal([]byte(rawMsg), &msg)
 		if err != nil {
-			logger.Debug("error unmarshalling scoringMessage",
+			logger.Debug("error unmarshalling ScoringMessage",
 				zap.Error(err), zap.String("rawMsg", rawMsg))
 			return
 		}
@@ -652,10 +472,10 @@ func newScore(c echo.Context) (err error) {
 		msg.TriggerUser = strings.ToLower(msg.TriggerUser)
 
 		// if this particular entry is not valid, ignore it and continue processing
-		var activeParticipantsToScore []participant
-		activeParticipantsToScore, err = validScore(msg, now)
+		var activeParticipantsToScore []types.ParticipantStruct
+		activeParticipantsToScore, err = validScore(&msg, now)
 		if err != nil {
-			logger.Debug("error validating scoringMessage", zap.Error(err), zap.Any("msg", msg))
+			logger.Debug("error validating ScoringMessage", zap.Error(err), zap.Any("msg", msg))
 			return
 		}
 		if len(activeParticipantsToScore) == 0 {
@@ -663,39 +483,22 @@ func newScore(c echo.Context) (err error) {
 		}
 		for _, participantToScore := range activeParticipantsToScore {
 
-			newPoints := scorePoints(msg, participantToScore.CampaignName)
+			newPoints := scorePoints(&msg, participantToScore.CampaignName)
 
-			var tx *sql.Tx
-			tx, err = db.Begin()
+			oldPoints := postgresDB.SelectPriorScore(&participantToScore, &msg)
+
+			err = postgresDB.InsertScoringEvent(&participantToScore, &msg, newPoints)
 			if err != nil {
 				return
 			}
 
-			row := db.QueryRow(sqlScoreQuery, participantToScore.CampaignName, participantToScore.ScpName, msg.RepoOwner, msg.RepoName, msg.PullRequest)
-			oldPoints := 0
-			err = row.Scan(&oldPoints)
-			if err != nil {
-				// ignore error case from scan when no row exists, will occur when this is a new score event
-				logger.Debug("ignoring likely new score event", zap.Error(err), zap.Any("scoringMessage", msg))
-			}
-
-			_, err = db.Exec(sqlInsertScoringEvent, participantToScore.CampaignName, participantToScore.ScpName, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
-			if err != nil {
-				return
-			}
-
-			err = updateParticipantScore(participantToScore, newPoints-oldPoints)
-			if err != nil {
-				return
-			}
-
-			err = tx.Commit()
+			err = postgresDB.UpdateParticipantScore(&participantToScore, newPoints-oldPoints)
 			if err != nil {
 				return
 			}
 
 			logger.Debug("score updated",
-				zap.Int("newPoints", newPoints), zap.Int("oldPoints", oldPoints), zap.Any("scoringMessage", msg))
+				zap.Int("newPoints", newPoints), zap.Int("oldPoints", oldPoints), zap.Any("ScoringMessage", msg))
 		}
 	}
 
@@ -704,16 +507,6 @@ func newScore(c echo.Context) (err error) {
 	return c.NoContent(http.StatusAccepted)
 }
 
-const sqlSelectParticipantDetail = `SELECT 
-		participant.Id, campaign.name, source_control_provider.name, login_name, Email, DisplayName, Score, team.name, JoinedAt
-		FROM participant
-		LEFT JOIN team ON team.Id = participant.fk_team
-		INNER JOIN campaign ON campaign.Id = participant.fk_campaign
-		INNER JOIN source_control_provider ON participant.fk_scp = source_control_provider.Id
-		WHERE campaign.name = $1
-		  AND source_control_provider.name = $2 
-		  AND participant.login_name = $3`
-
 func getParticipantDetail(c echo.Context) (err error) {
 	campaignName := c.Param(ParamCampaignName)
 	scpName := c.Param(ParamScpName)
@@ -721,109 +514,38 @@ func getParticipantDetail(c echo.Context) (err error) {
 	logger.Debug("getting detail for campaign",
 		zap.String("campaignName", campaignName), zap.String("scpName", scpName), zap.String("loginName", loginName))
 
-	row := db.QueryRow(sqlSelectParticipantDetail, campaignName, scpName, loginName)
-
-	participant := new(participant)
-	var nullableTeamName sql.NullString
-	err = row.Scan(&participant.ID,
-		&participant.CampaignName,
-		&participant.ScpName,
-		&participant.LoginName,
-		&participant.Email,
-		&participant.DisplayName,
-		&participant.Score,
-		&nullableTeamName,
-		&participant.JoinedAt,
-	)
+	var participant *types.ParticipantStruct
+	participant, err = postgresDB.SelectParticipantDetail(campaignName, scpName, loginName)
 	if err != nil {
-		logger.Error("getParticipantDetail scan error", zap.Error(err))
 		return
-	}
-	if nullableTeamName.Valid {
-		participant.TeamName = nullableTeamName.String
 	}
 
 	return c.JSON(http.StatusOK, participant)
 }
 
-const sqlSelectParticipantsByCampaign = `SELECT
-		participant.Id, campaign.name, source_control_provider.name, login_name, Email, DisplayName, Score, team.name, JoinedAt 
-		FROM participant
-		LEFT JOIN team ON participant.fk_team = team.Id
-		INNER JOIN campaign ON participant.fk_campaign = campaign.Id
-		INNER JOIN source_control_provider ON participant.fk_scp = source_control_provider.Id
-		WHERE campaign.name = $1`
-
 func getParticipantsList(c echo.Context) (err error) {
 	campaignName := c.Param(ParamCampaignName)
 	logger.Debug("Getting participant list for campaign: ", zap.String("campaignName", campaignName))
 
-	rows, err := db.Query(sqlSelectParticipantsByCampaign, campaignName)
+	var participants []types.ParticipantStruct
+	participants, err = postgresDB.SelectParticipantsInCampaign(campaignName)
 	if err != nil {
 		return
-	}
-
-	var participants []participant
-	for rows.Next() {
-		participant := new(participant)
-		var nullableTeamName sql.NullString
-		err = rows.Scan(
-			&participant.ID,
-			&participant.CampaignName,
-			&participant.ScpName,
-			&participant.LoginName,
-			&participant.Email,
-			&participant.DisplayName,
-			&participant.Score,
-			&nullableTeamName,
-			&participant.JoinedAt,
-		)
-		if err != nil {
-			return
-		}
-		if nullableTeamName.Valid {
-			participant.TeamName = nullableTeamName.String
-		}
-		participants = append(participants, *participant)
 	}
 
 	return c.JSON(http.StatusOK, participants)
 }
 
-const sqlUpdateParticipant = `UPDATE participant 
-		SET 
-		    fk_campaign = (SELECT Id FROM campaign WHERE name = $1),
-		    fk_scp = (SELECT Id FROM source_control_provider WHERE name = $2),
-		    login_name = $3,
-		    Email = $4,
-		    DisplayName = $5,
-		    Score = $6,
-		    fk_team = (SELECT Id FROM team WHERE name = $7)		    
-		WHERE Id = $8`
-
 func updateParticipant(c echo.Context) (err error) {
-	participant := participant{}
+	participant := types.ParticipantStruct{}
 
 	err = json.NewDecoder(c.Request().Body).Decode(&participant)
 	if err != nil {
 		return
 	}
 
-	res, err := db.Exec(
-		sqlUpdateParticipant,
-		participant.CampaignName,
-		participant.ScpName,
-		participant.LoginName,
-		participant.Email,
-		participant.DisplayName,
-		participant.Score,
-		participant.TeamName,
-		participant.ID,
-	)
-	if err != nil {
-		return
-	}
-	rowsAffected, err := res.RowsAffected()
+	var rowsAffected int64
+	rowsAffected, err = postgresDB.UpdateParticipant(&participant)
 	if err != nil {
 		return
 	}
@@ -838,36 +560,20 @@ func updateParticipant(c echo.Context) (err error) {
 	}
 }
 
-const sqlDeleteParticipant = `DELETE FROM participant WHERE
-                          fk_campaign = (SELECT id from campaign where name =$1)
-                          AND fk_scp = (SELECT id from source_control_provider where name =$2)
-                          AND login_name = $3
-                          RETURNING id`
-
 func deleteParticipant(c echo.Context) (err error) {
 	campaign := c.Param(ParamCampaignName)
 	scpName := c.Param(ParamScpName)
 	loginName := c.Param(ParamLoginName)
 
 	var participantId string
-	err = db.QueryRow(sqlDeleteParticipant, campaign, scpName, loginName).Scan(&participantId)
+	participantId, err = postgresDB.DeleteParticipant(campaign, scpName, loginName)
 	if err != nil {
-		logger.Error("error deleting participant",
-			zap.String("campaign", campaign), zap.String("scpName", scpName),
-			zap.String("loginName", loginName), zap.Error(err))
 		return
 	}
 
 	return c.JSON(http.StatusOK, fmt.Sprintf("deleted participant: campaign: %s, scpName: %s, loginName: %s, participant.id: %s",
 		campaign, scpName, loginName, participantId))
 }
-
-const sqlInsertParticipant = `INSERT INTO participant 
-		(fk_scp, fk_campaign, login_name, Email, DisplayName, Score) 
-		VALUES ((SELECT Id FROM source_control_provider WHERE Name = $1),
-		        (SELECT Id FROM campaign WHERE name = $2),
-		        $3, $4, $5, $6)
-		RETURNING Id, Score, JoinedAt`
 
 // was not seeing enough detail when addParticipant() returns error, so capturing such cases in the log.
 func logAddParticipant(c echo.Context) (err error) {
@@ -878,29 +584,17 @@ func logAddParticipant(c echo.Context) (err error) {
 }
 
 func addParticipant(c echo.Context) (err error) {
-	participant := participant{}
+	participant := types.ParticipantStruct{}
 
 	err = json.NewDecoder(c.Request().Body).Decode(&participant)
 	if err != nil {
 		return
 	}
 
-	var guid string
-	err = db.QueryRow(
-		sqlInsertParticipant,
-		participant.ScpName,
-		participant.CampaignName,
-		participant.LoginName,
-		participant.Email,
-		participant.DisplayName,
-		0,
-	).Scan(&guid, &participant.Score, &participant.JoinedAt)
+	err = postgresDB.InsertParticipant(&participant)
 	if err != nil {
-		logger.Error("error inserting participant", zap.Any("participant", participant), zap.Error(err))
 		return
 	}
-
-	participant.ID = guid
 
 	detailUri := c.Echo().Reverse("participant-detail", participant.LoginName)
 	updateUri := c.Echo().Reverse("participant-update")
@@ -909,7 +603,7 @@ func addParticipant(c echo.Context) (err error) {
 	endpoints["participantUpdate"] = endpointDetail{URI: updateUri, Verb: "PUT"}
 
 	creation := creationResponse{
-		Id:        guid,
+		Id:        participant.ID,
 		Endpoints: endpoints,
 		Object:    participant,
 	}
@@ -917,36 +611,21 @@ func addParticipant(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, creation)
 }
 
-const sqlInsertTeam = `INSERT INTO team
-		(fk_campaign, name)
-		VALUES ((SELECT id FROM campaign WHERE name = $1), $2)
-		RETURNING Id`
-
 func addTeam(c echo.Context) (err error) {
-	team := team{}
+	team := types.TeamStruct{}
 
 	err = json.NewDecoder(c.Request().Body).Decode(&team)
 	if err != nil {
 		return
 	}
 
-	var guid string
-	err = db.QueryRow(
-		sqlInsertTeam,
-		team.CampaignName,
-		team.Name).Scan(&guid)
+	err = postgresDB.InsertTeam(&team)
 	if err != nil {
 		return
 	}
 
-	return c.String(http.StatusCreated, guid)
+	return c.String(http.StatusCreated, team.Id)
 }
-
-const sqlUpdateParticipantTeam = `UPDATE participant 
-		SET fk_team = (SELECT Id FROM team WHERE name = $1)
-		WHERE fk_campaign = (SELECT id FROM campaign WHERE name = $2)
-		 AND fk_scp = (SELECT id FROM source_control_provider WHERE name = $3)
-		 AND login_name = $4`
 
 func addPersonToTeam(c echo.Context) (err error) {
 	teamName := c.Param(ParamTeamName)
@@ -958,21 +637,13 @@ func addPersonToTeam(c echo.Context) (err error) {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	res, err := db.Exec(
-		sqlUpdateParticipantTeam,
-		teamName,
-		campaignName,
-		scpName,
-		loginName)
-	if err != nil {
-		return
-	}
-	rows, err := res.RowsAffected()
+	var rowsAffected int64
+	rowsAffected, err = postgresDB.UpdateParticipantTeam(teamName, campaignName, scpName, loginName)
 	if err != nil {
 		return
 	}
 
-	if rows > 0 {
+	if rowsAffected > 0 {
 		logger.Info("team updated",
 			zap.String("teamName", teamName), zap.String("campaignName", campaignName),
 			zap.String("scpName", scpName), zap.String("loginName", loginName))
@@ -987,7 +658,7 @@ func addPersonToTeam(c echo.Context) (err error) {
 	}
 }
 
-func validateBug(bugToValidate bug) (err error) {
+func validateBug(bugToValidate types.BugStruct) (err error) {
 	if len(bugToValidate.Campaign) == 0 {
 		err = fmt.Errorf("bug is not valid, empty campaign: bug: %+v", bugToValidate)
 	} else if len(bugToValidate.Category) == 0 {
@@ -1001,13 +672,8 @@ func validateBug(bugToValidate bug) (err error) {
 	return
 }
 
-const sqlInsertBug = `INSERT INTO bug
-		(fk_campaign, category, pointValue)
-		VALUES ((SELECT id FROM campaign WHERE name = $1), $2, $3)
-		RETURNING ID`
-
 func addBug(c echo.Context) (err error) {
-	bug := bug{}
+	bug := types.BugStruct{}
 
 	err = json.NewDecoder(c.Request().Body).Decode(&bug)
 	if err != nil {
@@ -1019,23 +685,17 @@ func addBug(c echo.Context) (err error) {
 		return
 	}
 
-	var guid string
-	err = db.QueryRow(sqlInsertBug, bug.Campaign, bug.Category, bug.PointValue).Scan(&guid)
+	err = postgresDB.InsertBug(&bug)
 	if err != nil {
-		logger.Error("error inserting bug", zap.Any("bug", bug), zap.Error(err))
 		return
 	}
-	bug.Id = guid
+
 	creation := creationResponse{
-		Id:     guid,
+		Id:     bug.Id,
 		Object: bug,
 	}
 	return c.JSON(http.StatusCreated, creation)
 }
-
-const sqlUpdateBug = `UPDATE bug
-		SET pointValue = $1
-		WHERE fk_campaign = (SELECT id FROM campaign WHERE name = $2) AND category = $3`
 
 func updateBug(c echo.Context) (err error) {
 	campaign := c.Param(ParamCampaignName)
@@ -1045,78 +705,55 @@ func updateBug(c echo.Context) (err error) {
 		return
 	}
 
-	if err = validateBug(bug{Campaign: campaign, Category: category, PointValue: pointValue}); err != nil {
+	bug := types.BugStruct{Campaign: campaign, Category: category, PointValue: pointValue}
+	if err = validateBug(bug); err != nil {
 		return
 	}
 
 	logger.Debug(category)
 
-	res, err := db.Exec(sqlUpdateBug, pointValue, campaign, category)
+	var rowsAffected int64
+	rowsAffected, err = postgresDB.UpdateBug(&bug)
 	if err != nil {
 		return
 	}
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return
-	}
-	if rows < 1 {
+	if rowsAffected < 1 {
 		return c.String(http.StatusNotFound, "Bug Category not found")
 	}
 
 	return c.String(http.StatusOK, "Success")
 }
 
-const sqlSelectBug = `SELECT bug.id, campaign.name, category, pointValue FROM bug
-		INNER JOIN campaign ON fk_campaign = campaign.Id`
-
 func getBugs(c echo.Context) (err error) {
-
-	rows, err := db.Query(sqlSelectBug)
+	var bugs []types.BugStruct
+	bugs, err = postgresDB.SelectBugs()
 	if err != nil {
 		return
-	}
-
-	var bugs []bug
-	for rows.Next() {
-		bug := bug{}
-		err = rows.Scan(&bug.Id, &bug.Campaign, &bug.Category, &bug.PointValue)
-		if err != nil {
-			return
-		}
-		bugs = append(bugs, bug)
 	}
 
 	return c.JSON(http.StatusOK, bugs)
 }
 
 func putBugs(c echo.Context) (err error) {
-	var bugs []bug
+	var bugs []types.BugStruct
 	err = json.NewDecoder(c.Request().Body).Decode(&bugs)
 	if err != nil {
 		logger.Error("error decoding bug body", zap.Error(err))
 		return
 	}
 
-	tx, err := db.Begin()
-	if err != nil {
-		return
-	}
-	var inserted []bug
+	var inserted []types.BugStruct
 	for _, bug := range bugs {
 		if err = validateBug(bug); err != nil {
 			return
 		}
 
-		err = db.QueryRow(sqlInsertBug, bug.Campaign, bug.Category, bug.PointValue).Scan(&bug.Id)
+		err = postgresDB.InsertBug(&bug)
 		if err != nil {
 			logger.Error("error inserting bug", zap.Any("bug", bug), zap.Error(err))
 			return
 		}
 		inserted = append(inserted, bug)
-	}
-	err = tx.Commit()
-	if err != nil {
-		return
 	}
 
 	response := creationResponse{
@@ -1127,84 +764,24 @@ func putBugs(c echo.Context) (err error) {
 	return c.JSON(http.StatusCreated, response)
 }
 
-const sqlSelectCampaigns = `SELECT ID, name, created_on, create_order, start_on, end_on, note FROM campaign`
-
 func getCampaigns(c echo.Context) (err error) {
-	rows, err := db.Query(
-		sqlSelectCampaigns)
+	var campaigns []types.CampaignStruct
+	campaigns, err = postgresDB.GetCampaigns()
 	if err != nil {
 		return
-	}
-
-	var campaigns []campaignStruct
-	for rows.Next() {
-		campaign := campaignStruct{}
-		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.StartOn, &campaign.EndOn, &campaign.Note)
-		if err != nil {
-			return
-		}
-		campaigns = append(campaigns, campaign)
 	}
 
 	return c.JSON(http.StatusOK, campaigns)
 }
 
-const sqlSelectCampaign = `SELECT ID, name, created_on, create_order, start_on, end_on, note 
-	FROM campaign
-	WHERE name = $1`
-
-func getCampaign(campaignName string) (campaign campaignStruct, err error) {
-	rows, err := db.Query(sqlSelectCampaign, campaignName)
-	if err != nil {
-		return
-	}
-
-	for rows.Next() {
-		err = rows.Scan(&campaign.ID, &campaign.Name, &campaign.CreatedOn, &campaign.CreatedOrder, &campaign.StartOn, &campaign.EndOn, &campaign.Note)
-		if err != nil {
-			return
-		}
-	}
-	return
-}
-
-const sqlSelectCurrentCampaigns = `SELECT * FROM campaign
-		WHERE $1 >= start_on
-			AND $1 < end_on
-		ORDER BY start_on`
-
-func getActiveCampaigns(now time.Time) (activeCampaigns []campaignStruct, err error) {
-	rows, err := db.Query(sqlSelectCurrentCampaigns, now)
-	if err != nil {
-		return
-	}
-
-	for rows.Next() {
-		activeCampaign := campaignStruct{}
-
-		err = rows.Scan(&activeCampaign.ID, &activeCampaign.Name, &activeCampaign.CreatedOn, &activeCampaign.CreatedOrder, &activeCampaign.StartOn, &activeCampaign.EndOn, &activeCampaign.Note)
-		if err != nil {
-			return
-		}
-		activeCampaigns = append(activeCampaigns, activeCampaign)
-	}
-
-	return
-}
-
-func getActiveCampaignsEcho(c echo.Context) (err error) {
-	current, err := getActiveCampaigns(time.Now())
+func getActiveCampaigns(c echo.Context) (err error) {
+	current, err := postgresDB.GetActiveCampaigns(time.Now())
 	if err != nil {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 
 	return c.JSON(http.StatusOK, current)
 }
-
-const sqlInsertCampaign = `INSERT INTO campaign 
-		(name, start_on, end_on) 
-		VALUES ($1, $2, $3)
-		RETURNING Id`
 
 func addCampaign(c echo.Context) (err error) {
 	campaignName := strings.TrimSpace(c.Param(ParamCampaignName))
@@ -1215,7 +792,7 @@ func addCampaign(c echo.Context) (err error) {
 		return c.String(http.StatusBadRequest, err.Error())
 	}
 
-	campaignFromRequest := campaignStruct{}
+	campaignFromRequest := types.CampaignStruct{}
 	err = json.NewDecoder(c.Request().Body).Decode(&campaignFromRequest)
 	if err != nil {
 		return
@@ -1223,24 +800,13 @@ func addCampaign(c echo.Context) (err error) {
 	campaignFromRequest.Name = campaignName
 
 	var guid string
-	err = db.QueryRow(
-		sqlInsertCampaign,
-		campaignName,
-		campaignFromRequest.StartOn,
-		campaignFromRequest.EndOn,
-	).Scan(&guid)
+	guid, err = postgresDB.InsertCampaign(&campaignFromRequest)
 	if err != nil {
 		return
 	}
 
 	return c.String(http.StatusCreated, guid)
 }
-
-const sqlUpdateCampaign = `UPDATE campaign
-		SET start_on = $1,
-			end_on = $2		
-		WHERE name = $3
-		RETURNING id`
 
 func updateCampaign(c echo.Context) (err error) {
 	campaignName := strings.TrimSpace(c.Param(ParamCampaignName))
@@ -1252,80 +818,20 @@ func updateCampaign(c echo.Context) (err error) {
 	}
 
 	// update campaign stored in db
-	campaignFromRequest := campaignStruct{}
+	campaignFromRequest := types.CampaignStruct{}
 	err = json.NewDecoder(c.Request().Body).Decode(&campaignFromRequest)
 	if err != nil {
 		return
 	}
+
+	// force use of path parameter campaign name value
+	campaignFromRequest.Name = campaignName
+
 	var guid string
-	err = db.QueryRow(
-		sqlUpdateCampaign,
-		campaignFromRequest.StartOn,
-		campaignFromRequest.EndOn,
-		campaignName,
-	).Scan(&guid)
+	guid, err = postgresDB.UpdateCampaign(&campaignFromRequest)
 	if err != nil {
 		return
 	}
 
 	return c.String(http.StatusOK, guid)
-}
-
-func migratePrep(db *sql.DB) (m *migrate.Migrate, err error) {
-	driver, err := postgres.WithInstance(db, &postgres.Config{})
-	if err != nil {
-		return
-	}
-
-	m, err = migrate.NewWithDatabaseInstance(
-		"file://db/migrations/v2",
-		"postgres", driver)
-	if migrateErrorApplicable(err) {
-		return
-	}
-	return
-}
-
-func downgradeDB(db *sql.DB) (err error) {
-	// Don't run this, will delete db stuff, for use in testing only
-	m, err := migratePrep(db)
-	if err != nil {
-		return
-	}
-
-	if err = m.Down(); err != nil {
-		if migrateErrorApplicable(err) {
-			return
-		} else {
-			err = nil
-		}
-	}
-
-	return
-}
-
-func migrateDB(db *sql.DB) (err error) {
-	m, err := migratePrep(db)
-	if err != nil {
-		return
-	}
-
-	if err = m.Up(); err != nil {
-		if migrateErrorApplicable(err) {
-			return
-		} else {
-			err = nil
-		}
-	} else {
-		logger.Info("db migration complete")
-	}
-
-	return
-}
-
-func migrateErrorApplicable(err error) bool {
-	if err == nil || err == migrate.ErrNoChange {
-		return false
-	}
-	return true
 }
