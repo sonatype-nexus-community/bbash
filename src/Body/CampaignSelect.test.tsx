@@ -39,7 +39,7 @@ describe("<CampaignSelect></CampaignSelect>", () => {
         let mockResponse: MockResponseObject = {
             throws: myError,
         }
-        fetchMock.get(`/campaign/active?${qp.feature}=activeCampaigns&${qp.caller}=useEffect`,
+        fetchMock.get(`/campaign/active?${qp.feature}=activeCampaigns&${qp.call}=useEffect`,
             mockResponse
         );
 

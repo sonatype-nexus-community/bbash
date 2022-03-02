@@ -54,7 +54,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
         const getLeadersAction: Action = {
             method: 'GET',
-            endpoint: `/participant/list/${campaign.name}?${qp.feature}=getLeaders&${qp.caller}=${caller}`
+            endpoint: `/participant/list/${campaign.name}?${qp.feature}=getLeaders&${qp.call}=${caller}`
         }
         const res = await clientContext.query(getLeadersAction);
 

@@ -61,7 +61,7 @@ describe("<LeaderBoard></LeaderBoard>", () => {
         let mockResponse: MockResponseObject = {
             throws: myError,
         }
-        fetchMock.get(`/participant/list/${selectedCampaign.name}?${qp.feature}=getLeaders&${qp.caller}=useEffect`,
+        fetchMock.get(`/participant/list/${selectedCampaign.name}?${qp.feature}=getLeaders&${qp.call}=useEffect`,
             mockResponse
         );
 

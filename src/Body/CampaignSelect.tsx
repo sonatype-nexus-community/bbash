@@ -37,7 +37,7 @@ type CampaignSelectProps = {
 
 export const qp = {
     feature: "feature",
-    caller: "caller"
+    call: "call"
 } as const
 
 const CampaignSelect = (props: CampaignSelectProps) => {
@@ -52,7 +52,7 @@ const CampaignSelect = (props: CampaignSelectProps) => {
         const getCampaignList = async () => {
             const getCampaignsAction: Action = {
                 method: 'GET',
-                endpoint: `/campaign/active?${qp.feature}=activeCampaigns&${qp.caller}=useEffect`
+                endpoint: `/campaign/active?${qp.feature}=activeCampaigns&${qp.call}=useEffect`
             }
             const res = await clientContext.query(getCampaignsAction);
             if (!res.error) {
