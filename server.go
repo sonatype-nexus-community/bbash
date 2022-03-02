@@ -159,7 +159,7 @@ func main() {
 
 	postgresDB = db.New(pg, logger)
 
-	err = postgresDB.MigrateDB("file://db/migrations/v2")
+	err = postgresDB.MigrateDB("file://internal/db/migrations/v2")
 	if err != nil {
 		logger.Error("db migrate", zap.Error(err))
 		panic(fmt.Errorf("failed to migrate database. err: %+v", err))

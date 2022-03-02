@@ -63,7 +63,7 @@ COPY --from=build /etc/group /etc/group
 COPY --from=build /src/build /build
 COPY --from=build /src/bbash /
 COPY *.env /
-ADD internal/db/migrations /db/migrations
+ADD internal/db/migrations /internal/db/migrations
 
 USER bbashuser:bbashuser
 
