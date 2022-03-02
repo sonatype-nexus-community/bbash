@@ -56,3 +56,7 @@ replace github.com/jackc/pgproto3 => github.com/jackc/pgproto3/v2 v2.1.1
 
 // fix vulnerability: CVE-2021-38561 in golang.org/x/text v0.3.5
 replace golang.org/x/text => golang.org/x/text v0.3.7
+
+// fix vulnerability: CVE-2020-26160 in github.com/dgrijalva/jwt-go v3.2.0
+replace github.com/dgrijalva/jwt-go => github.com/dgrijalva/jwt-go/v4 v4.0.0-preview1
+
