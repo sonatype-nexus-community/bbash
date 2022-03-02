@@ -525,7 +525,7 @@ func getParticipantDetail(c echo.Context) (err error) {
 
 func getParticipantsList(c echo.Context) (err error) {
 	campaignName := c.Param(ParamCampaignName)
-	logger.Debug("Getting participant list for campaign: ", zap.String("campaignName", campaignName))
+	logger.Debug("Getting participant list for campaign", zap.String("campaignName", campaignName))
 
 	var participants []types.ParticipantStruct
 	participants, err = postgresDB.SelectParticipantsInCampaign(campaignName)
