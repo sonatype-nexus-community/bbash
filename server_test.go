@@ -2102,7 +2102,7 @@ func TestLogTelemetry(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	q := req.URL.Query()
 	q.Add(qpFeature, "testFeature")
-	q.Add(qpCaller, "testCaller")
+	q.Add(qpCall, "testCaller")
 	req.URL.RawQuery = q.Encode()
 
 	rec := httptest.NewRecorder()

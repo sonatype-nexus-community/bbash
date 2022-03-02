@@ -778,11 +778,11 @@ func getCampaigns(c echo.Context) (err error) {
 
 const msgTelemetry = "log-telemetry"
 const qpFeature = "feature"
-const qpCaller = "caller"
+const qpCall = "call"
 
 func logTelemetry(c echo.Context) {
 	feature := c.QueryParam(qpFeature)
-	caller := c.QueryParam(qpCaller)
+	caller := c.QueryParam(qpCall)
 	if feature != "" && caller != "" {
 		logger.Info(msgTelemetry,
 			zap.String("feature", feature),
