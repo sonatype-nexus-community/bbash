@@ -757,7 +757,7 @@ func putBugs(c echo.Context) (err error) {
 			logger.Error("error inserting bug", zap.Any("bug", bug), zap.Error(err))
 			return
 		}
-		inserted = append(inserted, bug)
+		inserted = append(inserted, bugs[i])
 	}
 
 	response := creationResponse{
