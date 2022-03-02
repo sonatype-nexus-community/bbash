@@ -17,7 +17,7 @@ import {render} from '@testing-library/react';
 import React from 'react';
 import {ClientContextProvider, createClient} from 'react-fetching-library';
 
-import CampaignSelect from './CampaignSelect';
+import CampaignSelect, {qp} from './CampaignSelect';
 import {MockResponseObject} from "fetch-mock";
 import fetchMock from "fetch-mock-jest";
 
@@ -39,7 +39,7 @@ describe("<CampaignSelect></CampaignSelect>", () => {
         let mockResponse: MockResponseObject = {
             throws: myError,
         }
-        fetchMock.get('/campaign/active',
+        fetchMock.get(`/campaign/active?${qp.feature}=activeCampaigns&${qp.caller}=useEffect`,
             mockResponse
         );
 

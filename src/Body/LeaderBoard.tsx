@@ -15,7 +15,7 @@
  */
 import {NxButton, NxLoadError, NxTable} from "@sonatype/react-shared-components"
 import React, {MouseEvent, useCallback, useContext, useEffect, useState} from "react"
-import {Campaign} from "./CampaignSelect";
+import {Campaign, qp} from "./CampaignSelect";
 import {Action, ClientContext} from "react-fetching-library";
 
 type CampaignSelectProps = {
@@ -39,9 +39,6 @@ type queryError = {
     errorMessage: string
 }
 
-const qpFeature = "feature"
-const qpCaller = "caller"
-
 const LeaderBoard = (props: CampaignSelectProps) => {
 
     const [queryError, setQueryError] = useState<queryError>({error: false, errorMessage: ""}),
@@ -57,7 +54,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
         const getLeadersAction: Action = {
             method: 'GET',
-            endpoint: `/participant/list/${campaign.name}?${qpFeature}=getLeaders&${qpCaller}=${caller}`
+            endpoint: `/participant/list/${campaign.name}?${qp.feature}=getLeaders&${qp.caller}=${caller}`
         }
         const res = await clientContext.query(getLeadersAction);
 

@@ -19,7 +19,7 @@ import {ClientContextProvider, createClient} from 'react-fetching-library';
 import fetchMock from "fetch-mock-jest";
 
 import LeaderBoard from './LeaderBoard';
-import {Campaign} from "./CampaignSelect";
+import {Campaign, qp} from "./CampaignSelect";
 import {MockResponseObject} from "fetch-mock";
 
 beforeEach(() => {
@@ -61,7 +61,7 @@ describe("<LeaderBoard></LeaderBoard>", () => {
         let mockResponse: MockResponseObject = {
             throws: myError,
         }
-        fetchMock.get('/participant/list/' + selectedCampaign.name,
+        fetchMock.get(`/participant/list/${selectedCampaign.name}?${qp.feature}=getLeaders&${qp.caller}=useEffect`,
             mockResponse
         );
 
