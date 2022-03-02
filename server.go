@@ -481,20 +481,18 @@ func newScore(c echo.Context) (err error) {
 		if len(activeParticipantsToScore) == 0 {
 			continue
 		}
-		for i, participantToScore := range activeParticipantsToScore {
+		for _, participantToScore := range activeParticipantsToScore {
 
 			newPoints := scorePoints(&msg, participantToScore.CampaignName)
 
-			// fix warning: Implicit memory aliasing in for loop.
-			//oldPoints := postgresDB.SelectPriorScore(&participantToScore, &msg)
-			oldPoints := postgresDB.SelectPriorScore(&activeParticipantsToScore[i], &msg)
+			oldPoints := postgresDB.SelectPriorScore(&participantToScore, &msg)
 
-			err = postgresDB.InsertScoringEvent(&activeParticipantsToScore[i], &msg, newPoints)
+			err = postgresDB.InsertScoringEvent(&participantToScore, &msg, newPoints)
 			if err != nil {
 				return
 			}
 
-			err = postgresDB.UpdateParticipantScore(&activeParticipantsToScore[i], newPoints-oldPoints)
+			err = postgresDB.UpdateParticipantScore(&participantToScore, newPoints-oldPoints)
 			if err != nil {
 				return
 			}
@@ -660,7 +658,7 @@ func addPersonToTeam(c echo.Context) (err error) {
 	}
 }
 
-func validateBug(bugToValidate types.BugStruct) (err error) {
+func validateBug(bugToValidate *types.BugStruct) (err error) {
 	if len(bugToValidate.Campaign) == 0 {
 		err = fmt.Errorf("bug is not valid, empty campaign: bug: %+v", bugToValidate)
 	} else if len(bugToValidate.Category) == 0 {
@@ -683,7 +681,7 @@ func addBug(c echo.Context) (err error) {
 		return
 	}
 
-	if err = validateBug(bug); err != nil {
+	if err = validateBug(&bug); err != nil {
 		return
 	}
 
@@ -708,7 +706,7 @@ func updateBug(c echo.Context) (err error) {
 	}
 
 	bug := types.BugStruct{Campaign: campaign, Category: category, PointValue: pointValue}
-	if err = validateBug(bug); err != nil {
+	if err = validateBug(&bug); err != nil {
 		return
 	}
 
@@ -745,19 +743,17 @@ func putBugs(c echo.Context) (err error) {
 	}
 
 	var inserted []types.BugStruct
-	for i, bug := range bugs {
-		if err = validateBug(bug); err != nil {
+	for _, bug := range bugs {
+		if err = validateBug(&bug); err != nil {
 			return
 		}
 
-		// fix warning: Implicit memory aliasing in for loop.
-		//err = postgresDB.InsertBug(&bug)
-		err = postgresDB.InsertBug(&bugs[i])
+		err = postgresDB.InsertBug(&bug)
 		if err != nil {
 			logger.Error("error inserting bug", zap.Any("bug", bug), zap.Error(err))
 			return
 		}
-		inserted = append(inserted, bugs[i])
+		inserted = append(inserted, bug)
 	}
 
 	response := creationResponse{

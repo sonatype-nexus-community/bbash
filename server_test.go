@@ -57,6 +57,11 @@ func resetEnvVarPGHost(t *testing.T, origEnvPGHost string) {
 	resetEnvVar(t, envPGHost, origEnvPGHost)
 }
 
+// multiple mock kludge counters
+var insertBugGuidCount int
+var priorScoreCallCount int
+var updateScoreLastDelta int
+
 type MockBBashDB struct {
 	t                *testing.T
 	assertParameters bool
@@ -268,25 +273,38 @@ func (m MockBBashDB) SelectPointValue(msg *types.ScoringMessage, campaignName, b
 
 func (m MockBBashDB) UpdateParticipantScore(participant *types.ParticipantStruct, delta int) (err error) {
 	if m.assertParameters {
-		assert.Equal(m.t, m.updateScoreParticipant, participant)
-		assert.Equal(m.t, m.updateScoreDelta, delta)
+		// multiple mock kludge
+		if priorScoreCallCount == 0 {
+			assert.Equal(m.t, m.updateScoreParticipant, participant)
+			assert.Equal(m.t, m.updateScoreDelta, delta)
+		}
 	}
+	updateScoreLastDelta = delta
 	return m.updateScoreErr
 }
 
 func (m MockBBashDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int) {
 	if m.assertParameters {
-		assert.Equal(m.t, m.priorScoreParticipant, participantToScore)
-		assert.Equal(m.t, m.priorScoreMsg, msg)
+		// multiple mock kludge
+		if priorScoreCallCount == 0 {
+			assert.Equal(m.t, m.priorScoreParticipant, participantToScore)
+			assert.Equal(m.t, m.priorScoreMsg, msg)
+		}
 	}
-	return m.priorScoreResult
+	// kludge to support multiple calls to mock. maybe
+	scoreToReturn := m.priorScoreResult + priorScoreCallCount
+	priorScoreCallCount++
+	return scoreToReturn
 }
 
 func (m MockBBashDB) InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints int) (err error) {
 	if m.assertParameters {
-		assert.Equal(m.t, m.insertScoreEvtPartier, participantToScore)
-		assert.Equal(m.t, m.insertScoreEvtMsg, msg)
-		assert.Equal(m.t, m.insertScoreEvtNewPoints, newPoints)
+		// multiple mock kludge
+		if priorScoreCallCount == 0 {
+			assert.Equal(m.t, m.insertScoreEvtPartier, participantToScore)
+			assert.Equal(m.t, m.insertScoreEvtMsg, msg)
+			assert.Equal(m.t, m.insertScoreEvtNewPoints, newPoints)
+		}
 	}
 	return m.insertScoreEvtErr
 }
@@ -355,10 +373,18 @@ func (m MockBBashDB) UpdateParticipantTeam(teamName, campaignName, scpName, logi
 
 func (m MockBBashDB) InsertBug(bug *types.BugStruct) (err error) {
 	if m.assertParameters {
-		assert.Equal(m.t, m.insertBugBug, bug)
+		// only validate the first calls parameter. maybe later, could change mocks to support lists to validate...
+		if insertBugGuidCount == 0 {
+			assert.Equal(m.t, m.insertBugBug, bug)
+		}
 	}
 	// alter the passed in struct with newly created mock values
-	bug.Id = m.insertBugGuid
+	if insertBugGuidCount == 0 {
+		bug.Id = m.insertBugGuid
+	} else {
+		bug.Id = fmt.Sprintf("%s%d", m.insertBugGuid, insertBugGuidCount)
+	}
+	insertBugGuidCount++
 	return m.insertBugErr
 }
 
@@ -380,6 +406,10 @@ func newMockDb(t *testing.T) (mockDbIF *MockBBashDB) {
 		t:                t,
 		assertParameters: true,
 	}
+	// reset loop kludge counters
+	insertBugGuidCount = 0
+	priorScoreCallCount = 0
+	updateScoreLastDelta = 0
 
 	logger = zaptest.NewLogger(t)
 
@@ -1058,11 +1088,12 @@ func TestGetParticipantsList(t *testing.T) {
 
 func TestValidateBug(t *testing.T) {
 	_, _ = setupMockContext()
-	assert.EqualError(t, validateBug(types.BugStruct{}), "bug is not valid, empty campaign: bug: {Id: Campaign: Category: PointValue:0}")
-	assert.EqualError(t, validateBug(types.BugStruct{Campaign: "myCampaign"}), "bug is not valid, empty category: bug: {Id: Campaign:myCampaign Category: PointValue:0}")
-	assert.EqualError(t, validateBug(types.BugStruct{Campaign: "myCampaign", Category: ""}), "bug is not valid, empty category: bug: {Id: Campaign:myCampaign Category: PointValue:0}")
-	assert.EqualError(t, validateBug(types.BugStruct{Campaign: "myCampaign", Category: "myCategory", PointValue: -1}), "bug is not valid, negative PointValue: bug: {Id: Campaign:myCampaign Category:myCategory PointValue:-1}")
-	assert.NoError(t, validateBug(types.BugStruct{Campaign: "myCampaign", Category: "myCategory", PointValue: 0}))
+	logger = zaptest.NewLogger(t)
+	assert.EqualError(t, validateBug(&types.BugStruct{}), "bug is not valid, empty campaign: bug: &{Id: Campaign: Category: PointValue:0}")
+	assert.EqualError(t, validateBug(&types.BugStruct{Campaign: "myCampaign"}), "bug is not valid, empty category: bug: &{Id: Campaign:myCampaign Category: PointValue:0}")
+	assert.EqualError(t, validateBug(&types.BugStruct{Campaign: "myCampaign", Category: ""}), "bug is not valid, empty category: bug: &{Id: Campaign:myCampaign Category: PointValue:0}")
+	assert.EqualError(t, validateBug(&types.BugStruct{Campaign: "myCampaign", Category: "myCategory", PointValue: -1}), "bug is not valid, negative PointValue: bug: &{Id: Campaign:myCampaign Category:myCategory PointValue:-1}")
+	assert.NoError(t, validateBug(&types.BugStruct{Campaign: "myCampaign", Category: "myCategory", PointValue: 0}))
 }
 
 func setupMockContextAddBug(bugJson string) (c echo.Context, rec *httptest.ResponseRecorder) {
@@ -1104,7 +1135,7 @@ func TestAddBugInvalidBug(t *testing.T) {
 
 	newMockDb(t)
 
-	assert.EqualError(t, addBug(c), "bug is not valid, empty campaign: bug: {Id: Campaign: Category: PointValue:0}")
+	assert.EqualError(t, addBug(c), "bug is not valid, empty campaign: bug: &{Id: Campaign: Category: PointValue:0}")
 	assert.Equal(t, 0, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
@@ -1185,7 +1216,7 @@ func TestUpdateBugInvalidBug(t *testing.T) {
 
 	newMockDb(t)
 
-	assert.EqualError(t, updateBug(c), "bug is not valid, negative PointValue: bug: {Id: Campaign:myCampaign Category:myCategory PointValue:-1}")
+	assert.EqualError(t, updateBug(c), "bug is not valid, negative PointValue: bug: &{Id: Campaign:myCampaign Category:myCategory PointValue:-1}")
 	assert.Equal(t, 0, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
@@ -1287,7 +1318,7 @@ func TestPutBugsOneBugInvalidBug(t *testing.T) {
 
 	newMockDb(t)
 
-	assert.EqualError(t, putBugs(c), "bug is not valid, empty campaign: bug: {Id: Campaign: Category: PointValue:0}")
+	assert.EqualError(t, putBugs(c), "bug is not valid, empty campaign: bug: &{Id: Campaign: Category: PointValue:0}")
 	assert.Equal(t, 0, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
@@ -1312,22 +1343,18 @@ func TestPutBugsMultipleBugs(t *testing.T) {
 	c, rec := setupMockContextPutBugs(`[{"campaign":"myCampaign","category":"bugCat2", "pointValue":5}, {"campaign":"myCampaign","category":"bugCat3", "pointValue":9}]`)
 
 	mock := newMockDb(t)
-	// don't assert params to allow for multiple different sets of values
-	mock.assertParameters = false
-	defer func() {
-		mock.assertParameters = true
-	}()
+	mock.insertBugBug = &types.BugStruct{
+		Campaign:   "myCampaign",
+		Category:   "bugCat2",
+		PointValue: 5,
+	}
 	bugId := "myBugId"
 	mock.insertBugGuid = bugId
-
-	// known issue where our high level mock doesn't support multiple different guid values
-	//bugId2 := "secondBugId"
+	bugId2 := fmt.Sprintf("%s%d", bugId, 1)
 
 	assert.NoError(t, putBugs(c))
 	assert.Equal(t, http.StatusCreated, c.Response().Status)
-	// known issue where our high level mock doesn't support multiple different values
-	//assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","campaign":"myCampaign","category":"bugCat2","pointValue":5},{"guid":"`+bugId2+`","campaign":"myCampaign","category":"bugCat3","pointValue":9}]}`+"\n", rec.Body.String())
-	assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","campaign":"myCampaign","category":"bugCat2","pointValue":5},{"guid":"`+bugId+`","campaign":"myCampaign","category":"bugCat3","pointValue":9}]}`+"\n", rec.Body.String())
+	assert.Equal(t, `{"guid":"`+bugId+`","endpoints":null,"object":[{"guid":"`+bugId+`","campaign":"myCampaign","category":"bugCat2","pointValue":5},{"guid":"`+bugId2+`","campaign":"myCampaign","category":"bugCat3","pointValue":9}]}`+"\n", rec.Body.String())
 }
 
 func setupMockContextParticipantDelete(campaignName, scpName, loginName string) (c echo.Context, rec *httptest.ResponseRecorder) {
@@ -1692,6 +1719,56 @@ func TestNewScoreOneAlert(t *testing.T) {
 
 	err = newScore(c)
 	assert.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, c.Response().Status)
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestNewScoreTwoParticipantsToScore(t *testing.T) {
+	repoName := "myRepoName"
+	prId := -5
+	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName,
+		RepoName: repoName, PullRequest: prId, TotalFixed: 2}
+	scoringMsgBytes, err := json.Marshal(msg)
+	assert.NoError(t, err)
+	scoringMsgJson := string(scoringMsgBytes)
+	c, rec := setupMockContextNewScore(t, scoringAlert{
+		RecentHits: []string{scoringMsgJson},
+	})
+
+	mock := newMockDb(t)
+	setupMockDBOrgValid(mock)
+	msgLowerCase := msg
+	msgLowerCase.TriggerUser = strings.ToLower(loginName)
+	mock.validOrgParam = msgLowerCase
+	mock.partiesToScoreMsg = msgLowerCase
+	// caller users Time.now(), so don't assert time parameter
+	mock.partiesToScoreNowSkip = true
+	mock.partiesToScoreResult = []types.ParticipantStruct{
+		{
+			ID:           "someId",
+			CampaignName: "someCampaign",
+			ScpName:      "someSCP",
+			LoginName:    "someLoginName",
+		},
+		{
+			ID:           "someId2",
+			CampaignName: "someCampaign2",
+			ScpName:      "someSCP2",
+			LoginName:    "someLoginName2",
+		},
+	}
+	mock.priorScoreResult = 4
+
+	mock.priorScoreParticipant = &mock.partiesToScoreResult[0]
+	mock.priorScoreMsg = msg
+
+	mock.insertScoreEvtPartier = &mock.partiesToScoreResult[0]
+	mock.insertScoreEvtMsg = msg
+	mock.insertScoreEvtNewPoints = 2
+
+	err = newScore(c)
+	assert.NoError(t, err)
+	assert.Equal(t, -3, updateScoreLastDelta)
 	assert.Equal(t, http.StatusAccepted, c.Response().Status)
 	assert.Equal(t, "", rec.Body.String())
 }
