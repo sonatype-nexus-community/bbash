@@ -51,9 +51,8 @@ describe("<LeaderBoard></LeaderBoard>", () => {
                 <LeaderBoard selectedCampaign={selectedCampaign}/>
             </ClientContextProvider>
         );
-        // @todo Figure out why the line below causes "Error: connect ECONNREFUSED 127.0.0.1:80"
-        // but test still passes
-        // expect(await findByText("Refresh Scores")).toBeTruthy()
+        // @todo Figure out why the line below causes "Error: connect ECONNREFUSED 127.0.0.1:80", but test still passes
+        expect(await findByText("Refresh Scores")).toBeTruthy()
     });
 
     test("Should show error if failure reading participant list", async () => {
