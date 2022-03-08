@@ -19,8 +19,9 @@
   border-color: transparent;
 
   :global(.nx-product__logo-image) {
+    height: 60px;
     // Danger here, move this component around, this breaks
-    content: url('../../public/SON_logo_white_.svg');
+    content: url('../../public/BugBash.png');
   }
 
   :global(.nx-product__name) {
