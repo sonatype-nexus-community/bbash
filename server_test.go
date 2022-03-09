@@ -501,15 +501,18 @@ func TestMigrateDB(t *testing.T) {
 
 func TestSetupRoutes(t *testing.T) {
 	e := echo.New()
-	//req := httptest.NewRequest(http.MethodGet, "/", nil)
-	//rec = httptest.NewRecorder()
-	//c = e.NewContext(req, rec)
 
-	setupRoutes(e, "myBuildInfoMsg")
+	logger = zaptest.NewLogger(t)
+
+	customRouteCount := setupRoutes(e, "myBuildInfoMsg")
 	routes := e.Routes()
 	// @TODO figure out how to prevent extra routes from being automatically added
 	//assert.Equal(t, 22, len(routes))
+	// NOTE: the main() method will only print "custom" routes, ignoring defaults added by echo. such defaults are still
+	// included in the count below
 	assert.Equal(t, 176, len(routes))
+
+	assert.Equal(t, 21, customRouteCount)
 }
 
 const timeLayout = "2006-01-02T15:04:05.000Z"

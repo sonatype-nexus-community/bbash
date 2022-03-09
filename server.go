@@ -172,7 +172,7 @@ func main() {
 	logger.Fatal("application end", zap.Error(e.Start(defaultServicePort)))
 }
 
-func setupRoutes(e *echo.Echo, buildInfoMessage string) {
+func setupRoutes(e *echo.Echo, buildInfoMessage string) (customRouteCount int) {
 	e.GET("/", func(c echo.Context) error {
 		return c.String(http.StatusOK, fmt.Sprintf("I am ALIVE. %s", buildInfoMessage))
 	})
@@ -250,9 +250,16 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) {
 
 	for _, v := range routes {
 		routeInfo := fmt.Sprintf("%s %s as %s", v.Method, v.Path, v.Name)
-		logger.Info("route", zap.String("info", routeInfo))
+		// only print the routes we created ourselves, ignoring the default ones added automatically by echo
+		if !strings.HasPrefix(v.Name, echoDefaultRouteNamePrefix) {
+			customRouteCount++
+			logger.Info("route", zap.String("info", routeInfo))
+		}
 	}
+	return
 }
+
+const echoDefaultRouteNamePrefix = "github.com/labstack/echo/v4."
 
 //goland:noinspection GoUnusedParameter
 func infoBasicValidator(username, password string, c echo.Context) (isValidLogin bool, err error) {
