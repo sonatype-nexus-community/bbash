@@ -506,10 +506,10 @@ func TestSetupRoutes(t *testing.T) {
 
 	customRouteCount := setupRoutes(e, "myBuildInfoMsg")
 	routes := e.Routes()
-	// @TODO figure out how to prevent extra routes from being automatically added
+	// when using "groups", extra "default" routes are automatically added by echo
 	//assert.Equal(t, 22, len(routes))
-	// NOTE: the main() method will only print "custom" routes, ignoring defaults added by echo. such defaults are still
-	// included in the count below
+	// Out main() method will only print "custom" routes, ignoring defaults added by echo. such defaults are still
+	// included in the "total" route count below
 	assert.Equal(t, 176, len(routes))
 
 	assert.Equal(t, 21, customRouteCount)
