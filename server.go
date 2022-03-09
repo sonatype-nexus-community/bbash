@@ -187,11 +187,11 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) (customRouteCount int) {
 	// Organization related endpoints
 	organizationGroup := adminGroup.Group(Organization)
 
-	organizationGroup.GET(List, getOrganizations).Name = "OrganizationStruct-list"
-	organizationGroup.PUT(Add, addOrganization).Name = "OrganizationStruct-add"
+	organizationGroup.GET(List, getOrganizations).Name = "organization-list"
+	organizationGroup.PUT(Add, addOrganization).Name = "organization-add"
 	organizationGroup.DELETE(
 		fmt.Sprintf("%s/:%s/:%s", Delete, ParamScpName, ParamOrganizationName),
-		deleteOrganization).Name = "OrganizationStruct-delete"
+		deleteOrganization).Name = "organization-delete"
 
 	// Participant related endpoints and group
 
@@ -375,11 +375,11 @@ func addOrganization(c echo.Context) (err error) {
 	var guid string
 	guid, err = postgresDB.InsertOrganization(&organization)
 	if err != nil {
-		logger.Error("error inserting OrganizationStruct", zap.Any("OrganizationStruct", organization), zap.Error(err))
+		logger.Error("error inserting organization", zap.Any("organization", organization), zap.Error(err))
 		return
 	}
 
-	logger.Debug("added OrganizationStruct", zap.Any("OrganizationStruct", organization))
+	logger.Debug("added organization", zap.Any("organization", organization))
 	return c.String(http.StatusCreated, guid)
 }
 
@@ -402,25 +402,25 @@ func deleteOrganization(c echo.Context) (err error) {
 	if err != nil {
 		return
 	}
-	logger.Info("delete OrganizationStruct",
+	logger.Info("delete organization",
 		zap.String("scpName", scpName),
 		zap.String("orgName", orgName),
 		zap.Int64("rowsAffected", rowsAffected))
 	if rowsAffected > 0 {
 		return c.NoContent(http.StatusNoContent)
 	}
-	return c.JSON(http.StatusNotFound, fmt.Sprintf("no OrganizationStruct: scpName: %s, name: %s", scpName, orgName))
+	return c.JSON(http.StatusNotFound, fmt.Sprintf("no organization: scpName: %s, name: %s", scpName, orgName))
 }
 
 func validScore(msg *types.ScoringMessage, now time.Time) (participantsToScore []types.ParticipantStruct, err error) {
 	// check if repo is in participating set
 	isValidOrg, err := postgresDB.ValidOrganization(msg)
 	if err != nil {
-		logger.Debug("skip score-error reading OrganizationStruct", zap.Any("msg", msg), zap.Error(err))
+		logger.Debug("skip score-error reading organization", zap.Any("msg", msg), zap.Error(err))
 		return
 	}
 	if !isValidOrg {
-		logger.Debug("skip score-missing OrganizationStruct",
+		logger.Debug("skip score-missing organization",
 			zap.String("RepoOwner", msg.RepoOwner), zap.String("TriggerUser", msg.TriggerUser))
 		return
 	}

@@ -2038,7 +2038,7 @@ func TestDeleteOrganizationNotFound(t *testing.T) {
 	err := deleteOrganization(c)
 	assert.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, c.Response().Status)
-	assert.Equal(t, "\"no OrganizationStruct: scpName: , name: \"\n", rec.Body.String())
+	assert.Equal(t, "\"no organization: scpName: , name: \"\n", rec.Body.String())
 }
 
 func TestDeleteOrganization(t *testing.T) {
