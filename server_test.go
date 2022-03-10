@@ -373,7 +373,7 @@ func (m MockBBashDB) UpdateParticipantTeam(teamName, campaignName, scpName, logi
 
 func (m MockBBashDB) InsertBug(bug *types.BugStruct) (err error) {
 	if m.assertParameters {
-		// only validate the first calls parameter. maybe later, could change mocks to support lists to validate...
+		// only validate the first calls parameter. maybe later, could change mocks to support lists to validate
 		if insertBugGuidCount == 0 {
 			assert.Equal(m.t, m.insertBugBug, bug)
 		}
