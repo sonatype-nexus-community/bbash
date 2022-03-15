@@ -55,14 +55,17 @@ func TestMigrateDBErrorMigrateUp(t *testing.T) {
 	mock.ExpectQuery(`SELECT CURRENT_SCHEMA()`).
 		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString("theDatabaseSchema"))
 
-	//args = []driver.Value{"1014225327"}
-	args := []driver.Value{"1014225327"}
+	// this value may change when version of migrate is upgraded
+	args := []driver.Value{"1560208929"}
 	mock.ExpectExec(convertSqlToDbMockExpect(`SELECT pg_advisory_lock($1)`)).
 		WithArgs(args...).
 		//WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	mock.ExpectExec(convertSqlToDbMockExpect(`CREATE TABLE IF NOT EXISTS "schema_migrations" (version bigint not null primary key, dirty boolean not null)`)).
+	mock.ExpectQuery(convertSqlToDbMockExpect(`SELECT COUNT(1) FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 LIMIT 1`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	mock.ExpectExec(convertSqlToDbMockExpect(`CREATE TABLE IF NOT EXISTS "theDatabaseSchema"."schema_migrations" (version bigint not null primary key, dirty boolean not null)`)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(`SELECT pg_advisory_unlock($1)`)).
