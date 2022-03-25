@@ -80,3 +80,10 @@ type BugStruct struct {
 	Category   string `json:"category"`
 	PointValue int    `json:"pointValue"`
 }
+
+type Poll struct {
+	Id                string    `json:"pollInstance"`
+	LastPolled        time.Time `json:"lastPolledOn"`
+	EnvBaseTime       time.Time `json:"envBaseTime"`
+	LastPollCompleted time.Time `json:"lastPollCompleted"`
+}

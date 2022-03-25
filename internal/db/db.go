@@ -29,6 +29,12 @@ import (
 	"time"
 )
 
+type IScoreDB interface {
+	SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int)
+	InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints int) (err error)
+	UpdateParticipantScore(participant *types.ParticipantStruct, delta int) (err error)
+}
+
 type IBBashDB interface {
 	MigrateDB(migrateSourceURL string) error
 
@@ -47,9 +53,7 @@ type IBBashDB interface {
 
 	SelectParticipantsToScore(msg *types.ScoringMessage, now time.Time) (participantsToScore []types.ParticipantStruct, err error)
 	SelectPointValue(msg *types.ScoringMessage, campaignName, bugType string) (pointValue int)
-	SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int)
-	InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints int) (err error)
-	UpdateParticipantScore(participant *types.ParticipantStruct, delta int) (err error)
+	IScoreDB
 
 	InsertParticipant(participant *types.ParticipantStruct) (err error)
 	SelectParticipantDetail(campaignName, scpName, loginName string) (participant *types.ParticipantStruct, err error)

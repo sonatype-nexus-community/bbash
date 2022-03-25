@@ -178,6 +178,11 @@ type MockBBashDB struct {
 
 	selectBugsResult []types.BugStruct
 	selectBugsErr    error
+
+	selectPoll    types.Poll
+	selectPollErr error
+	updatePoll    types.Poll
+	updatePollErr error
 }
 
 func (m MockBBashDB) MigrateDB(migrateSourceURL string) error {
@@ -397,6 +402,24 @@ func (m MockBBashDB) UpdateBug(bug *types.BugStruct) (rowsAffected int64, err er
 
 func (m MockBBashDB) SelectBugs() (bugs []types.BugStruct, err error) {
 	return m.selectBugsResult, m.selectBugsErr
+}
+
+func (m MockBBashDB) NewPoll() types.Poll {
+	return db.NewPoll()
+}
+
+func (m MockBBashDB) UpdatePoll(poll *types.Poll) (err error) {
+	if m.assertParameters {
+		assert.Equal(m.t, m.updatePoll, poll)
+	}
+	return m.updatePollErr
+}
+
+func (m MockBBashDB) SelectPoll(poll *types.Poll) (err error) {
+	if m.assertParameters {
+		assert.Equal(m.t, m.selectPoll, poll)
+	}
+	return m.selectPollErr
 }
 
 var _ db.IBBashDB = (*MockBBashDB)(nil)

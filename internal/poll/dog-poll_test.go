@@ -1,0 +1,737 @@
+//
+// Copyright (c) 2021-present Sonatype, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+
+//go:build go1.16
+// +build go1.16
+
+package poll
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"github.com/DataDog/datadog-api-client-go/api/v2/datadog"
+	"github.com/sonatype-nexus-community/bbash/internal/db"
+	"github.com/sonatype-nexus-community/bbash/internal/types"
+	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest"
+	"io/ioutil"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+)
+
+func getMockApiClient(url *url.URL) *datadog.APIClient {
+	configuration := datadog.NewConfiguration()
+	configuration.Servers = datadog.ServerConfigurations{
+		datadog.ServerConfiguration{
+			URL:         "{protocol}://{name}",
+			Description: "No description provided",
+			Variables: map[string]datadog.ServerVariable{
+				"name": {
+					Description:  "Full site DNS name.",
+					DefaultValue: url.Host,
+				},
+				"protocol": {
+					Description:  "The protocol for accessing the API.",
+					DefaultValue: "http",
+				},
+			},
+		},
+	}
+	apiClient := datadog.NewAPIClient(configuration)
+	return apiClient
+}
+
+func TestFetchLogPagesErrorMissingKey(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	apiClient := getMockApiClient(urlTs)
+
+	now := time.Now()
+	pageCursor := ""
+	var logPage []ddLog
+
+	ctx := context.Background()
+
+	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	assert.False(t, isDone)
+	assert.Equal(t, "", cursor)
+	assert.Equal(t, ([]ddLog)(nil), logPage)
+	//assert.EqualError(t, err, "403 Forbidden")
+	assert.EqualError(t, err, "500 Internal Server Error")
+}
+
+func TestFetchLogPagesMetaWarnings(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+
+		title := "forcedWarningTitle"
+		warnings := datadog.LogsWarning{
+			Title: &title,
+		}
+		resp := datadog.LogsListResponse{
+			Meta: &datadog.LogsResponseMetadata{
+				Warnings: &[]datadog.LogsWarning{warnings},
+			},
+		}
+		jsonWarnings, err := json.Marshal(resp)
+		assert.NoError(t, err)
+		_, _ = w.Write(jsonWarnings)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	apiClient := getMockApiClient(urlTs)
+
+	now := time.Now()
+	pageCursor := ""
+	var logPage []ddLog
+
+	ctx := context.Background()
+
+	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	assert.False(t, isDone)
+	assert.Equal(t, "", cursor)
+	assert.Equal(t, ([]ddLog)(nil), logPage)
+	assert.EqualError(t, err, "datadog warnings: 1, see log")
+}
+
+func TestFetchLogPagesMetaStatusTimeout(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+
+		status := datadog.LOGSAGGREGATERESPONSESTATUS_TIMEOUT
+		resp := datadog.LogsListResponse{
+			Meta: &datadog.LogsResponseMetadata{
+				Status: &status,
+			},
+		}
+		jsonWarnings, err := json.Marshal(resp)
+		assert.NoError(t, err)
+		_, _ = w.Write(jsonWarnings)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	apiClient := getMockApiClient(urlTs)
+
+	now := time.Now()
+	pageCursor := ""
+	var logPage []ddLog
+
+	ctx := context.Background()
+
+	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	assert.False(t, isDone)
+	assert.Equal(t, "", cursor)
+	assert.Equal(t, ([]ddLog)(nil), logPage)
+	assert.EqualError(t, err, "timeout getting scoring page. timeout")
+}
+
+func TestFetchLogPagesMetaStatusDone(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+
+		status := datadog.LOGSAGGREGATERESPONSESTATUS_DONE
+		resp := datadog.LogsListResponse{
+			Meta: &datadog.LogsResponseMetadata{
+				Status: &status,
+			},
+		}
+		jsonWarnings, err := json.Marshal(resp)
+		assert.NoError(t, err)
+		_, _ = w.Write(jsonWarnings)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	apiClient := getMockApiClient(urlTs)
+
+	now := time.Now()
+	pageCursor := ""
+	var logPage []ddLog
+
+	ctx := context.Background()
+
+	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	assert.True(t, isDone)
+	assert.Equal(t, "", cursor)
+	assert.Equal(t, ([]ddLog)(nil), logPage)
+	assert.NoError(t, err)
+}
+
+func TestFetchLogPagesMetaPageHasAfter(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	after := "myAfter"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+
+		page := datadog.LogsResponseMetadataPage{
+			After: &after,
+		}
+		resp := datadog.LogsListResponse{
+			Meta: &datadog.LogsResponseMetadata{
+				Page: &page,
+			},
+		}
+		jsonWarnings, err := json.Marshal(resp)
+		assert.NoError(t, err)
+		_, _ = w.Write(jsonWarnings)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	apiClient := getMockApiClient(urlTs)
+
+	now := time.Now()
+	pageCursor := ""
+	var logPage []ddLog
+
+	ctx := context.Background()
+
+	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	assert.False(t, isDone)
+	assert.Equal(t, after, cursor)
+	assert.Equal(t, ([]ddLog)(nil), logPage)
+	assert.NoError(t, err)
+}
+
+func TestFetchLogPagesMetaPageNoAfter(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+
+		resp := datadog.LogsListResponse{}
+		jsonWarnings, err := json.Marshal(resp)
+		assert.NoError(t, err)
+		_, _ = w.Write(jsonWarnings)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	apiClient := getMockApiClient(urlTs)
+
+	now := time.Now()
+	pageCursor := ""
+	var logPage []ddLog
+
+	ctx := context.Background()
+
+	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	assert.True(t, isDone)
+	assert.Equal(t, "", cursor)
+	assert.Equal(t, ([]ddLog)(nil), logPage)
+	assert.NoError(t, err)
+}
+
+func TestFetchLogPagesWithCursor(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	pageCursor := "myPageCursor"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+
+		body, err := ioutil.ReadAll(r.Body)
+		assert.NoError(t, err)
+		logsRequest := datadog.LogsListRequest{}
+		err = json.Unmarshal(body, &logsRequest)
+		assert.NoError(t, err)
+		assert.Equal(t, &pageCursor, logsRequest.Page.Cursor)
+
+		w.WriteHeader(http.StatusOK)
+
+		resp := datadog.LogsListResponse{}
+		jsonWarnings, err := json.Marshal(resp)
+		assert.NoError(t, err)
+		_, _ = w.Write(jsonWarnings)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	apiClient := getMockApiClient(urlTs)
+
+	now := time.Now()
+	var logPage []ddLog
+
+	ctx := context.Background()
+
+	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	assert.True(t, isDone)
+	assert.Equal(t, "", cursor)
+	assert.Equal(t, ([]ddLog)(nil), logPage)
+	assert.NoError(t, err)
+}
+
+func TestProcessResponseDataEmpty(t *testing.T) {
+	logs, err := processResponseData([]datadog.Log{})
+	assert.Equal(t, 0, len(logs))
+	assert.NoError(t, err)
+}
+
+func TestProcessResponseDataMissingEnvMap(t *testing.T) {
+	logId := "myLogId"
+	attribs := map[string]interface{}{}
+	logAttribs := datadog.LogAttributes{
+		Attributes: &attribs,
+	}
+	responseData := []datadog.Log{
+		{
+			Id:             &logId,
+			Attributes:     &logAttribs,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+	}
+	logs, err := processResponseData(responseData)
+	assert.Equal(t, 0, len(logs))
+	assert.EqualError(t, err, "unexpected attribute map type in map[]")
+}
+
+func TestProcessResponseDataUnexpectedMapKey(t *testing.T) {
+	logId := "myLogId"
+	envMap := map[string]interface{}{
+		"yadda": "myEnv",
+	}
+	attribs := map[string]interface{}{
+		qryEnv: envMap,
+	}
+	logAttribs := datadog.LogAttributes{
+		Attributes: &attribs,
+	}
+	responseData := []datadog.Log{
+		{
+			Id:             &logId,
+			Attributes:     &logAttribs,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+	}
+	logs, err := processResponseData(responseData)
+	assert.Equal(t, 0, len(logs))
+	assert.EqualError(t, err, "unexpected extra field key: yadda")
+}
+
+func TestProcessResponseDataMapKeyBaseTimeFormatError(t *testing.T) {
+	logId := "myLogId"
+	now := time.Now()
+	envMap := map[string]interface{}{
+		qryEnvBaseTime: now.Format(time.RFC3339) + "yadda",
+	}
+	attribs := map[string]interface{}{
+		qryEnv: envMap,
+	}
+	logAttribs := datadog.LogAttributes{
+		Attributes: &attribs,
+	}
+	responseData := []datadog.Log{
+		{
+			Id:             &logId,
+			Attributes:     &logAttribs,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+	}
+	logs, err := processResponseData(responseData)
+	assert.Equal(t, 0, len(logs))
+	assert.True(t, strings.HasPrefix(err.Error(), "parsing time "))
+}
+
+func TestProcessResponseDataMapKeyBaseTime(t *testing.T) {
+	logId := "myLogId"
+	now := time.Now()
+	envMap := map[string]interface{}{
+		qryEnvBaseTime: now.Format(time.RFC3339),
+	}
+	attribs := map[string]interface{}{
+		qryEnv: envMap,
+	}
+	logAttribs := datadog.LogAttributes{
+		Attributes: &attribs,
+	}
+	responseData := []datadog.Log{
+		{
+			Id:             &logId,
+			Attributes:     &logAttribs,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+	}
+	logs, err := processResponseData(responseData)
+	assert.Equal(t, 1, len(logs))
+	assert.NoError(t, err)
+
+	nowFormatted, err := time.Parse(time.RFC3339, now.Format(time.RFC3339))
+	assert.NoError(t, err)
+	assert.Equal(t, nowFormatted, logs[0].Fields.envBaseTime)
+}
+
+func TestProcessResponseDataScoringMessageUnexpectedMarshalError(t *testing.T) {
+	logId := "myLogId"
+	mapExtraFields := map[string]interface{}{
+		"fixed-bug-types": "notAMapLikeWeExpect",
+	}
+	envMap := map[string]interface{}{
+		qryEnvExtraJsonFields: mapExtraFields,
+	}
+	attribs := map[string]interface{}{
+		qryEnv: envMap,
+	}
+	logAttribs := datadog.LogAttributes{
+		Attributes: &attribs,
+	}
+	responseData := []datadog.Log{
+		{
+			Id:             &logId,
+			Attributes:     &logAttribs,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+	}
+
+	logger = zaptest.NewLogger(t)
+
+	logs, err := processResponseData(responseData)
+	assert.Equal(t, 0, len(logs))
+	assert.EqualError(t, err, "json: cannot unmarshal string into Go struct field ScoringMessage.fixed-bug-types of type map[string]int")
+}
+
+func TestProcessResponseDataScoringMessageIgnoredMarshalError(t *testing.T) {
+	logId := "myLogId"
+
+	// this map is not expected, but known. for now, we will ignore this pattern
+	mapBugTypeOptMapGoofy := map[string]interface{}{
+		"opt": "{\"semgrep\":{\"sprintf-host-port\":2}}",
+	}
+	mapBugTypes := map[string]interface{}{
+		"G104":       1,
+		"ShellCheck": 1,
+		"opt":        mapBugTypeOptMapGoofy,
+	}
+	mapExtraFields := map[string]interface{}{
+		"fixed-bug-types": mapBugTypes,
+	}
+	envMap := map[string]interface{}{
+		qryEnvExtraJsonFields: mapExtraFields,
+	}
+	attribs := map[string]interface{}{
+		qryEnv: envMap,
+	}
+	logAttribs := datadog.LogAttributes{
+		Attributes: &attribs,
+	}
+	responseData := []datadog.Log{
+		{
+			Id:             &logId,
+			Attributes:     &logAttribs,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+	}
+
+	logger = zaptest.NewLogger(t)
+
+	logs, err := processResponseData(responseData)
+	assert.Equal(t, 1, len(logs))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, logs[0].Fields.scoringMessage.BugCounts["G104"])
+	assert.Equal(t, 1, logs[0].Fields.scoringMessage.BugCounts["ShellCheck"])
+	assert.Equal(t, 0, logs[0].Fields.scoringMessage.BugCounts["opt"])
+}
+
+func TestProcessResponseDataScoringMessage(t *testing.T) {
+	logId := "myLogId"
+
+	mapBugTypes := map[string]interface{}{
+		"G104":       1,
+		"ShellCheck": 2,
+	}
+	mapExtraFields := map[string]interface{}{
+		"fixed-bug-types": mapBugTypes,
+	}
+	envMap := map[string]interface{}{
+		qryEnvExtraJsonFields: mapExtraFields,
+	}
+	attribs := map[string]interface{}{
+		qryEnv: envMap,
+	}
+	logAttribs := datadog.LogAttributes{
+		Attributes: &attribs,
+	}
+	responseData := []datadog.Log{
+		{
+			Id:             &logId,
+			Attributes:     &logAttribs,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+	}
+
+	logger = zaptest.NewLogger(t)
+
+	logs, err := processResponseData(responseData)
+	assert.Equal(t, 1, len(logs))
+	assert.NoError(t, err)
+	assert.Equal(t, 1, logs[0].Fields.scoringMessage.BugCounts["G104"])
+	assert.Equal(t, 2, logs[0].Fields.scoringMessage.BugCounts["ShellCheck"])
+}
+
+func TestPollTheDogDBError(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	forcedError := fmt.Errorf("forced poll db error")
+	db.SetupMockPollSelectForcedError(mock, forcedError, poll.Id)
+
+	now := time.Now()
+	logs, err := pollTheDog(dbPoll, now)
+	assert.EqualError(t, err, forcedError.Error())
+	assert.Equal(t, ([]ddLog)(nil), logs)
+}
+
+func TestPollTheDogOneMinute(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	envFile = "../../.dd.env"
+	assert.NoError(t, loadDDEnvFile())
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	now := time.Now()
+	db.SetupMockPollSelectAndUpdate(mock, poll.Id, now, 1)
+
+	logs, err := pollTheDog(dbPoll, now)
+	assert.NoError(t, err)
+
+	for _, log := range logs {
+		logger.Info("log",
+			zap.Any("envBaseTime", log.Fields.envBaseTime),
+			zap.Any("scoringMessage", log.Fields.scoringMessage),
+		)
+	}
+}
+
+func TestPollTheDogOneDay(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	envFile = "../../.dd.env"
+	assert.NoError(t, loadDDEnvFile())
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	now := time.Now()
+	db.SetupMockPollSelectAndUpdate(mock, poll.Id, now, 1)
+
+	logs, err := pollTheDog(dbPoll, now)
+	assert.NoError(t, err)
+
+	for _, log := range logs {
+		logger.Info("log",
+			zap.Any("envBaseTime", log.Fields.envBaseTime),
+			zap.Any("scoringMessage", log.Fields.scoringMessage),
+		)
+	}
+}
+
+type MockScoreDB struct {
+	t                *testing.T
+	assertParameters bool
+
+	selectPriorScore     *types.ParticipantStruct
+	selectPriorMsg       *types.ScoringMessage
+	selectPriorOldPoints int
+}
+
+func createMockScoreDb(t *testing.T) (scoreDb *MockScoreDB) {
+	return &MockScoreDB{
+		t:                t,
+		assertParameters: true,
+	}
+}
+
+func (m MockScoreDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int) {
+	// not really using th
+	//TODO implement MockScoreDB, yet
+	panic("implement me")
+	if m.assertParameters {
+		assert.Equal(m.t, m.selectPriorScore, participantToScore)
+		assert.Equal(m.t, m.selectPriorMsg, msg)
+	}
+	return m.selectPriorOldPoints
+}
+
+func (m MockScoreDB) InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints int) (err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (m MockScoreDB) UpdateParticipantScore(participant *types.ParticipantStruct, delta int) (err error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+var _ db.IScoreDB = (*MockScoreDB)(nil)
+
+func TestProcessLogsZeroLogs(t *testing.T) {
+	err := processLogs(nil, nil, time.Now(), nil)
+	assert.NoError(t, err)
+}
+
+func TestProcessLogsOneWithError(t *testing.T) {
+	scoreDb := createMockScoreDb(t)
+
+	logs := []ddLog{
+		{},
+	}
+	now := time.Now()
+	forcedError := fmt.Errorf("forced process logs error")
+	processScoringMessage := func(scoreDbCalled db.IScoreDB, nowCalled time.Time, msgCalled types.ScoringMessage) (err error) {
+		assert.Equal(t, scoreDb, scoreDbCalled)
+		assert.Equal(t, now, nowCalled)
+		assert.Equal(t, types.ScoringMessage{}, msgCalled)
+		return forcedError
+	}
+
+	err := processLogs(scoreDb, logs, now, processScoringMessage)
+	assert.EqualError(t, forcedError, err.Error())
+}
+
+func TestProcessLogsOne(t *testing.T) {
+	scoreDb := createMockScoreDb(t)
+
+	logs := []ddLog{
+		{},
+	}
+	now := time.Now()
+	processScoringMessage := func(scoreDbCalled db.IScoreDB, nowCalled time.Time, msgCalled types.ScoringMessage) (err error) {
+		assert.Equal(t, scoreDb, scoreDbCalled)
+		assert.Equal(t, now, nowCalled)
+		assert.Equal(t, types.ScoringMessage{}, msgCalled)
+		return
+	}
+
+	err := processLogs(scoreDb, logs, now, processScoringMessage)
+	assert.NoError(t, err)
+}
+
+func TestChaseTailError(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	forcedError := fmt.Errorf("forced poll db error")
+	db.SetupMockPollSelectForcedError(mock, forcedError, poll.Id)
+
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+		assert.Fail(t, "this should never run")
+		return
+	}
+
+	quitChan, errChan := ChaseTail(dbPoll, createMockScoreDb(t), 1, processScoringMessage)
+	defer close(quitChan)
+
+	assert.EqualError(t, <-errChan, forcedError.Error())
+}
+
+func TestChaseTailQuit(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	now := time.Now()
+	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, poll.Id, now, 1)
+
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+		assert.Fail(t, "this should never run")
+		return
+	}
+
+	quitChan, errChan := ChaseTail(dbPoll, createMockScoreDb(t), 1, processScoringMessage)
+	close(quitChan)
+	assert.Nil(t, <-errChan)
+}
+
+func xxxTestChaseTailOneSecond(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	envFile = "../../.dd.env"
+	assert.NoError(t, loadDDEnvFile())
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	now := time.Now()
+	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, poll.Id, now, 1)
+
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+		fmt.Println("processing score message")
+		scoreDb.SelectPriorScore(nil, nil)
+		assert.NoError(t, scoreDb.UpdateParticipantScore(nil, 0))
+		assert.Equal(t, "hello", msg)
+		assert.Equal(t, "hello", msg)
+		return
+	}
+
+	quitChan, errChan := ChaseTail(dbPoll, createMockScoreDb(t), 1, processScoringMessage)
+	//defer close(quitChan)
+
+	time.Sleep(1 * time.Second)
+	close(quitChan)
+	assert.Equal(t, nil, <-errChan)
+}
