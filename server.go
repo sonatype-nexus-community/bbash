@@ -185,9 +185,9 @@ func main() {
 }
 
 func beginLogPolling(pg *sql.DB, scoreDb db.IScoreDB, logger *zap.Logger) (quit chan bool, errChan chan error, err error) {
-	err = godotenv.Load(".dd.env")
+	err = godotenv.Load(".env.dd")
 	if err != nil {
-		logger.Error("dd.env load", zap.Error(err))
+		logger.Error(".env.dd load error", zap.Error(err))
 	}
 
 	var pollDogIntervalSeconds int

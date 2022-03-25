@@ -751,7 +751,7 @@ func xxxTestChaseTailQuit(t *testing.T) {
 func xxxTestChaseTailOneSecond(t *testing.T) {
 	logger = zaptest.NewLogger(t)
 
-	assert.NoError(t, godotenv.Load("../../.dd.env.bak"))
+	assert.NoError(t, godotenv.Load("../../.env.dd.bak"))
 
 	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
 	defer closeDbFunc()
