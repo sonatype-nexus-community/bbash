@@ -53,7 +53,7 @@ func SetupMockPollSelectForcedError(mock sqlmock.Sqlmock, forcedError error, pol
 		WillReturnError(forcedError)
 }
 
-func setupMockPollSelect(mock sqlmock.Sqlmock, pollId string, now time.Time) {
+func SetupMockPollSelect(mock sqlmock.Sqlmock, pollId string, now time.Time) {
 	mock.ExpectQuery(PollConvertSqlToDbMockExpect(sqlSelectPoll)).
 		WithArgs(pollId).
 		WillReturnRows(sqlmock.NewRows([]string{"lastpoll", "basetime", "pollcompleted"}).
@@ -61,7 +61,7 @@ func setupMockPollSelect(mock sqlmock.Sqlmock, pollId string, now time.Time) {
 }
 
 func SetupMockPollSelectAndUpdate(mock sqlmock.Sqlmock, pollId string, now time.Time, rowsAffected int64) {
-	setupMockPollSelect(mock, pollId, now)
+	SetupMockPollSelect(mock, pollId, now)
 
 	// expect call to UpdatePoll too
 	mock.ExpectExec(PollConvertSqlToDbMockExpect(sqlUpdatePoll)).
@@ -70,7 +70,7 @@ func SetupMockPollSelectAndUpdate(mock sqlmock.Sqlmock, pollId string, now time.
 }
 
 func SetupMockPollSelectAndUpdateAnyUpdateTime(mock sqlmock.Sqlmock, pollId string, now time.Time, rowsAffected int64) {
-	setupMockPollSelect(mock, pollId, now)
+	SetupMockPollSelect(mock, pollId, now)
 
 	// expect call to UpdatePoll too
 	mock.ExpectExec(PollConvertSqlToDbMockExpect(sqlUpdatePoll)).

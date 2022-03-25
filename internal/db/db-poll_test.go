@@ -138,7 +138,7 @@ func TestSelectPoll(t *testing.T) {
 	poll := types.Poll{
 		Id: "-1",
 	}
-	setupMockPollSelect(mock, poll.Id, now)
+	SetupMockPollSelect(mock, poll.Id, now)
 
 	assert.NoError(t, db.SelectPoll(&poll))
 	assert.Equal(t, types.Poll{

@@ -24,10 +24,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/DataDog/datadog-api-client-go/api/v2/datadog"
+	"github.com/joho/godotenv"
 	"github.com/sonatype-nexus-community/bbash/internal/db"
 	"github.com/sonatype-nexus-community/bbash/internal/types"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 	"io/ioutil"
 	"net/http"
@@ -38,7 +38,13 @@ import (
 	"time"
 )
 
-func getMockApiClient(url *url.URL) *datadog.APIClient {
+type MockDogApiClient struct {
+	mockUrl *url.URL
+}
+
+var _ IDogApiClient = (*MockDogApiClient)(nil)
+
+func (c *MockDogApiClient) getDDApiClient() (ctx context.Context, apiClient *datadog.APIClient) {
 	configuration := datadog.NewConfiguration()
 	configuration.Servers = datadog.ServerConfigurations{
 		datadog.ServerConfiguration{
@@ -47,7 +53,7 @@ func getMockApiClient(url *url.URL) *datadog.APIClient {
 			Variables: map[string]datadog.ServerVariable{
 				"name": {
 					Description:  "Full site DNS name.",
-					DefaultValue: url.Host,
+					DefaultValue: c.mockUrl.Host,
 				},
 				"protocol": {
 					Description:  "The protocol for accessing the API.",
@@ -56,8 +62,22 @@ func getMockApiClient(url *url.URL) *datadog.APIClient {
 			},
 		},
 	}
-	apiClient := datadog.NewAPIClient(configuration)
-	return apiClient
+	apiClient = datadog.NewAPIClient(configuration)
+
+	ctx = context.Background()
+	return
+}
+
+func setupMockDDogApiClient(mockUrl *url.URL) (closeApiClient func()) {
+	origDogApiClient := dogApiClient
+	closeApiClient = func() {
+		dogApiClient = origDogApiClient
+	}
+
+	dogApiClient = &MockDogApiClient{
+		mockUrl: mockUrl,
+	}
+	return
 }
 
 func TestFetchLogPagesErrorMissingKey(t *testing.T) {
@@ -71,15 +91,14 @@ func TestFetchLogPagesErrorMissingKey(t *testing.T) {
 	urlTs, err := url.Parse(ts.URL)
 	assert.NoError(t, err)
 
-	apiClient := getMockApiClient(urlTs)
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
 
 	now := time.Now()
 	pageCursor := ""
 	var logPage []ddLog
 
-	ctx := context.Background()
-
-	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
 	assert.False(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -111,15 +130,14 @@ func TestFetchLogPagesMetaWarnings(t *testing.T) {
 	urlTs, err := url.Parse(ts.URL)
 	assert.NoError(t, err)
 
-	apiClient := getMockApiClient(urlTs)
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
 
 	now := time.Now()
 	pageCursor := ""
 	var logPage []ddLog
 
-	ctx := context.Background()
-
-	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
 	assert.False(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -147,15 +165,14 @@ func TestFetchLogPagesMetaStatusTimeout(t *testing.T) {
 	urlTs, err := url.Parse(ts.URL)
 	assert.NoError(t, err)
 
-	apiClient := getMockApiClient(urlTs)
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
 
 	now := time.Now()
 	pageCursor := ""
 	var logPage []ddLog
 
-	ctx := context.Background()
-
-	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
 	assert.False(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -183,15 +200,14 @@ func TestFetchLogPagesMetaStatusDone(t *testing.T) {
 	urlTs, err := url.Parse(ts.URL)
 	assert.NoError(t, err)
 
-	apiClient := getMockApiClient(urlTs)
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
 
 	now := time.Now()
 	pageCursor := ""
 	var logPage []ddLog
 
-	ctx := context.Background()
-
-	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
 	assert.True(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -222,15 +238,14 @@ func TestFetchLogPagesMetaPageHasAfter(t *testing.T) {
 	urlTs, err := url.Parse(ts.URL)
 	assert.NoError(t, err)
 
-	apiClient := getMockApiClient(urlTs)
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
 
 	now := time.Now()
 	pageCursor := ""
 	var logPage []ddLog
 
-	ctx := context.Background()
-
-	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
 	assert.False(t, isDone)
 	assert.Equal(t, after, cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -253,15 +268,14 @@ func TestFetchLogPagesMetaPageNoAfter(t *testing.T) {
 	urlTs, err := url.Parse(ts.URL)
 	assert.NoError(t, err)
 
-	apiClient := getMockApiClient(urlTs)
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
 
 	now := time.Now()
 	pageCursor := ""
 	var logPage []ddLog
 
-	ctx := context.Background()
-
-	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
 	assert.True(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -293,14 +307,13 @@ func TestFetchLogPagesWithCursor(t *testing.T) {
 	urlTs, err := url.Parse(ts.URL)
 	assert.NoError(t, err)
 
-	apiClient := getMockApiClient(urlTs)
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
 
 	now := time.Now()
 	var logPage []ddLog
 
-	ctx := context.Background()
-
-	isDone, cursor, logPage, err := fetchLogPage(ctx, apiClient, now, now, &pageCursor)
+	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
 	assert.True(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -536,35 +549,34 @@ func TestPollTheDogDBError(t *testing.T) {
 	assert.Equal(t, ([]ddLog)(nil), logs)
 }
 
-func TestPollTheDogOneMinute(t *testing.T) {
+func TestPollTheDogPollError(t *testing.T) {
 	logger = zaptest.NewLogger(t)
-
-	envFile = "../../.dd.env"
-	assert.NoError(t, loadDDEnvFile())
 
 	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
 	defer closeDbFunc()
 
 	poll := dbPoll.NewPoll()
 	now := time.Now()
-	db.SetupMockPollSelectAndUpdate(mock, poll.Id, now, 1)
+	db.SetupMockPollSelect(mock, poll.Id, now)
 
-	logs, err := pollTheDog(dbPoll, now)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
 	assert.NoError(t, err)
 
-	for _, log := range logs {
-		logger.Info("log",
-			zap.Any("envBaseTime", log.Fields.envBaseTime),
-			zap.Any("scoringMessage", log.Fields.scoringMessage),
-		)
-	}
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
+
+	logs, err := pollTheDog(dbPoll, now)
+	assert.EqualError(t, err, "500 Internal Server Error")
+	assert.Equal(t, ([]ddLog)(nil), logs)
 }
 
-func TestPollTheDogOneDay(t *testing.T) {
+func TestPollTheDogOneLog(t *testing.T) {
 	logger = zaptest.NewLogger(t)
-
-	envFile = "../../.dd.env"
-	assert.NoError(t, loadDDEnvFile())
 
 	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
 	defer closeDbFunc()
@@ -573,15 +585,46 @@ func TestPollTheDogOneDay(t *testing.T) {
 	now := time.Now()
 	db.SetupMockPollSelectAndUpdate(mock, poll.Id, now, 1)
 
+	logId := "myLogId"
+	eventSource := "myEventSource"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+
+		apiResp := datadog.LogsListResponse{
+			Data: &[]datadog.Log{
+				{
+					Id: &logId,
+					Attributes: &datadog.LogAttributes{
+						Attributes: &map[string]interface{}{
+							qryEnv: map[string]interface{}{
+								qryEnvExtraJsonFields: map[string]interface{}{
+									"eventSource": eventSource,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		jsonObj, err := json.Marshal(apiResp)
+		assert.NoError(t, err)
+		_, err = w.Write(jsonObj)
+		assert.NoError(t, err)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
+
 	logs, err := pollTheDog(dbPoll, now)
 	assert.NoError(t, err)
 
-	for _, log := range logs {
-		logger.Info("log",
-			zap.Any("envBaseTime", log.Fields.envBaseTime),
-			zap.Any("scoringMessage", log.Fields.scoringMessage),
-		)
-	}
+	assert.Equal(t, 1, len(logs))
+	assert.Equal(t, logId, logs[0].Id)
+	assert.Equal(t, eventSource, logs[0].Fields.scoringMessage.EventSource)
 }
 
 type MockScoreDB struct {
@@ -603,7 +646,6 @@ func createMockScoreDb(t *testing.T) (scoreDb *MockScoreDB) {
 func (m MockScoreDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int) {
 	// not really using th
 	//TODO implement MockScoreDB, yet
-	panic("implement me")
 	if m.assertParameters {
 		assert.Equal(m.t, m.selectPriorScore, participantToScore)
 		assert.Equal(m.t, m.selectPriorMsg, msg)
@@ -686,7 +728,7 @@ func TestChaseTailError(t *testing.T) {
 	assert.EqualError(t, <-errChan, forcedError.Error())
 }
 
-func TestChaseTailQuit(t *testing.T) {
+func xxxTestChaseTailQuit(t *testing.T) {
 	logger = zaptest.NewLogger(t)
 
 	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
@@ -706,11 +748,10 @@ func TestChaseTailQuit(t *testing.T) {
 	assert.Nil(t, <-errChan)
 }
 
-func xxxTestChaseTailOneSecond(t *testing.T) {
+func TestChaseTailOneSecond(t *testing.T) {
 	logger = zaptest.NewLogger(t)
 
-	envFile = "../../.dd.env"
-	assert.NoError(t, loadDDEnvFile())
+	assert.NoError(t, godotenv.Load("../../.dd.env.bak"))
 
 	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
 	defer closeDbFunc()

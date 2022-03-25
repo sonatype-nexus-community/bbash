@@ -24,7 +24,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/DataDog/datadog-api-client-go/api/v2/datadog"
-	"github.com/joho/godotenv"
 	"github.com/sonatype-nexus-community/bbash/internal/db"
 	"github.com/sonatype-nexus-community/bbash/internal/types"
 	"go.uber.org/zap"
@@ -35,21 +34,22 @@ import (
 
 var logger *zap.Logger
 
-var envFile string
+var dogApiClient IDogApiClient
 
 func init() {
-	envFile = ".dd.env"
+	dogApiClient = &DogApiClient{}
 }
 
-func loadDDEnvFile() (err error) {
-	err = godotenv.Load(envFile)
-	if err != nil {
-		logger.Error("env load", zap.Error(err))
-	}
-	return
+type IDogApiClient interface {
+	getDDApiClient() (context.Context, *datadog.APIClient)
 }
 
-func getDDApiClient() (context.Context, *datadog.APIClient) {
+type DogApiClient struct {
+}
+
+var _ IDogApiClient = (*DogApiClient)(nil)
+
+func (c *DogApiClient) getDDApiClient() (context.Context, *datadog.APIClient) {
 	ctx := context.WithValue(
 		context.Background(),
 		datadog.ContextAPIKeys,
@@ -77,7 +77,6 @@ const qryEnvExtraJsonFields = "envExtraJsonFields"
 const qryFldFixedBugs = "fixed-bugs"
 
 func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
-	ctx, apiClient := getDDApiClient()
 
 	// get last poll time
 	poll := pollDB.NewPoll()
@@ -99,22 +98,25 @@ func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
 	isDone := false
 	for err == nil && isDone == false {
 		var logPage []ddLog
-		isDone, pageCursor, logPage, err = fetchLogPage(ctx, apiClient, before, now, &pageCursor)
-
-		logLen := len(logPage)
-		logFirst := ddLog{}
-		logLast := logFirst
-		if logLen > 0 {
-			logFirst = logPage[0]
-			logLast = logPage[logLen-1]
+		isDone, pageCursor, logPage, err = fetchLogPage(before, now, &pageCursor)
+		if err != nil {
+			return
 		}
-		logger.Debug("log page",
-			zap.Int("log count", len(logPage)),
-			zap.Any("log first", logFirst),
-			zap.Any("log last", logLast),
-			zap.Bool("isDone", isDone),
-			zap.String("pageCursor", pageCursor),
-		)
+
+		//logLen := len(logPage)
+		//logFirst := ddLog{}
+		//logLast := logFirst
+		//if logLen > 0 {
+		//	logFirst = logPage[0]
+		//	logLast = logPage[logLen-1]
+		//}
+		//logger.Debug("log page",
+		//	zap.Int("log count", len(logPage)),
+		//	zap.Any("log first", logFirst),
+		//	zap.Any("log last", logLast),
+		//	zap.Bool("isDone", isDone),
+		//	zap.String("pageCursor", pageCursor),
+		//)
 		logs = append(logs, logPage...)
 	}
 
@@ -137,7 +139,9 @@ func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
 
 const maxLogsPerPage = 500
 
-func fetchLogPage(ctx context.Context, apiClient *datadog.APIClient, before, now time.Time, pageCursor *string) (isDone bool, cursor string, logs []ddLog, err error) {
+func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, cursor string, logs []ddLog, err error) {
+	ctx, apiClient := dogApiClient.getDDApiClient()
+
 	var pageAttribs *datadog.LogsListRequestPage
 	if *pageCursor == "" {
 		pageAttribs = &datadog.LogsListRequestPage{
