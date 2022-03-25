@@ -748,7 +748,7 @@ func xxxTestChaseTailQuit(t *testing.T) {
 	assert.Nil(t, <-errChan)
 }
 
-func TestChaseTailOneSecond(t *testing.T) {
+func xxxTestChaseTailOneSecond(t *testing.T) {
 	logger = zaptest.NewLogger(t)
 
 	assert.NoError(t, godotenv.Load("../../.dd.env.bak"))
