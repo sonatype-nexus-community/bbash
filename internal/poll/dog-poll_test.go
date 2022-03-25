@@ -728,7 +728,7 @@ func TestChaseTailError(t *testing.T) {
 	assert.EqualError(t, <-errChan, forcedError.Error())
 }
 
-func xxxTestChaseTailQuit(t *testing.T) {
+func TestChaseTailQuit(t *testing.T) {
 	logger = zaptest.NewLogger(t)
 
 	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
