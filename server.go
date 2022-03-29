@@ -226,7 +226,7 @@ func setPollDate(c echo.Context) (err error) {
 		return
 	}
 
-	pollFromDb.LastPollCompleted = pollFromRequest.LastPollCompleted
+	pollFromDb.LastPolled = pollFromRequest.LastPolled
 	err = pollDB.UpdatePoll(&pollFromDb)
 	if err != nil {
 		return
