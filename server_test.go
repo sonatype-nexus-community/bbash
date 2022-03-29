@@ -533,9 +533,9 @@ func TestSetupRoutes(t *testing.T) {
 	//assert.Equal(t, 22, len(routes))
 	// Out main() method will only print "custom" routes, ignoring defaults added by echo. such defaults are still
 	// included in the "total" route count below
-	assert.Equal(t, 176, len(routes))
+	assert.Equal(t, 200, len(routes))
 
-	assert.Equal(t, 21, customRouteCount)
+	assert.Equal(t, 23, customRouteCount)
 }
 
 const timeLayout = "2006-01-02T15:04:05.000Z"
