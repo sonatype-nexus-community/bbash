@@ -634,6 +634,15 @@ type MockScoreDB struct {
 	selectPriorScore     *types.ParticipantStruct
 	selectPriorMsg       *types.ScoringMessage
 	selectPriorOldPoints int
+
+	insertEvtParticipant *types.ParticipantStruct
+	insertEvtMsg         *types.ScoringMessage
+	insertEvtNewPoints   int
+	insertEvtError       error
+
+	updateScoreParticipant *types.ParticipantStruct
+	updateScoreDelta       int
+	updateScoreError       error
 }
 
 func createMockScoreDb(t *testing.T) (scoreDb *MockScoreDB) {
@@ -644,8 +653,6 @@ func createMockScoreDb(t *testing.T) (scoreDb *MockScoreDB) {
 }
 
 func (m MockScoreDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int) {
-	// not really using th
-	//TODO implement MockScoreDB, yet
 	if m.assertParameters {
 		assert.Equal(m.t, m.selectPriorScore, participantToScore)
 		assert.Equal(m.t, m.selectPriorMsg, msg)
@@ -654,13 +661,20 @@ func (m MockScoreDB) SelectPriorScore(participantToScore *types.ParticipantStruc
 }
 
 func (m MockScoreDB) InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints int) (err error) {
-	//TODO implement me
-	panic("implement me")
+	if m.assertParameters {
+		assert.Equal(m.t, m.insertEvtParticipant, participantToScore)
+		assert.Equal(m.t, m.insertEvtMsg, msg)
+		assert.Equal(m.t, m.insertEvtNewPoints, newPoints)
+	}
+	return m.insertEvtError
 }
 
 func (m MockScoreDB) UpdateParticipantScore(participant *types.ParticipantStruct, delta int) (err error) {
-	//TODO implement me
-	panic("implement me")
+	if m.assertParameters {
+		assert.Equal(m.t, m.updateScoreParticipant, participant)
+		assert.Equal(m.t, m.updateScoreDelta, delta)
+	}
+	return m.updateScoreError
 }
 
 var _ db.IScoreDB = (*MockScoreDB)(nil)
@@ -748,7 +762,68 @@ func TestChaseTailQuit(t *testing.T) {
 	assert.Nil(t, <-errChan)
 }
 
-func xxxTestChaseTailOneSecond(t *testing.T) {
+func TestChaseTailOneLog(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	now := time.Now()
+	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, poll.Id, now, 1)
+
+	logId := "myLogId"
+	eventSource := "myEventSource"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+
+		apiResp := datadog.LogsListResponse{
+			Data: &[]datadog.Log{
+				{
+					Id: &logId,
+					Attributes: &datadog.LogAttributes{
+						Attributes: &map[string]interface{}{
+							qryEnv: map[string]interface{}{
+								qryEnvExtraJsonFields: map[string]interface{}{
+									"eventSource": eventSource,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		jsonObj, err := json.Marshal(apiResp)
+		assert.NoError(t, err)
+		_, err = w.Write(jsonObj)
+		assert.NoError(t, err)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
+
+	msgProcessed := false
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+		msgProcessed = true
+		scoreDb.SelectPriorScore(nil, nil)
+		assert.NoError(t, scoreDb.UpdateParticipantScore(nil, 0))
+		assert.Equal(t, eventSource, msg.EventSource)
+		return
+	}
+
+	quitChan, _ := ChaseTail(dbPoll, createMockScoreDb(t), 1, processScoringMessage)
+
+	time.Sleep(2 * time.Second)
+	close(quitChan)
+	assert.True(t, msgProcessed)
+}
+
+// @todo Start testing local "bug bash setup" steps
+func xxxTestChaseTailLive(t *testing.T) {
 	logger = zaptest.NewLogger(t)
 
 	assert.NoError(t, godotenv.Load("../../.env.dd.bak"))
@@ -758,21 +833,21 @@ func xxxTestChaseTailOneSecond(t *testing.T) {
 
 	poll := dbPoll.NewPoll()
 	now := time.Now()
-	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, poll.Id, now, 1)
+	// simulate day old poll
+	yesterday := now.Add(time.Hour * -24)
+	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, poll.Id, yesterday, 1)
 
 	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
-		fmt.Println("processing score message")
 		scoreDb.SelectPriorScore(nil, nil)
 		assert.NoError(t, scoreDb.UpdateParticipantScore(nil, 0))
-		assert.Equal(t, "hello", msg)
-		assert.Equal(t, "hello", msg)
+		assert.Equal(t, "github", msg.EventSource)
 		return
 	}
 
 	quitChan, errChan := ChaseTail(dbPoll, createMockScoreDb(t), 1, processScoringMessage)
 	//defer close(quitChan)
 
-	time.Sleep(1 * time.Second)
+	time.Sleep(3 * time.Second)
 	close(quitChan)
 	assert.Equal(t, nil, <-errChan)
 }
