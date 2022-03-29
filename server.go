@@ -82,6 +82,7 @@ const (
 	Campaign              string = "/campaign"
 	ScoreEvent            string = "/scoring"
 	New                   string = "/new"
+	Poll                  string = "/poll"
 	buildLocation         string = "build"
 )
 
@@ -99,6 +100,8 @@ const envLogFilterIncludeHostname = "LOG_FILTER_INCLUDE_HOSTNAME"
 
 var errRecovered error
 var logger *zap.Logger
+
+var stopPoll chan bool
 
 func main() {
 	e := echo.New()
@@ -172,11 +175,10 @@ func main() {
 	setupRoutes(e, buildInfoMessage)
 
 	// polling voodoo
-	var quit chan bool
 	var errChan chan error
-	quit, errChan, err = beginLogPolling(pg, postgresDB, logger)
+	stopPoll, errChan, err = beginLogPolling(pg, postgresDB, logger)
 	defer func() {
-		close(quit)
+		close(stopPoll)
 		pollErr := <-errChan
 		logger.Error("defer poll error", zap.Error(pollErr))
 	}()
@@ -202,6 +204,34 @@ func beginLogPolling(pg *sql.DB, scoreDb db.IScoreDB, logger *zap.Logger) (quit 
 
 	pollDB = db.NewDBPoll(pg, logger)
 	quit, errChan = poll.ChaseTail(pollDB, scoreDb, time.Duration(pollDogIntervalSeconds), processScoringMessage)
+	return
+}
+
+//goland:noinspection GoUnusedParameter
+func stopPolling(c echo.Context) (err error) {
+	close(stopPoll)
+	return
+}
+
+func setPollDate(c echo.Context) (err error) {
+	pollFromRequest := types.Poll{}
+	err = json.NewDecoder(c.Request().Body).Decode(&pollFromRequest)
+	if err != nil {
+		return
+	}
+
+	pollFromDb := pollDB.NewPoll()
+	err = pollDB.SelectPoll(&pollFromDb)
+	if err != nil {
+		return
+	}
+
+	pollFromDb.LastPollCompleted = pollFromRequest.LastPollCompleted
+	err = pollDB.UpdatePoll(&pollFromDb)
+	if err != nil {
+		return
+	}
+
 	return
 }
 
@@ -270,6 +300,10 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) (customRouteCount int) {
 	campaignGroup.GET(List, getCampaigns)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Add, ParamCampaignName), addCampaign)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Update, ParamCampaignName), updateCampaign)
+
+	pollGroup := adminGroup.Group(Poll)
+	pollGroup.PUT("/last", setPollDate)
+	pollGroup.DELETE("/stop", stopPolling)
 
 	// Scoring related endpoints and group
 	// @TODO put this endpoint behind some auth, and update lift log scraper, ACTUALLY REMOVE IT INSTEAD
