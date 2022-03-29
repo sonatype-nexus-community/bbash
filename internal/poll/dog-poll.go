@@ -90,7 +90,7 @@ func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
 		zap.String("formattedBefore", before.Format(time.RFC3339)),
 	)
 	logger.Debug("now",
-		zap.Time("now", before),
+		zap.Time("now", now),
 		zap.String("formattedNow", now.Format(time.RFC3339)),
 	)
 

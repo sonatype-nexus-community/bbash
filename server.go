@@ -232,6 +232,7 @@ func setPollDate(c echo.Context) (err error) {
 		return
 	}
 
+	logger.Info("set poll", zap.Any("poll", pollFromDb))
 	return
 }
 
