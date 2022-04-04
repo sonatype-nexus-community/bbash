@@ -286,7 +286,7 @@ type ddLog struct {
 }
 
 // ChaseTail will loop every given interval, polling dataDog for new scoring data
-func ChaseTail(pollDb db.IDBPoll, scoreDb db.IScoreDB, seconds time.Duration, processScoringMessage func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (pollErr error)) (quit chan bool, errChan chan error) {
+func ChaseTail(pollDb db.IDBPoll, scoreDb db.IScoreDB, seconds time.Duration, processScoringMessage func(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (pollErr error)) (quit chan bool, errChan chan error) {
 	logger = pollDb.GetLogger()
 	ticker := time.NewTicker(seconds * time.Second)
 	quit = make(chan bool)
@@ -330,10 +330,10 @@ func ChaseTail(pollDb db.IDBPoll, scoreDb db.IScoreDB, seconds time.Duration, pr
 	return
 }
 
-func processLogs(scoreDb db.IScoreDB, logs []ddLog, nowPoll time.Time, processScoringMessage func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error)) (err error) {
+func processLogs(scoreDb db.IScoreDB, logs []ddLog, nowPoll time.Time, processScoringMessage func(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (err error)) (err error) {
 	for _, log := range logs {
 		msg := log.Fields.scoringMessage
-		err = processScoringMessage(scoreDb, nowPoll, msg)
+		err = processScoringMessage(scoreDb, nowPoll, &msg)
 		if err != nil {
 			return
 		}

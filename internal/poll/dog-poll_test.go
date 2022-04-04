@@ -683,10 +683,10 @@ func TestProcessLogsOneWithError(t *testing.T) {
 	}
 	now := time.Now()
 	forcedError := fmt.Errorf("forced process logs error")
-	processScoringMessage := func(scoreDbCalled db.IScoreDB, nowCalled time.Time, msgCalled types.ScoringMessage) (err error) {
+	processScoringMessage := func(scoreDbCalled db.IScoreDB, nowCalled time.Time, msgCalled *types.ScoringMessage) (err error) {
 		assert.Equal(t, scoreDb, scoreDbCalled)
 		assert.Equal(t, now, nowCalled)
-		assert.Equal(t, types.ScoringMessage{}, msgCalled)
+		assert.Equal(t, &types.ScoringMessage{}, msgCalled)
 		return forcedError
 	}
 
@@ -701,10 +701,10 @@ func TestProcessLogsOne(t *testing.T) {
 		{},
 	}
 	now := time.Now()
-	processScoringMessage := func(scoreDbCalled db.IScoreDB, nowCalled time.Time, msgCalled types.ScoringMessage) (err error) {
+	processScoringMessage := func(scoreDbCalled db.IScoreDB, nowCalled time.Time, msgCalled *types.ScoringMessage) (err error) {
 		assert.Equal(t, scoreDb, scoreDbCalled)
 		assert.Equal(t, now, nowCalled)
-		assert.Equal(t, types.ScoringMessage{}, msgCalled)
+		assert.Equal(t, &types.ScoringMessage{}, msgCalled)
 		return
 	}
 
@@ -722,7 +722,7 @@ func TestChaseTailError(t *testing.T) {
 	forcedError := fmt.Errorf("forced poll db error")
 	db.SetupMockPollSelectForcedError(mock, forcedError, poll.Id)
 
-	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (err error) {
 		assert.Fail(t, "this should never run")
 		return
 	}
@@ -743,7 +743,7 @@ func TestChaseTailQuit(t *testing.T) {
 	now := time.Now()
 	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, poll.Id, now, 1)
 
-	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (err error) {
 		assert.Fail(t, "this should never run")
 		return
 	}
@@ -798,7 +798,7 @@ func TestChaseTailOneLog(t *testing.T) {
 	defer closeApiClient()
 
 	msgProcessed := false
-	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (err error) {
 		msgProcessed = true
 		scoreDb.SelectPriorScore(nil, nil)
 		assert.NoError(t, scoreDb.UpdateParticipantScore(nil, 0))
@@ -869,7 +869,7 @@ func TestChaseTailOneLogWithOptMap(t *testing.T) {
 	defer closeApiClient()
 
 	msgProcessed := false
-	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (err error) {
 		msgProcessed = true
 		scoreDb.SelectPriorScore(nil, nil)
 		assert.NoError(t, scoreDb.UpdateParticipantScore(nil, 0))
@@ -899,7 +899,7 @@ func xxxTestChaseTailLive(t *testing.T) {
 	yesterday := now.Add(time.Hour * -24)
 	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, poll.Id, yesterday, 1)
 
-	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (err error) {
 		scoreDb.SelectPriorScore(nil, nil)
 		assert.NoError(t, scoreDb.UpdateParticipantScore(nil, 0))
 		assert.Equal(t, "github", msg.EventSource)

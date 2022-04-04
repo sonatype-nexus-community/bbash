@@ -54,10 +54,6 @@ type endpointDetail struct {
 	Verb string `json:"httpVerb"`
 }
 
-type scoringAlert struct {
-	RecentHits []string `json:"recent_hits"` // encoded scoring message
-}
-
 const (
 	ParamScpName          string = "scpName"
 	ParamLoginName        string = "loginName"
@@ -80,8 +76,6 @@ const (
 	Person                string = "/person"
 	Bug                   string = "/bug"
 	Campaign              string = "/campaign"
-	ScoreEvent            string = "/scoring"
-	New                   string = "/new"
 	Poll                  string = "/poll"
 	buildLocation         string = "build"
 )
@@ -305,12 +299,6 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) (customRouteCount int) {
 	pollGroup := adminGroup.Group(Poll)
 	pollGroup.PUT("/last", setPollDate)
 	pollGroup.DELETE("/stop", stopPolling)
-
-	// Scoring related endpoints and group
-	// @TODO put this endpoint behind some auth, and update lift log scraper, ACTUALLY REMOVE IT INSTEAD
-	//scoreGroup := adminGroup.Group(ScoreEvent)
-	scoreGroup := e.Group(ScoreEvent)
-	scoreGroup.POST(New, logNewScore)
 
 	e.Static("/", buildLocation)
 
@@ -543,51 +531,13 @@ func traverseBugCounts(msg *types.ScoringMessage, campaignName string,
 	return
 }
 
-// was not seeing enough detail when newScore() returns error, so capturing such cases in the log.
-func logNewScore(c echo.Context) (err error) {
-	if err = newScore(c); err != nil {
-		logger.Error("error calling newScore", zap.Error(err))
-	}
-	return
-}
-
-func newScore(c echo.Context) (err error) {
-	var alert scoringAlert
-	err = json.NewDecoder(c.Request().Body).Decode(&alert)
-	if err != nil {
-		return
-	}
-
-	//logger.Debug("scoring event", zap.Any("scoringAlert", alert))
-
-	now := time.Now()
-
-	for _, rawMsg := range alert.RecentHits {
-		var msg types.ScoringMessage
-		err = json.Unmarshal([]byte(rawMsg), &msg)
-		if err != nil {
-			logger.Debug("error unmarshalling ScoringMessage",
-				zap.Error(err), zap.String("rawMsg", rawMsg))
-			return
-		}
-		err = processScoringMessage(postgresDB, now, msg)
-		if err != nil {
-			return
-		}
-	}
-
-	logger.Debug("scoringAlert completed", zap.Any("alert", alert))
-
-	return c.NoContent(http.StatusAccepted)
-}
-
-func processScoringMessage(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+func processScoringMessage(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (err error) {
 	// force triggerUser to lower case to match database values
 	msg.TriggerUser = strings.ToLower(msg.TriggerUser)
 
 	// if this particular entry is not valid, ignore it and continue processing
 	var activeParticipantsToScore []types.ParticipantStruct
-	activeParticipantsToScore, err = validScore(&msg, now)
+	activeParticipantsToScore, err = validScore(msg, now)
 	if err != nil {
 		logger.Debug("error validating ScoringMessage", zap.Error(err), zap.Any("msg", msg))
 		return
@@ -597,11 +547,11 @@ func processScoringMessage(scoreDb db.IScoreDB, now time.Time, msg types.Scoring
 	}
 	for _, participantToScore := range activeParticipantsToScore {
 
-		newPoints := scorePoints(&msg, participantToScore.CampaignName)
+		newPoints := scorePoints(msg, participantToScore.CampaignName)
 
-		oldPoints := scoreDb.SelectPriorScore(&participantToScore, &msg)
+		oldPoints := scoreDb.SelectPriorScore(&participantToScore, msg)
 
-		err = scoreDb.InsertScoringEvent(&participantToScore, &msg, newPoints)
+		err = scoreDb.InsertScoringEvent(&participantToScore, msg, newPoints)
 		if err != nil {
 			return
 		}

@@ -533,9 +533,9 @@ func TestSetupRoutes(t *testing.T) {
 	//assert.Equal(t, 22, len(routes))
 	// Out main() method will only print "custom" routes, ignoring defaults added by echo. such defaults are still
 	// included in the "total" route count below
-	assert.Equal(t, 200, len(routes))
+	assert.Equal(t, 199, len(routes))
 
-	assert.Equal(t, 23, customRouteCount)
+	assert.Equal(t, 22, customRouteCount)
 }
 
 const timeLayout = "2006-01-02T15:04:05.000Z"
@@ -1730,71 +1730,8 @@ func TestScorePointsBonusForNonClassified(t *testing.T) {
 	assert.Equal(t, float64(1), points)
 }
 
-func TestLogNewScoreWithError(t *testing.T) {
-	c, rec := setupMockContext()
-	err := logNewScore(c)
-	assert.EqualError(t, err, "EOF")
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestLogNewScoreNoError(t *testing.T) {
-	c, rec := setupMockContextNewScore(t, scoringAlert{})
-	err := logNewScore(c)
-	assert.Nil(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func setupMockContextNewScore(t *testing.T, alert scoringAlert) (c echo.Context, rec *httptest.ResponseRecorder) {
-	e := echo.New()
-	alertBytes, err := json.Marshal(alert)
-	assert.NoError(t, err)
-	alertJson := string(alertBytes)
-	req := httptest.NewRequest(http.MethodPost, New, strings.NewReader(alertJson))
-	rec = httptest.NewRecorder()
-	c = e.NewContext(req, rec)
-	return
-}
-
-func TestNewScoreMalformedAlert(t *testing.T) {
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, New, strings.NewReader("notAnAlert"))
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err := newScore(c)
-	assert.EqualError(t, err, "invalid character 'o' in literal null (expecting 'u')")
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestNewScoreEmptyAlert(t *testing.T) {
-	c, rec := setupMockContextNewScore(t, scoringAlert{})
-	err := newScore(c)
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestNewScoreOneAlertInvalidScoringMessage(t *testing.T) {
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{"badScoringMessage"},
-	})
-	err := newScore(c)
-	assert.EqualError(t, err, "invalid character 'b' looking for beginning of value")
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestNewScoreOneAlertInvalidScore_Error(t *testing.T) {
+func TestProcessScoringMessageInvalidScore_Error(t *testing.T) {
 	msg := types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1804,20 +1741,12 @@ func TestNewScoreOneAlertInvalidScore_Error(t *testing.T) {
 	forcedError := fmt.Errorf("forced validScore error")
 	mock.validOrgErr = forcedError
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, &msg)
 	assert.EqualError(t, err, forcedError.Error())
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
+func TestProcessScoringMessageInvalidScore_NoTriggerUserFound(t *testing.T) {
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1828,50 +1757,34 @@ func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
 	// caller users Time.now(), so don't assert time parameter
 	mock.partiesToScoreNowSkip = true
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
-	loginName := "MYGithubName"
+func TestProcessScoringMessageUserCapitalizationMismatch(t *testing.T) {
+	loginNameWithCaps := "MYGithubName"
 	//loginNameLowerCase := strings.ToLower(loginName)
 	repoName := "myRepoName"
 	prId := -5
-	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
+	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginNameWithCaps, RepoName: repoName, PullRequest: prId}
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
 	msgLowerCase := msg
-	msgLowerCase.TriggerUser = strings.ToLower(loginName)
+	msgLowerCase.TriggerUser = strings.ToLower(loginNameWithCaps)
 	mock.validOrgParam = msgLowerCase
 	mock.partiesToScoreMsg = msgLowerCase
 	// caller users Time.now(), so don't assert time parameter
 	mock.partiesToScoreNowSkip = true
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlert(t *testing.T) {
+func TestProcessScoringMessageOne(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1882,23 +1795,15 @@ func TestNewScoreOneAlert(t *testing.T) {
 	// caller users Time.now(), so don't assert time parameter
 	mock.partiesToScoreNowSkip = true
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreTwoParticipantsToScore(t *testing.T) {
+func TestProcessScoringMessageTwoParticipantsToScore(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName,
 		RepoName: repoName, PullRequest: prId, TotalFixed: 2}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1931,23 +1836,15 @@ func TestNewScoreTwoParticipantsToScore(t *testing.T) {
 	mock.insertScoreEvtMsg = msg
 	mock.insertScoreEvtNewPoints = 2
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
 	assert.Equal(t, float64(-3), updateScoreLastDelta)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreParticipantPriorScoreError(t *testing.T) {
+func TestProcessScoringMessageParticipantPriorScoreError(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1974,22 +1871,14 @@ func TestNewScoreParticipantPriorScoreError(t *testing.T) {
 	forcedError := fmt.Errorf("forced prior score error")
 	mock.insertScoreEvtErr = forcedError
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.EqualError(t, err, forcedError.Error())
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreParticipantUpdateScoreError(t *testing.T) {
+func TestProcessScoringMessageParticipantUpdateScoreError(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -2018,23 +1907,15 @@ func TestNewScoreParticipantUpdateScoreError(t *testing.T) {
 	forcedError := fmt.Errorf("forced update participant score error")
 	mock.updateScoreErr = forcedError
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.EqualError(t, err, forcedError.Error())
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreParticipant(t *testing.T) {
+func TestProcessScoringMessageParticipant(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId,
 		BugCounts: map[string]interface{}{category: float64(2)}}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -2069,10 +1950,8 @@ func TestNewScoreParticipant(t *testing.T) {
 	mock.updateScoreParticipant = &mock.partiesToScoreResult[0]
 	mock.updateScoreDelta = 4
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
 func TestGetSourceControlProvidersQueryError(t *testing.T) {
@@ -2318,7 +2197,7 @@ func TestProcessScoringMessage(t *testing.T) {
 		"ShellCheck": float64(1),
 	}
 
-	msg := types.ScoringMessage{
+	msg := &types.ScoringMessage{
 		BugCounts: mapBugTypes,
 	}
 	err := processScoringMessage(mock, now, msg)
