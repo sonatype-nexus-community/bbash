@@ -260,21 +260,8 @@ func processResponseData(responseData []datadog.Log) (logs []ddLog, err error) {
 				extra.scoringMessage = types.ScoringMessage{}
 				err = json.Unmarshal(jsonMap, &extra.scoringMessage)
 				if err != nil {
-					// Todo fix this, saw a case where the ScoringMessage.fixed-bug-types is not a map[string]int
-					// e.g.
-					// {"component":"manager","delay":524.904469846,"eventSource":"github","eventType":"pullrequestopenedaction","fixed-bug-types":{"opt":{"semgrep":{"node_password":1,"node_username":1}}},"fixed-bugs":2,"job":"01FYPDNA9ZFRBX8MD9ND0DCFCG","muse_color":"blue","notes-outside-diff":0,"notes-posted":0,"pullRequestId":803,"repositoryName":"unleash-frontend","repositoryOwner":"Unleash","topic":"analysis","triggerUser":"olav"}
-					if err.Error() == "json: cannot unmarshal object into Go struct field ScoringMessage.fixed-bug-types of type int" {
-						// lift rug, sweep
-						logger.Error("ignoring error",
-							zap.Error(err),
-							zap.Any("valueMap", valueMap),
-						)
-						// clear the error, nothing to see here, avert your eyes
-						err = nil
-					} else {
-						logger.Error("error unmarshalling scoring message", zap.Any("valueMap", valueMap))
-						return
-					}
+					logger.Error("error unmarshalling scoring message", zap.Any("valueMap", valueMap))
+					return
 				}
 			default:
 				err = fmt.Errorf("unexpected extra field key: %s", key)

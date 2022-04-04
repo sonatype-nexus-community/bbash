@@ -450,33 +450,25 @@ func TestProcessResponseDataScoringMessageUnexpectedMarshalError(t *testing.T) {
 
 	logs, err := processResponseData(responseData)
 	assert.Equal(t, 0, len(logs))
-	assert.EqualError(t, err, "json: cannot unmarshal string into Go struct field ScoringMessage.fixed-bug-types of type map[string]int")
+	assert.EqualError(t, err, "json: cannot unmarshal string into Go struct field ScoringMessage.fixed-bug-types of type map[string]interface {}")
 }
 
-func TestProcessResponseDataScoringMessageIgnoredMarshalError(t *testing.T) {
-	logId := "myLogId"
-
-	// this map is not expected, but known. for now, we will ignore this pattern
-	mapBugTypeOptMapGoofy := map[string]interface{}{
-		"opt": "{\"semgrep\":{\"sprintf-host-port\":2}}",
-	}
+func TestProcessResponseDataScoringMessageFixedBugsWithOptMap(t *testing.T) {
+	// this map is odd, but allowed. assumes leaf keys are unique for assigning score values
+	mapSprintf := map[string]interface{}{"sprintf-host-port": float64(2)}
+	mapSemGrep := map[string]interface{}{"semgrep": mapSprintf}
 	mapBugTypes := map[string]interface{}{
 		"G104":       1,
 		"ShellCheck": 1,
-		"opt":        mapBugTypeOptMapGoofy,
+		"opt":        mapSemGrep,
 	}
 	mapExtraFields := map[string]interface{}{
 		"fixed-bug-types": mapBugTypes,
 	}
-	envMap := map[string]interface{}{
-		qryEnvExtraJsonFields: mapExtraFields,
-	}
-	attribs := map[string]interface{}{
-		qryEnv: envMap,
-	}
-	logAttribs := datadog.LogAttributes{
-		Attributes: &attribs,
-	}
+	envMap := map[string]interface{}{qryEnvExtraJsonFields: mapExtraFields}
+	attribs := map[string]interface{}{qryEnv: envMap}
+	logAttribs := datadog.LogAttributes{Attributes: &attribs}
+	logId := "myLogId"
 	responseData := []datadog.Log{
 		{
 			Id:             &logId,
@@ -491,9 +483,9 @@ func TestProcessResponseDataScoringMessageIgnoredMarshalError(t *testing.T) {
 	logs, err := processResponseData(responseData)
 	assert.Equal(t, 1, len(logs))
 	assert.NoError(t, err)
-	assert.Equal(t, 1, logs[0].Fields.scoringMessage.BugCounts["G104"])
-	assert.Equal(t, 1, logs[0].Fields.scoringMessage.BugCounts["ShellCheck"])
-	assert.Equal(t, 0, logs[0].Fields.scoringMessage.BugCounts["opt"])
+	assert.Equal(t, float64(1), logs[0].Fields.scoringMessage.BugCounts["G104"])
+	assert.Equal(t, float64(1), logs[0].Fields.scoringMessage.BugCounts["ShellCheck"])
+	assert.Equal(t, mapSemGrep, logs[0].Fields.scoringMessage.BugCounts["opt"])
 }
 
 func TestProcessResponseDataScoringMessage(t *testing.T) {
@@ -529,8 +521,8 @@ func TestProcessResponseDataScoringMessage(t *testing.T) {
 	logs, err := processResponseData(responseData)
 	assert.Equal(t, 1, len(logs))
 	assert.NoError(t, err)
-	assert.Equal(t, 1, logs[0].Fields.scoringMessage.BugCounts["G104"])
-	assert.Equal(t, 2, logs[0].Fields.scoringMessage.BugCounts["ShellCheck"])
+	assert.Equal(t, float64(1), logs[0].Fields.scoringMessage.BugCounts["G104"])
+	assert.Equal(t, float64(2), logs[0].Fields.scoringMessage.BugCounts["ShellCheck"])
 }
 
 func TestPollTheDogDBError(t *testing.T) {
@@ -633,7 +625,7 @@ type MockScoreDB struct {
 
 	selectPriorScore     *types.ParticipantStruct
 	selectPriorMsg       *types.ScoringMessage
-	selectPriorOldPoints int
+	selectPriorOldPoints float64
 
 	insertEvtParticipant *types.ParticipantStruct
 	insertEvtMsg         *types.ScoringMessage
@@ -641,7 +633,7 @@ type MockScoreDB struct {
 	insertEvtError       error
 
 	updateScoreParticipant *types.ParticipantStruct
-	updateScoreDelta       int
+	updateScoreDelta       float64
 	updateScoreError       error
 }
 
@@ -652,7 +644,7 @@ func createMockScoreDb(t *testing.T) (scoreDb *MockScoreDB) {
 	}
 }
 
-func (m MockScoreDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int) {
+func (m MockScoreDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints float64) {
 	if m.assertParameters {
 		assert.Equal(m.t, m.selectPriorScore, participantToScore)
 		assert.Equal(m.t, m.selectPriorMsg, msg)
@@ -660,7 +652,7 @@ func (m MockScoreDB) SelectPriorScore(participantToScore *types.ParticipantStruc
 	return m.selectPriorOldPoints
 }
 
-func (m MockScoreDB) InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints int) (err error) {
+func (m MockScoreDB) InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints float64) (err error) {
 	if m.assertParameters {
 		assert.Equal(m.t, m.insertEvtParticipant, participantToScore)
 		assert.Equal(m.t, m.insertEvtMsg, msg)
@@ -669,7 +661,7 @@ func (m MockScoreDB) InsertScoringEvent(participantToScore *types.ParticipantStr
 	return m.insertEvtError
 }
 
-func (m MockScoreDB) UpdateParticipantScore(participant *types.ParticipantStruct, delta int) (err error) {
+func (m MockScoreDB) UpdateParticipantScore(participant *types.ParticipantStruct, delta float64) (err error) {
 	if m.assertParameters {
 		assert.Equal(m.t, m.updateScoreParticipant, participant)
 		assert.Equal(m.t, m.updateScoreDelta, delta)
@@ -680,8 +672,7 @@ func (m MockScoreDB) UpdateParticipantScore(participant *types.ParticipantStruct
 var _ db.IScoreDB = (*MockScoreDB)(nil)
 
 func TestProcessLogsZeroLogs(t *testing.T) {
-	err := processLogs(nil, nil, time.Now(), nil)
-	assert.NoError(t, err)
+	assert.NoError(t, processLogs(nil, nil, time.Now(), nil))
 }
 
 func TestProcessLogsOneWithError(t *testing.T) {
@@ -787,6 +778,77 @@ func TestChaseTailOneLog(t *testing.T) {
 							qryEnv: map[string]interface{}{
 								qryEnvExtraJsonFields: map[string]interface{}{
 									"eventSource": eventSource,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		jsonObj, err := json.Marshal(apiResp)
+		assert.NoError(t, err)
+		_, err = w.Write(jsonObj)
+		assert.NoError(t, err)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
+
+	msgProcessed := false
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg types.ScoringMessage) (err error) {
+		msgProcessed = true
+		scoreDb.SelectPriorScore(nil, nil)
+		assert.NoError(t, scoreDb.UpdateParticipantScore(nil, 0))
+		assert.Equal(t, eventSource, msg.EventSource)
+		return
+	}
+
+	quitChan, _ := ChaseTail(dbPoll, createMockScoreDb(t), 1, processScoringMessage)
+
+	time.Sleep(2 * time.Second)
+	close(quitChan)
+	assert.True(t, msgProcessed)
+}
+
+func TestChaseTailOneLogWithOptMap(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	now := time.Now()
+	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, poll.Id, now, 1)
+
+	eventSource := "myEventSource"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+
+		// similar to this:
+		// "fixed-bug-types":{"opt":{"semgrep":{"node_password":1,"node_username":1}}}
+		mapSemGroupBugType := map[string]interface{}{"sprintf-host-port": float64(2)}
+		mapSemGroup := map[string]interface{}{"semgrep": mapSemGroupBugType}
+		mapBugTypes := map[string]interface{}{
+			"G104":       float64(1),
+			"ShellCheck": float64(1),
+			"opt":        mapSemGroup,
+		}
+
+		logId := "myLogId"
+		apiResp := datadog.LogsListResponse{
+			Data: &[]datadog.Log{
+				{
+					Id: &logId,
+					Attributes: &datadog.LogAttributes{
+						Attributes: &map[string]interface{}{
+							qryEnv: map[string]interface{}{
+								qryEnvExtraJsonFields: map[string]interface{}{
+									"eventSource":     eventSource,
+									"fixed-bug-types": mapBugTypes,
 								},
 							},
 						},

@@ -541,7 +541,7 @@ func TestSelectPointValueScanError(t *testing.T) {
 	msg := &types.ScoringMessage{EventSource: TestEventSourceValid, RepoOwner: TestOrgValid, TriggerUser: loginName}
 
 	participantsToScore := db.SelectPointValue(msg, testCampaign.Name, testBugType)
-	assert.Equal(t, 1, participantsToScore)
+	assert.Equal(t, float64(1), participantsToScore)
 }
 
 func TestSelectPointValueRead(t *testing.T) {
@@ -555,7 +555,7 @@ func TestSelectPointValueRead(t *testing.T) {
 	msg := &types.ScoringMessage{EventSource: TestEventSourceValid, RepoOwner: TestOrgValid, TriggerUser: loginName}
 
 	participantsToScore := db.SelectPointValue(msg, testCampaign.Name, testBugType)
-	assert.Equal(t, 5, participantsToScore)
+	assert.Equal(t, float64(5), participantsToScore)
 }
 
 const testParticipantGuid = "testParticipantGuid"
@@ -566,7 +566,7 @@ func TestUpdateParticipantScoreError(t *testing.T) {
 
 	forcedError := fmt.Errorf("forced update score error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(0, testParticipantGuid).
+		WithArgs(float64(0), testParticipantGuid).
 		WillReturnError(forcedError)
 
 	err := db.UpdateParticipantScore(&types.ParticipantStruct{ID: testParticipantGuid}, 0)
@@ -578,7 +578,7 @@ func TestUpdateParticipantScoreZero(t *testing.T) {
 	defer closeDbFunc()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(0, testParticipantGuid).
+		WithArgs(float64(0), testParticipantGuid).
 		WillReturnRows(sqlmock.NewRows([]string{"score"}).AddRow(3))
 
 	assert.NoError(t, db.UpdateParticipantScore(&types.ParticipantStruct{ID: testParticipantGuid}, 0))
@@ -602,7 +602,7 @@ func TestSelectPriorScoreError(t *testing.T) {
 		WillReturnError(forcedError)
 
 	oldPoints := db.SelectPriorScore(testParticipant, msg)
-	assert.Equal(t, 0, oldPoints)
+	assert.Equal(t, float64(0), oldPoints)
 }
 
 func TestSelectPriorScore(t *testing.T) {
@@ -622,7 +622,7 @@ func TestSelectPriorScore(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"score"}).AddRow(-2))
 
 	oldPoints := db.SelectPriorScore(testParticipant, msg)
-	assert.Equal(t, -2, oldPoints)
+	assert.Equal(t, float64(-2), oldPoints)
 }
 
 func TestInsertScoringEventError(t *testing.T) {
@@ -637,7 +637,7 @@ func TestInsertScoringEventError(t *testing.T) {
 
 	msg := &types.ScoringMessage{RepoOwner: TestOrgValid, RepoName: "testRepoName", TriggerUser: loginName, PullRequest: -1}
 
-	const newPoints = 11
+	const newPoints = float64(11)
 
 	forcedError := fmt.Errorf("forced insert score error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
@@ -659,7 +659,7 @@ func TestInsertScoringEvent(t *testing.T) {
 
 	msg := &types.ScoringMessage{RepoOwner: TestOrgValid, RepoName: "testRepoName", TriggerUser: loginName, PullRequest: -1}
 
-	const newPoints = 11
+	const newPoints = float64(11)
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
 		WithArgs(testParticipant.CampaignName, testParticipant.ScpName, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints).

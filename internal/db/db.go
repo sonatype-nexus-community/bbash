@@ -30,9 +30,9 @@ import (
 )
 
 type IScoreDB interface {
-	SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int)
-	InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints int) (err error)
-	UpdateParticipantScore(participant *types.ParticipantStruct, delta int) (err error)
+	SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints float64)
+	InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints float64) (err error)
+	UpdateParticipantScore(participant *types.ParticipantStruct, delta float64) (err error)
 }
 
 type IBBashDB interface {
@@ -52,7 +52,7 @@ type IBBashDB interface {
 	ValidOrganization(msg *types.ScoringMessage) (orgExists bool, err error)
 
 	SelectParticipantsToScore(msg *types.ScoringMessage, now time.Time) (participantsToScore []types.ParticipantStruct, err error)
-	SelectPointValue(msg *types.ScoringMessage, campaignName, bugType string) (pointValue int)
+	SelectPointValue(msg *types.ScoringMessage, campaignName, bugType string) (pointValue float64)
 	IScoreDB
 
 	InsertParticipant(participant *types.ParticipantStruct) (err error)
@@ -330,7 +330,7 @@ const sqlSelectPointValue = `SELECT pointValue FROM bug
 	WHERE fk_campaign = (SELECT campaign.Id FROM campaign WHERE name = $1) 
 	  AND category = $2`
 
-func (p *BBashDB) SelectPointValue(msg *types.ScoringMessage, campaignName, bugType string) (pointValue int) {
+func (p *BBashDB) SelectPointValue(msg *types.ScoringMessage, campaignName, bugType string) (pointValue float64) {
 	row := p.db.QueryRow(sqlSelectPointValue, campaignName, bugType)
 	pointValue = 1
 	if err := row.Scan(&pointValue); err != nil {
@@ -346,7 +346,7 @@ const sqlUpdateParticipantScore = `UPDATE participant
 		WHERE id = $2 
 		RETURNING Score`
 
-func (p *BBashDB) UpdateParticipantScore(participant *types.ParticipantStruct, delta int) (err error) {
+func (p *BBashDB) UpdateParticipantScore(participant *types.ParticipantStruct, delta float64) (err error) {
 	var score int
 	row := p.db.QueryRow(sqlUpdateParticipantScore, delta, participant.ID)
 	err = row.Scan(&score)
@@ -361,7 +361,7 @@ const sqlScoreQuery = `SELECT points
 				AND repoName = $4
 				AND pr = $5`
 
-func (p *BBashDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int) {
+func (p *BBashDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints float64) {
 	row := p.db.QueryRow(sqlScoreQuery, participantToScore.CampaignName, participantToScore.ScpName, msg.RepoOwner, msg.RepoName, msg.PullRequest)
 	oldPoints = 0
 	err := row.Scan(&oldPoints)
@@ -380,7 +380,7 @@ const sqlInsertScoringEvent = `INSERT INTO scoring_event
 			ON CONFLICT (fk_campaign, fk_scp, repoOwner, repoName, pr) DO
 				UPDATE SET points = $7`
 
-func (p *BBashDB) InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints int) (err error) {
+func (p *BBashDB) InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints float64) (err error) {
 	_, err = p.db.Exec(sqlInsertScoringEvent, participantToScore.CampaignName, participantToScore.ScpName, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints)
 	return
 }

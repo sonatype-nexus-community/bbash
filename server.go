@@ -506,21 +506,40 @@ func validScore(msg *types.ScoringMessage, now time.Time) (participantsToScore [
 	return
 }
 
-func scorePoints(msg *types.ScoringMessage, campaignName string) (points int) {
+func scorePoints(msg *types.ScoringMessage, campaignName string) (points float64) {
 	points = 0
-	scored := 0
+	scored := float64(0)
 
-	for bugType, count := range msg.BugCounts {
-		value := postgresDB.SelectPointValue(msg, campaignName, bugType)
-		points += count * value
-		scored += count
+	err := traverseBugCounts(msg, campaignName, &points, &scored, &msg.BugCounts)
+	if err != nil {
+		logger.Error("error traversing bugCounts", zap.Error(err), zap.Any("msg", msg))
 	}
 
 	// add 1 point for all non-classified fixed bugs
-	if scored < msg.TotalFixed {
-		points += msg.TotalFixed - scored
+	if scored < float64(msg.TotalFixed) {
+		points += float64(msg.TotalFixed) - scored
 	}
 
+	return
+}
+
+func traverseBugCounts(msg *types.ScoringMessage, campaignName string,
+	points, scored *float64, bugTypes *map[string]interface{}) (err error) {
+
+	for bugType, bugValue := range *bugTypes {
+		switch v := bugValue.(type) {
+		case float64:
+			value := postgresDB.SelectPointValue(msg, campaignName, bugType)
+			*points += v * value
+			*scored += v
+		case map[string]interface{}:
+			// oh joy, recursion.
+			err = traverseBugCounts(msg, campaignName, points, scored, &v)
+		default:
+			err = fmt.Errorf("bugType: %+v has unexpected bugValue type: %+v", bugType, v)
+			logger.Error("traverseBugCounts", zap.Error(err), zap.Any("msg", msg))
+		}
+	}
 	return
 }
 
@@ -593,7 +612,7 @@ func processScoringMessage(scoreDb db.IScoreDB, now time.Time, msg types.Scoring
 		}
 
 		logger.Debug("score updated",
-			zap.Int("newPoints", newPoints), zap.Int("oldPoints", oldPoints), zap.Any("ScoringMessage", msg))
+			zap.Float64("newPoints", newPoints), zap.Float64("oldPoints", oldPoints), zap.Any("ScoringMessage", msg))
 	}
 	return
 }

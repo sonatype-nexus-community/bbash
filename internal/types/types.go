@@ -47,13 +47,13 @@ type OrganizationStruct struct {
 }
 
 type ScoringMessage struct {
-	EventSource string         `json:"eventSource"`
-	RepoOwner   string         `json:"repositoryOwner"`
-	RepoName    string         `json:"repositoryName"`
-	TriggerUser string         `json:"triggerUser"`
-	TotalFixed  int            `json:"fixed-bugs"`
-	BugCounts   map[string]int `json:"fixed-bug-types"`
-	PullRequest int            `json:"pullRequestId"`
+	EventSource string                 `json:"eventSource"`
+	RepoOwner   string                 `json:"repositoryOwner"`
+	RepoName    string                 `json:"repositoryName"`
+	TriggerUser string                 `json:"triggerUser"`
+	TotalFixed  int                    `json:"fixed-bugs"`
+	BugCounts   map[string]interface{} `json:"fixed-bug-types"`
+	PullRequest int                    `json:"pullRequestId"`
 }
 
 type ParticipantStruct struct {
