@@ -296,6 +296,8 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) (customRouteCount int) {
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Add, ParamCampaignName), addCampaign)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Update, ParamCampaignName), updateCampaign)
 
+	// Poll related endpoints and group
+
 	pollGroup := adminGroup.Group(Poll)
 	pollGroup.PUT("/last", setPollDate)
 	pollGroup.DELETE("/stop", stopPolling)
