@@ -47,13 +47,13 @@ type OrganizationStruct struct {
 }
 
 type ScoringMessage struct {
-	EventSource string         `json:"eventSource"`
-	RepoOwner   string         `json:"repositoryOwner"`
-	RepoName    string         `json:"repositoryName"`
-	TriggerUser string         `json:"triggerUser"`
-	TotalFixed  int            `json:"fixed-bugs"`
-	BugCounts   map[string]int `json:"fixed-bug-types"`
-	PullRequest int            `json:"pullRequestId"`
+	EventSource string                 `json:"eventSource"`
+	RepoOwner   string                 `json:"repositoryOwner"`
+	RepoName    string                 `json:"repositoryName"`
+	TriggerUser string                 `json:"triggerUser"`
+	TotalFixed  int                    `json:"fixed-bugs"`
+	BugCounts   map[string]interface{} `json:"fixed-bug-types"`
+	PullRequest int                    `json:"pullRequestId"`
 }
 
 type ParticipantStruct struct {
@@ -79,4 +79,11 @@ type BugStruct struct {
 	Campaign   string `json:"campaign"`
 	Category   string `json:"category"`
 	PointValue int    `json:"pointValue"`
+}
+
+type Poll struct {
+	Id                string    `json:"pollInstance"`
+	LastPolled        time.Time `json:"lastPolledOn"`
+	EnvBaseTime       time.Time `json:"envBaseTime"`
+	LastPollCompleted time.Time `json:"lastPollCompleted"`
 }
