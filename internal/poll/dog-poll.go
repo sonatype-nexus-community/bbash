@@ -77,6 +77,10 @@ const qryEnvBaseTime = "envBaseTime"
 const qryEnvExtraJsonFields = "envExtraJsonFields"
 const qryFldFixedBugs = "fixed-bugs"
 
+// pollFudgeSeconds is the seconds before the prior poll time to query, to ensure scores are not missed.
+// should be negative
+const pollFudgeSeconds = -5
+
 func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, err error) {
 
 	// get last poll time from database
@@ -95,6 +99,9 @@ func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, 
 		before = poll.LastPolled
 		logger.Debug("using db poll.LastPolled")
 	}
+	// fudge factor, always poll a little older that last poll, to make sure no scores are missed
+	before = before.Add(time.Second * pollFudgeSeconds)
+
 	logger.Debug("poll range",
 		zap.String("before", before.Format(time.RFC3339)),
 		zap.String("now", now.Format(time.RFC3339)),

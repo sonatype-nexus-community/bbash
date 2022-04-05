@@ -584,7 +584,7 @@ func TestPollTheDogUsePriorPollTime(t *testing.T) {
 		var datadogLogsListRequest datadog.LogsListRequest
 		err := json.NewDecoder(r.Body).Decode(&datadogLogsListRequest)
 		assert.NoError(t, err)
-		assert.Equal(t, priorPollTime.Format(time.RFC3339), *datadogLogsListRequest.Filter.From)
+		assert.Equal(t, priorPollTime.Add(time.Second*pollFudgeSeconds).Format(time.RFC3339), *datadogLogsListRequest.Filter.From)
 
 		w.WriteHeader(http.StatusOK)
 	}))
