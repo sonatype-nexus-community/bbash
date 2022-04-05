@@ -84,6 +84,7 @@ func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
 	if err != nil {
 		return
 	}
+	// todo subtract some duration for a fudge factor?
 	before := poll.LastPolled
 	logger.Debug("poll range",
 		zap.String("before", before.Format(time.RFC3339)),
@@ -99,20 +100,6 @@ func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
 			return
 		}
 
-		//logLen := len(logPage)
-		//logFirst := ddLog{}
-		//logLast := logFirst
-		//if logLen > 0 {
-		//	logFirst = logPage[0]
-		//	logLast = logPage[logLen-1]
-		//}
-		//logger.Debug("log page",
-		//	zap.Int("log count", len(logPage)),
-		//	zap.Any("log first", logFirst),
-		//	zap.Any("log last", logLast),
-		//	zap.Bool("isDone", isDone),
-		//	zap.String("pageCursor", pageCursor),
-		//)
 		logs = append(logs, logPage...)
 	}
 
@@ -129,6 +116,9 @@ func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
 	if err != nil {
 		return
 	}
+	logger.Debug("poll finished",
+		zap.String("LastPolled", poll.LastPolled.Format(time.RFC3339)),
+	)
 
 	return
 }
