@@ -917,7 +917,7 @@ func TestChaseTailOneLogWithOptMap(t *testing.T) {
 	assert.True(t, msgProcessed)
 }
 
-// @todo Start testing local "bug bash setup" steps
+//goland:noinspection GoUnusedFunction
 func xxxTestChaseTailLive(t *testing.T) {
 	logger = zaptest.NewLogger(t)
 
