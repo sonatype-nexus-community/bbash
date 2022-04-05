@@ -24,6 +24,11 @@ Here are some minimal steps to set up a new Bug Bash Campaign.
 
        curl -u "theAdminUsername:theAdminPassword" -X PUT http://localhost:7777/admin/campaign/add/myCampaignName -d '{ "startOn": "2021-03-10T12:00:00.000Z", "endOn": "2022-03-15T12:00:00.000Z"}'
 
+   Be sure you use a `startOn` and `endOn` date that is before today, and after today, otherwise the campaign will not
+   be "active". Use the command below to verify you new campaign is considered "active":
+
+       curl http://localhost:7777/campaign/active
+
 2. Add the organization that owns the repository that will having the bug bash:
 
        curl -u "theAdminUsername:theAdminPassword" -X PUT http://localhost:7777/admin/organization/add -d '{ "scpName": "GitHub", "organization": "my-organization"}'
@@ -32,5 +37,14 @@ Here are some minimal steps to set up a new Bug Bash Campaign.
 
        curl -u "theAdminUsername:theAdminPassword" -X PUT http://localhost:7777/admin/participant/add -d '{ "scpName": "GitHub", "campaignName": "myCampaignName", "loginName": "mygithubid"}'
 
-To verify things are working, have the GitHub user ("mygithubid" in this example) generate a Pull Request against a 
-repository owned by the organization we added ("my-organization" in this example).
+   Before going much further, you should ensure [Sonatype Lift](https://help.sonatype.com/lift/getting-started) is
+   configured for you GitHub repository.
+
+   To verify things are working, have the GitHub user (`mygithubid` in this example) generate
+   a [Pull Request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request)
+   against a repository owned by the organization we added (`my-organization` in this example). Once the PR is created,
+   you should see Lift performing an analysis of the PR, similar to this:
+   ![Lift Analysing](images/LiftBotRunningOnPR.png)
+
+4. To view the current scores for you Bug Bash, open a browser to: http://localhost:7777/index.html
+
