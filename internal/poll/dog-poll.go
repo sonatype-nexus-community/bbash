@@ -99,7 +99,7 @@ func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, 
 		before = poll.LastPolled
 		logger.Debug("using db poll.LastPolled")
 	}
-	// fudge factor, always poll a little older that last poll, to make sure no scores are missed
+	// fudge factor, always poll a little older than last poll, to make sure no scores are missed
 	before = before.Add(time.Second * pollFudgeSeconds)
 
 	logger.Debug("poll range",
@@ -122,7 +122,7 @@ func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, 
 	logCount := len(logs)
 	logger.Debug("total polled", zap.Int("log count", logCount))
 
-	// UpdatePoll completed time
+	// Update Poll completed time
 	poll.LastPolled = now
 	if logCount > 0 {
 		poll.EnvBaseTime = logs[logCount-1].Fields.envBaseTime
@@ -159,8 +159,8 @@ func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, curso
 			//Indexes: &[]string{
 			//	"main",
 			//},
-			From: datadog.PtrString(before.Format(time.RFC3339)), // datadog.PtrString("2020-09-17T11:48:36+01:00"),
-			To:   datadog.PtrString(now.Format(time.RFC3339)),    //datadog.PtrString("2020-09-17T12:48:36+01:00"),
+			From: datadog.PtrString(before.Format(time.RFC3339)),
+			To:   datadog.PtrString(now.Format(time.RFC3339)),
 		},
 		Sort: datadog.LOGSSORT_TIMESTAMP_ASCENDING.Ptr(),
 		Page: pageAttribs,
@@ -220,7 +220,6 @@ func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, curso
 	if hasAfter {
 		after := nextPage.GetAfter()
 		cursor = after
-		//logger.Debug("has after", zap.String("after", after))
 	} else {
 		cursor = ""
 		// meta.status never seems to say "done", so force it here, since there is no next page
