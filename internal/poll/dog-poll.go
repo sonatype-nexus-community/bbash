@@ -28,6 +28,7 @@ import (
 	"github.com/sonatype-nexus-community/bbash/internal/types"
 	"go.uber.org/zap"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"time"
 )
@@ -76,7 +77,7 @@ const qryEnvBaseTime = "envBaseTime"
 const qryEnvExtraJsonFields = "envExtraJsonFields"
 const qryFldFixedBugs = "fixed-bugs"
 
-func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
+func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, err error) {
 
 	// get last poll time
 	poll := pollDB.NewPoll()
@@ -84,8 +85,16 @@ func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
 	if err != nil {
 		return
 	}
-	// todo subtract some duration for a fudge factor?
-	before := poll.LastPolled
+
+	// handle database time storage oddness,
+	// use older of db or priorPollTime
+	var before time.Time
+	if priorPollTime.Before(poll.LastPolled) {
+		before = priorPollTime
+	} else {
+		before = poll.LastPolled
+		logger.Debug("using db poll.LastPolled")
+	}
 	logger.Debug("poll range",
 		zap.String("before", before.Format(time.RFC3339)),
 		zap.String("now", now.Format(time.RFC3339)),
@@ -116,9 +125,6 @@ func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
 	if err != nil {
 		return
 	}
-	logger.Debug("poll finished",
-		zap.String("LastPolled", poll.LastPolled.Format(time.RFC3339)),
-	)
 
 	return
 }
@@ -159,8 +165,14 @@ func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, curso
 	if err != nil {
 		logger.Error("error calling datadog api",
 			zap.Error(err),
-			zap.Any("http response", r),
+			// logging resp causes error: "json: unsupported type: func() (io.ReadCloser, error)"
+			//zap.Any("http response", r),
 		)
+		dump, errDump := httputil.DumpResponse(r, true)
+		if errDump != nil {
+			return
+		}
+		logger.Error("datadog api http response", zap.String("r dump", string(dump)))
 		return
 	}
 	fetchDuration := time.Since(fetchStart)
@@ -280,6 +292,7 @@ func ChaseTail(pollDb db.IDBPoll, scoreDb db.IScoreDB, seconds time.Duration, pr
 	const errBufferSize = 100
 	errChan = make(chan error, errBufferSize)
 	var errCount int
+	priorPollTime := time.Now()
 	go func() {
 		var pollErr error
 		for {
@@ -287,7 +300,7 @@ func ChaseTail(pollDb db.IDBPoll, scoreDb db.IScoreDB, seconds time.Duration, pr
 			case <-ticker.C:
 				now := time.Now()
 				var logs []ddLog
-				logs, pollErr = pollTheDog(pollDb, now)
+				logs, pollErr = pollTheDog(pollDb, priorPollTime, now)
 				if pollErr != nil {
 					logger.Error("error in polling chase", zap.Error(pollErr))
 					errCount++
@@ -296,6 +309,9 @@ func ChaseTail(pollDb db.IDBPoll, scoreDb db.IScoreDB, seconds time.Duration, pr
 					}
 					continue // continue allows polling to keep running when errors occur
 				}
+				// track actual poll time to avoid db write oddness
+				priorPollTime = now
+
 				pollErr = processLogs(scoreDb, logs, now, processScoringMessage)
 				if pollErr != nil {
 					logger.Error("error in process logs chase", zap.Error(pollErr))

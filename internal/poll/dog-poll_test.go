@@ -330,7 +330,7 @@ func TestProcessResponseDataMissingEnvMap(t *testing.T) {
 	logId := "myLogId"
 	attribs := map[string]interface{}{}
 	logAttribs := datadog.LogAttributes{
-		Attributes: &attribs,
+		Attributes: attribs,
 	}
 	responseData := []datadog.Log{
 		{
@@ -354,7 +354,7 @@ func TestProcessResponseDataUnexpectedMapKey(t *testing.T) {
 		qryEnv: envMap,
 	}
 	logAttribs := datadog.LogAttributes{
-		Attributes: &attribs,
+		Attributes: attribs,
 	}
 	responseData := []datadog.Log{
 		{
@@ -379,7 +379,7 @@ func TestProcessResponseDataMapKeyBaseTimeFormatError(t *testing.T) {
 		qryEnv: envMap,
 	}
 	logAttribs := datadog.LogAttributes{
-		Attributes: &attribs,
+		Attributes: attribs,
 	}
 	responseData := []datadog.Log{
 		{
@@ -404,7 +404,7 @@ func TestProcessResponseDataMapKeyBaseTime(t *testing.T) {
 		qryEnv: envMap,
 	}
 	logAttribs := datadog.LogAttributes{
-		Attributes: &attribs,
+		Attributes: attribs,
 	}
 	responseData := []datadog.Log{
 		{
@@ -435,7 +435,7 @@ func TestProcessResponseDataScoringMessageUnexpectedMarshalError(t *testing.T) {
 		qryEnv: envMap,
 	}
 	logAttribs := datadog.LogAttributes{
-		Attributes: &attribs,
+		Attributes: attribs,
 	}
 	responseData := []datadog.Log{
 		{
@@ -467,7 +467,7 @@ func TestProcessResponseDataScoringMessageFixedBugsWithOptMap(t *testing.T) {
 	}
 	envMap := map[string]interface{}{qryEnvExtraJsonFields: mapExtraFields}
 	attribs := map[string]interface{}{qryEnv: envMap}
-	logAttribs := datadog.LogAttributes{Attributes: &attribs}
+	logAttribs := datadog.LogAttributes{Attributes: attribs}
 	logId := "myLogId"
 	responseData := []datadog.Log{
 		{
@@ -505,7 +505,7 @@ func TestProcessResponseDataScoringMessage(t *testing.T) {
 		qryEnv: envMap,
 	}
 	logAttribs := datadog.LogAttributes{
-		Attributes: &attribs,
+		Attributes: attribs,
 	}
 	responseData := []datadog.Log{
 		{
@@ -536,7 +536,7 @@ func TestPollTheDogDBError(t *testing.T) {
 	db.SetupMockPollSelectForcedError(mock, forcedError, poll.Id)
 
 	now := time.Now()
-	logs, err := pollTheDog(dbPoll, now)
+	logs, err := pollTheDog(dbPoll, now, now)
 	assert.EqualError(t, err, forcedError.Error())
 	assert.Equal(t, ([]ddLog)(nil), logs)
 }
@@ -562,8 +562,41 @@ func TestPollTheDogPollError(t *testing.T) {
 	closeApiClient := setupMockDDogApiClient(urlTs)
 	defer closeApiClient()
 
-	logs, err := pollTheDog(dbPoll, now)
+	logs, err := pollTheDog(dbPoll, now, now)
 	assert.EqualError(t, err, "500 Internal Server Error")
+	assert.Equal(t, ([]ddLog)(nil), logs)
+}
+
+func TestPollTheDogUsePriorPollTime(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	now := time.Now()
+	db.SetupMockPollSelectAndUpdate(mock, poll.Id, now, 1)
+
+	priorPollTime := now.Add(time.Second * -1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+
+		var datadogLogsListRequest datadog.LogsListRequest
+		err := json.NewDecoder(r.Body).Decode(&datadogLogsListRequest)
+		assert.NoError(t, err)
+		assert.Equal(t, priorPollTime.Format(time.RFC3339), *datadogLogsListRequest.Filter.From)
+
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
+
+	logs, err := pollTheDog(dbPoll, priorPollTime, now)
+	assert.NoError(t, err)
 	assert.Equal(t, ([]ddLog)(nil), logs)
 }
 
@@ -588,7 +621,7 @@ func TestPollTheDogOneLog(t *testing.T) {
 				{
 					Id: &logId,
 					Attributes: &datadog.LogAttributes{
-						Attributes: &map[string]interface{}{
+						Attributes: map[string]interface{}{
 							qryEnv: map[string]interface{}{
 								qryEnvExtraJsonFields: map[string]interface{}{
 									"eventSource": eventSource,
@@ -611,7 +644,7 @@ func TestPollTheDogOneLog(t *testing.T) {
 	closeApiClient := setupMockDDogApiClient(urlTs)
 	defer closeApiClient()
 
-	logs, err := pollTheDog(dbPoll, now)
+	logs, err := pollTheDog(dbPoll, now, now)
 	assert.NoError(t, err)
 
 	assert.Equal(t, 1, len(logs))
@@ -774,7 +807,7 @@ func TestChaseTailOneLog(t *testing.T) {
 				{
 					Id: &logId,
 					Attributes: &datadog.LogAttributes{
-						Attributes: &map[string]interface{}{
+						Attributes: map[string]interface{}{
 							qryEnv: map[string]interface{}{
 								qryEnvExtraJsonFields: map[string]interface{}{
 									"eventSource": eventSource,
@@ -844,7 +877,7 @@ func TestChaseTailOneLogWithOptMap(t *testing.T) {
 				{
 					Id: &logId,
 					Attributes: &datadog.LogAttributes{
-						Attributes: &map[string]interface{}{
+						Attributes: map[string]interface{}{
 							qryEnv: map[string]interface{}{
 								qryEnvExtraJsonFields: map[string]interface{}{
 									"eventSource":     eventSource,

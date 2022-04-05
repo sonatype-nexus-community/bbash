@@ -75,6 +75,8 @@ func (p *PollStruct) UpdatePoll(poll *types.Poll) (err error) {
 		return
 	}
 
+	//p.logger.Debug("UpdatePoll", zap.Any("poll", poll))
+
 	var rowsAffected int64
 	rowsAffected, err = res.RowsAffected()
 	if err != nil {
@@ -105,5 +107,8 @@ func (p *PollStruct) SelectPoll(poll *types.Poll) (err error) {
 		p.logger.Error("selectPoll scan error", zap.Error(err))
 		return
 	}
+
+	//p.logger.Debug("SelectPoll", zap.Any("poll", poll))
+
 	return
 }
