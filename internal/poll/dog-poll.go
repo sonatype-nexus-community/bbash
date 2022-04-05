@@ -79,7 +79,7 @@ const qryFldFixedBugs = "fixed-bugs"
 
 func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, err error) {
 
-	// get last poll time
+	// get last poll time from database
 	poll := pollDB.NewPoll()
 	err = pollDB.SelectPoll(&poll)
 	if err != nil {
