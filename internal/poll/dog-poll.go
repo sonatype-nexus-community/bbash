@@ -85,13 +85,9 @@ func pollTheDog(pollDB db.IDBPoll, now time.Time) (logs []ddLog, err error) {
 		return
 	}
 	before := poll.LastPolled
-	logger.Debug("before",
-		zap.Time("before", before),
-		zap.String("formattedBefore", before.Format(time.RFC3339)),
-	)
-	logger.Debug("now",
-		zap.Time("now", now),
-		zap.String("formattedNow", now.Format(time.RFC3339)),
+	logger.Debug("poll range",
+		zap.String("before", before.Format(time.RFC3339)),
+		zap.String("now", now.Format(time.RFC3339)),
 	)
 
 	pageCursor := ""
