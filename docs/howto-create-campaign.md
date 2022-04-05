@@ -26,11 +26,11 @@ Here are some minimal steps to set up a new Bug Bash Campaign.
 
 2. Add the organization that owns the repository that will having the bug bash:
 
-       curl -u "theAdminUsername:myAdminPassword" -X PUT http://localhost:7777/admin/organization/add -d '{ "scpName": "GitHub", "organization": "my-organization"}'
+       curl -u "theAdminUsername:theAdminPassword" -X PUT http://localhost:7777/admin/organization/add -d '{ "scpName": "GitHub", "organization": "my-organization"}'
 
 3. Add at least one participant (e.g. a github user) who will be submitting bug fixes during this campaign:
 
-       curl -u "theAdminUsername:myAdminPassword" -X PUT http://localhost:7777/admin/participant/add -d '{ "scpName": "GitHub", "campaignName": "myCampaignName", "loginName": "mygithubid"}'
+       curl -u "theAdminUsername:theAdminPassword" -X PUT http://localhost:7777/admin/participant/add -d '{ "scpName": "GitHub", "campaignName": "myCampaignName", "loginName": "mygithubid"}'
 
 To verify things are working, have the GitHub user ("mygithubid" in this example) generate a Pull Request against a 
 repository owned by the organization we added ("my-organization" in this example).
