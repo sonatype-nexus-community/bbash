@@ -278,10 +278,6 @@ func (p *BBashDB) ValidOrganization(msg *types.ScoringMessage) (orgExists bool, 
 		p.logger.Error("organization read error", zap.Any("msg", msg), zap.Error(err))
 		return
 	}
-	if !orgExists {
-		p.logger.Debug("organization is not valid",
-			zap.String("scp", msg.EventSource), zap.String("RepoOwner", msg.RepoOwner), zap.Error(err))
-	}
 	return
 }
 
