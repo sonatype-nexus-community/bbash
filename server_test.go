@@ -59,8 +59,8 @@ func resetEnvVarPGHost(t *testing.T, origEnvPGHost string) {
 
 // multiple mock kludge counters
 var insertBugGuidCount int
-var priorScoreCallCount int
-var updateScoreLastDelta int
+var priorScoreCallCount float64
+var updateScoreLastDelta float64
 
 type MockBBashDB struct {
 	t                *testing.T
@@ -117,7 +117,7 @@ type MockBBashDB struct {
 	selectPointValueMsg      *types.ScoringMessage
 	selectPointValueCampaign string
 	selectPointValueBugType  string
-	selectPointValueResult   int
+	selectPointValueResult   float64
 
 	updateScoreParticipant *types.ParticipantStruct
 	updateScoreDelta       int
@@ -125,7 +125,7 @@ type MockBBashDB struct {
 
 	priorScoreParticipant *types.ParticipantStruct
 	priorScoreMsg         *types.ScoringMessage
-	priorScoreResult      int
+	priorScoreResult      float64
 
 	insertScoreEvtPartier   *types.ParticipantStruct
 	insertScoreEvtMsg       *types.ScoringMessage
@@ -178,6 +178,11 @@ type MockBBashDB struct {
 
 	selectBugsResult []types.BugStruct
 	selectBugsErr    error
+
+	selectPoll    types.Poll
+	selectPollErr error
+	updatePoll    types.Poll
+	updatePollErr error
 }
 
 func (m MockBBashDB) MigrateDB(migrateSourceURL string) error {
@@ -262,7 +267,7 @@ func (m MockBBashDB) SelectParticipantsToScore(msg *types.ScoringMessage, now ti
 	return m.partiesToScoreResult, m.partiesToScoreErr
 }
 
-func (m MockBBashDB) SelectPointValue(msg *types.ScoringMessage, campaignName, bugType string) (pointValue int) {
+func (m MockBBashDB) SelectPointValue(msg *types.ScoringMessage, campaignName, bugType string) (pointValue float64) {
 	if m.assertParameters {
 		assert.Equal(m.t, m.selectPointValueMsg, msg)
 		assert.Equal(m.t, m.selectPointValueCampaign, campaignName)
@@ -271,7 +276,7 @@ func (m MockBBashDB) SelectPointValue(msg *types.ScoringMessage, campaignName, b
 	return m.selectPointValueResult
 }
 
-func (m MockBBashDB) UpdateParticipantScore(participant *types.ParticipantStruct, delta int) (err error) {
+func (m MockBBashDB) UpdateParticipantScore(participant *types.ParticipantStruct, delta float64) (err error) {
 	if m.assertParameters {
 		// multiple mock kludge
 		if priorScoreCallCount == 0 {
@@ -283,7 +288,7 @@ func (m MockBBashDB) UpdateParticipantScore(participant *types.ParticipantStruct
 	return m.updateScoreErr
 }
 
-func (m MockBBashDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints int) {
+func (m MockBBashDB) SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints float64) {
 	if m.assertParameters {
 		// multiple mock kludge
 		if priorScoreCallCount == 0 {
@@ -297,7 +302,7 @@ func (m MockBBashDB) SelectPriorScore(participantToScore *types.ParticipantStruc
 	return scoreToReturn
 }
 
-func (m MockBBashDB) InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints int) (err error) {
+func (m MockBBashDB) InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints float64) (err error) {
 	if m.assertParameters {
 		// multiple mock kludge
 		if priorScoreCallCount == 0 {
@@ -397,6 +402,24 @@ func (m MockBBashDB) UpdateBug(bug *types.BugStruct) (rowsAffected int64, err er
 
 func (m MockBBashDB) SelectBugs() (bugs []types.BugStruct, err error) {
 	return m.selectBugsResult, m.selectBugsErr
+}
+
+func (m MockBBashDB) NewPoll() types.Poll {
+	return db.NewPoll()
+}
+
+func (m MockBBashDB) UpdatePoll(poll *types.Poll) (err error) {
+	if m.assertParameters {
+		assert.Equal(m.t, m.updatePoll, poll)
+	}
+	return m.updatePollErr
+}
+
+func (m MockBBashDB) SelectPoll(poll *types.Poll) (err error) {
+	if m.assertParameters {
+		assert.Equal(m.t, m.selectPoll, poll)
+	}
+	return m.selectPollErr
 }
 
 var _ db.IBBashDB = (*MockBBashDB)(nil)
@@ -510,9 +533,9 @@ func TestSetupRoutes(t *testing.T) {
 	//assert.Equal(t, 22, len(routes))
 	// Out main() method will only print "custom" routes, ignoring defaults added by echo. such defaults are still
 	// included in the "total" route count below
-	assert.Equal(t, 176, len(routes))
+	assert.Equal(t, 199, len(routes))
 
-	assert.Equal(t, 21, customRouteCount)
+	assert.Equal(t, 22, customRouteCount)
 }
 
 const timeLayout = "2006-01-02T15:04:05.000Z"
@@ -1529,15 +1552,117 @@ func setupMockDBOrgValid(mock *MockBBashDB) {
 	mock.validOrgResult = true
 }
 
+func TestTraverseBugCountsEmpty(t *testing.T) {
+	points := float64(1)
+	scored := float64(2)
+	bugCounts := map[string]interface{}{}
+
+	err := traverseBugCounts(nil, "", &points, &scored, &bugCounts)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(1), points)
+	assert.Equal(t, float64(2), scored)
+}
+
+func TestTraverseBugCountsSimple(t *testing.T) {
+	bugType := "myBugType"
+
+	mock := newMockDb(t)
+	mock.selectPointValueBugType = bugType
+	mock.selectPointValueResult = 2
+
+	points := float64(1)
+	scored := float64(2)
+	bugCounts := map[string]interface{}{
+		bugType: float64(3),
+	}
+
+	err := traverseBugCounts(nil, "", &points, &scored, &bugCounts)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(7), points)
+	assert.Equal(t, float64(5), scored)
+}
+
+func TestTraverseBugCountsNestedMap(t *testing.T) {
+	bugType := "myBugType"
+	nestedBugType := "myNestedBugType"
+
+	mock := newMockDb(t)
+	mock.selectPointValueBugType = nestedBugType
+	mock.selectPointValueResult = 2
+
+	points := float64(1)
+	scored := float64(2)
+	mapNestedBugType := map[string]interface{}{
+		nestedBugType: float64(3),
+	}
+	bugCounts := map[string]interface{}{
+		bugType: mapNestedBugType,
+	}
+
+	err := traverseBugCounts(nil, "", &points, &scored, &bugCounts)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(7), points)
+	assert.Equal(t, float64(5), scored)
+}
+
+func TestTraverseBugCountsSimpleAndNestedMap(t *testing.T) {
+	bugType := "myBugType"
+	nestedBugType := "myNestedBugType"
+
+	mock := newMockDb(t)
+	mock.assertParameters = false
+	mock.selectPointValueResult = 2
+
+	points := float64(1)
+	scored := float64(2)
+	mapNestedBugType := map[string]interface{}{
+		nestedBugType: float64(3),
+	}
+	bugCounts := map[string]interface{}{
+		"bugTypeSimpleFirst": float64(2),
+		bugType:              mapNestedBugType,
+		"bugTypeSimpleLast":  float64(4),
+	}
+
+	err := traverseBugCounts(nil, "", &points, &scored, &bugCounts)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(19), points)
+	assert.Equal(t, float64(11), scored)
+}
+
+func TestTraverseBugCountsSimpleAndNestedMapNonClassified(t *testing.T) {
+	bugType := "myBugType"
+	nestedBugType := "myNestedBugType"
+
+	mock := newMockDb(t)
+	mock.assertParameters = false
+
+	points := float64(1)
+	scored := float64(2)
+	mapNestedBugType := map[string]interface{}{
+		nestedBugType: float64(3),
+	}
+	bugCounts := map[string]interface{}{
+		"bugTypeSimpleFirst": float64(2),
+		bugType:              mapNestedBugType,
+		"bugTypeSimpleLast":  float64(4),
+	}
+
+	err := traverseBugCounts(nil, "", &points, &scored, &bugCounts)
+	assert.NoError(t, err)
+	assert.Equal(t, float64(1), points)
+	assert.Equal(t, float64(11), scored)
+}
+
 func TestScorePointsNothing(t *testing.T) {
 	msg := &types.ScoringMessage{}
 	points := scorePoints(msg, campaign)
-	assert.Equal(t, 0, points)
+	assert.Equal(t, float64(0), points)
 }
 
-func TestScorePointsError(t *testing.T) {
+func TestScorePoints(t *testing.T) {
 	mock := newMockDb(t)
-	msg := &types.ScoringMessage{BugCounts: map[string]int{"myBugType": 1}}
+	msg := &types.ScoringMessage{BugCounts: map[string]interface{}{"myBugType": float64(1)}}
 	mock.selectPointValueMsg = msg
 	mock.selectPointValueCampaign = campaign
 	mock.selectPointValueBugType = "myBugType"
@@ -1546,93 +1671,67 @@ func TestScorePointsError(t *testing.T) {
 	_, _ = setupMockContext()
 
 	points := scorePoints(msg, campaign)
-	assert.Equal(t, 1, points)
+	assert.Equal(t, float64(1), points)
+}
+
+func TestScorePointsWithTraverseError(t *testing.T) {
+	mock := newMockDb(t)
+	msg := &types.ScoringMessage{BugCounts: map[string]interface{}{
+		"myBadBugType": "bogusValueType",
+		"myGoodugType": float64(2),
+	}}
+	mock.assertParameters = false
+	mock.selectPointValueResult = 2
+
+	_, _ = setupMockContext()
+
+	points := scorePoints(msg, campaign)
+	assert.Equal(t, float64(4), points)
 }
 
 func TestScorePointsFixedTwoThreePointers(t *testing.T) {
 	mock := newMockDb(t)
 	mock.selectPointValueResult = 3
 	bugType := "threePointBugType"
-	msg := &types.ScoringMessage{BugCounts: map[string]int{bugType: 2}}
+	msg := &types.ScoringMessage{BugCounts: map[string]interface{}{bugType: float64(2)}}
 	mock.selectPointValueMsg = msg
 	mock.selectPointValueCampaign = campaign
 	mock.selectPointValueBugType = bugType
 
 	points := scorePoints(msg, campaign)
-	assert.Equal(t, 6, points)
+	assert.Equal(t, float64(6), points)
+}
+
+func TestScorePointsWithOptMap(t *testing.T) {
+	mock := newMockDb(t)
+	mock.assertParameters = false
+	mock.selectPointValueResult = 3
+
+	// similar to this:
+	// "fixed-bug-types":{"opt":{"semgrep":{"node_password":1,"node_username":1}}}
+	mapSemGroupBugType := map[string]interface{}{"sprintf-host-port": float64(2)}
+	mapSemGrep := map[string]interface{}{"semgrep": mapSemGroupBugType}
+	mapBugTypes := map[string]interface{}{
+		"G104":       float64(1),
+		"ShellCheck": float64(1),
+		"opt":        mapSemGrep,
+	}
+	msg := types.ScoringMessage{
+		BugCounts: mapBugTypes,
+	}
+
+	points := scorePoints(&msg, campaign)
+	assert.Equal(t, float64(12), points)
 }
 
 func TestScorePointsBonusForNonClassified(t *testing.T) {
 	msg := &types.ScoringMessage{TotalFixed: 1}
 	points := scorePoints(msg, campaign)
-	assert.Equal(t, 1, points)
+	assert.Equal(t, float64(1), points)
 }
 
-func TestLogNewScoreWithError(t *testing.T) {
-	c, rec := setupMockContext()
-	err := logNewScore(c)
-	assert.EqualError(t, err, "EOF")
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestLogNewScoreNoError(t *testing.T) {
-	c, rec := setupMockContextNewScore(t, scoringAlert{})
-	err := logNewScore(c)
-	assert.Nil(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func setupMockContextNewScore(t *testing.T, alert scoringAlert) (c echo.Context, rec *httptest.ResponseRecorder) {
-	e := echo.New()
-	alertBytes, err := json.Marshal(alert)
-	assert.NoError(t, err)
-	alertJson := string(alertBytes)
-	req := httptest.NewRequest(http.MethodPost, New, strings.NewReader(alertJson))
-	rec = httptest.NewRecorder()
-	c = e.NewContext(req, rec)
-	return
-}
-
-func TestNewScoreMalformedAlert(t *testing.T) {
-	e := echo.New()
-	req := httptest.NewRequest(http.MethodPost, New, strings.NewReader("notAnAlert"))
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	err := newScore(c)
-	assert.EqualError(t, err, "invalid character 'o' in literal null (expecting 'u')")
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestNewScoreEmptyAlert(t *testing.T) {
-	c, rec := setupMockContextNewScore(t, scoringAlert{})
-	err := newScore(c)
-	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestNewScoreOneAlertInvalidScoringMessage(t *testing.T) {
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{"badScoringMessage"},
-	})
-	err := newScore(c)
-	assert.EqualError(t, err, "invalid character 'b' looking for beginning of value")
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
-}
-
-func TestNewScoreOneAlertInvalidScore_Error(t *testing.T) {
+func TestProcessScoringMessageInvalidScore_Error(t *testing.T) {
 	msg := types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1642,20 +1741,12 @@ func TestNewScoreOneAlertInvalidScore_Error(t *testing.T) {
 	forcedError := fmt.Errorf("forced validScore error")
 	mock.validOrgErr = forcedError
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, &msg)
 	assert.EqualError(t, err, forcedError.Error())
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
+func TestProcessScoringMessageInvalidScore_NoTriggerUserFound(t *testing.T) {
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1666,50 +1757,34 @@ func TestNewScoreOneAlertInvalidScore_NoTriggerUserFound(t *testing.T) {
 	// caller users Time.now(), so don't assert time parameter
 	mock.partiesToScoreNowSkip = true
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlertUserCapitalizationMismatch(t *testing.T) {
-	loginName := "MYGithubName"
+func TestProcessScoringMessageUserCapitalizationMismatch(t *testing.T) {
+	loginNameWithCaps := "MYGithubName"
 	//loginNameLowerCase := strings.ToLower(loginName)
 	repoName := "myRepoName"
 	prId := -5
-	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
+	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginNameWithCaps, RepoName: repoName, PullRequest: prId}
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
 	msgLowerCase := msg
-	msgLowerCase.TriggerUser = strings.ToLower(loginName)
+	msgLowerCase.TriggerUser = strings.ToLower(loginNameWithCaps)
 	mock.validOrgParam = msgLowerCase
 	mock.partiesToScoreMsg = msgLowerCase
 	// caller users Time.now(), so don't assert time parameter
 	mock.partiesToScoreNowSkip = true
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreOneAlert(t *testing.T) {
+func TestProcessScoringMessageOne(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1720,23 +1795,15 @@ func TestNewScoreOneAlert(t *testing.T) {
 	// caller users Time.now(), so don't assert time parameter
 	mock.partiesToScoreNowSkip = true
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreTwoParticipantsToScore(t *testing.T) {
+func TestProcessScoringMessageTwoParticipantsToScore(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName,
 		RepoName: repoName, PullRequest: prId, TotalFixed: 2}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1769,23 +1836,15 @@ func TestNewScoreTwoParticipantsToScore(t *testing.T) {
 	mock.insertScoreEvtMsg = msg
 	mock.insertScoreEvtNewPoints = 2
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
-	assert.Equal(t, -3, updateScoreLastDelta)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
+	assert.Equal(t, float64(-3), updateScoreLastDelta)
 }
 
-func TestNewScoreParticipantPriorScoreError(t *testing.T) {
+func TestProcessScoringMessageParticipantPriorScoreError(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1812,22 +1871,14 @@ func TestNewScoreParticipantPriorScoreError(t *testing.T) {
 	forcedError := fmt.Errorf("forced prior score error")
 	mock.insertScoreEvtErr = forcedError
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.EqualError(t, err, forcedError.Error())
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreParticipantUpdateScoreError(t *testing.T) {
+func TestProcessScoringMessageParticipantUpdateScoreError(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1856,23 +1907,15 @@ func TestNewScoreParticipantUpdateScoreError(t *testing.T) {
 	forcedError := fmt.Errorf("forced update participant score error")
 	mock.updateScoreErr = forcedError
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.EqualError(t, err, forcedError.Error())
-	assert.Equal(t, 0, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
-func TestNewScoreParticipant(t *testing.T) {
+func TestProcessScoringMessageParticipant(t *testing.T) {
 	repoName := "myRepoName"
 	prId := -5
 	msg := &types.ScoringMessage{EventSource: db.TestEventSourceValid, RepoOwner: db.TestOrgValid, TriggerUser: loginName, RepoName: repoName, PullRequest: prId,
-		BugCounts: map[string]int{category: 2}}
-	scoringMsgBytes, err := json.Marshal(msg)
-	assert.NoError(t, err)
-	scoringMsgJson := string(scoringMsgBytes)
-	c, rec := setupMockContextNewScore(t, scoringAlert{
-		RecentHits: []string{scoringMsgJson},
-	})
+		BugCounts: map[string]interface{}{category: float64(2)}}
 
 	mock := newMockDb(t)
 	setupMockDBOrgValid(mock)
@@ -1907,10 +1950,8 @@ func TestNewScoreParticipant(t *testing.T) {
 	mock.updateScoreParticipant = &mock.partiesToScoreResult[0]
 	mock.updateScoreDelta = 4
 
-	err = newScore(c)
+	err := processScoringMessage(mock, now, msg)
 	assert.NoError(t, err)
-	assert.Equal(t, http.StatusAccepted, c.Response().Status)
-	assert.Equal(t, "", rec.Body.String())
 }
 
 func TestGetSourceControlProvidersQueryError(t *testing.T) {
@@ -2124,4 +2165,41 @@ func TestLogTelemetryNoQueryParameters(t *testing.T) {
 
 	logger = zaptest.NewLogger(t)
 	logTelemetry(c)
+}
+
+func TestProcessScoringMessage(t *testing.T) {
+	mock := newMockDb(t)
+	setupMockDBOrgValid(mock)
+
+	mock.assertParameters = false
+	now := time.Now()
+	// caller users Time.now(), so don't assert time parameter
+	//mock.partiesToScoreNowSkip = true
+	mock.partiesToScoreNow = now
+	mock.partiesToScoreResult = []types.ParticipantStruct{
+		{
+			ID:           "someId",
+			CampaignName: "someCampaign",
+			ScpName:      "someSCP",
+			LoginName:    "someLoginName",
+		},
+	}
+
+	mapSprintf := map[string]interface{}{
+		"sprintf-host-port": float64(2),
+	}
+	mapSemGrep := map[string]interface{}{
+		"semgrep": mapSprintf,
+	}
+	mapBugTypes := map[string]interface{}{
+		"opt":        mapSemGrep,
+		"G104":       float64(1),
+		"ShellCheck": float64(1),
+	}
+
+	msg := &types.ScoringMessage{
+		BugCounts: mapBugTypes,
+	}
+	err := processScoringMessage(mock, now, msg)
+	assert.NoError(t, err)
 }

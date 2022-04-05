@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/sonatype-nexus-community/bbash/internal/db"
+	"github.com/sonatype-nexus-community/bbash/internal/poll"
 	"github.com/sonatype-nexus-community/bbash/internal/types"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -40,6 +41,7 @@ import (
 )
 
 var postgresDB db.IBBashDB
+var pollDB db.IDBPoll
 
 type creationResponse struct {
 	Id        string                 `json:"guid"`
@@ -50,10 +52,6 @@ type creationResponse struct {
 type endpointDetail struct {
 	URI  string `json:"uri"`
 	Verb string `json:"httpVerb"`
-}
-
-type scoringAlert struct {
-	RecentHits []string `json:"recent_hits"` // encoded scoring message
 }
 
 const (
@@ -78,8 +76,7 @@ const (
 	Person                string = "/person"
 	Bug                   string = "/bug"
 	Campaign              string = "/campaign"
-	ScoreEvent            string = "/scoring"
-	New                   string = "/new"
+	Poll                  string = "/poll"
 	buildLocation         string = "build"
 )
 
@@ -97,6 +94,8 @@ const envLogFilterIncludeHostname = "LOG_FILTER_INCLUDE_HOSTNAME"
 
 var errRecovered error
 var logger *zap.Logger
+
+var stopPoll chan bool
 
 func main() {
 	e := echo.New()
@@ -169,7 +168,66 @@ func main() {
 
 	setupRoutes(e, buildInfoMessage)
 
+	// polling voodoo
+	var errChan chan error
+	stopPoll, errChan, err = beginLogPolling(pg, postgresDB, logger)
+	defer func() {
+		close(stopPoll)
+		pollErr := <-errChan
+		logger.Error("defer poll error", zap.Error(pollErr))
+	}()
+
 	logger.Fatal("application end", zap.Error(e.Start(defaultServicePort)))
+}
+
+func beginLogPolling(pg *sql.DB, scoreDb db.IScoreDB, logger *zap.Logger) (quit chan bool, errChan chan error, err error) {
+	err = godotenv.Load(".env.dd")
+	if err != nil {
+		logger.Error(".env.dd load error", zap.Error(err))
+	}
+
+	var pollDogIntervalSeconds int
+	pollDogIntervalSeconds, err = strconv.Atoi(os.Getenv("DD_CLIENT_POLL_SECONDS"))
+	if err != nil {
+		pollDogIntervalSeconds = 120
+		logger.Info("missing env var DD_CLIENT_POLL_SECONDS, using default",
+			zap.Int("pollDogIntervalSeconds", pollDogIntervalSeconds),
+			zap.Error(err),
+		)
+	}
+
+	pollDB = db.NewDBPoll(pg, logger)
+	quit, errChan = poll.ChaseTail(pollDB, scoreDb, time.Duration(pollDogIntervalSeconds), processScoringMessage)
+	return
+}
+
+//goland:noinspection GoUnusedParameter
+func stopPolling(c echo.Context) (err error) {
+	close(stopPoll)
+	return
+}
+
+func setPollDate(c echo.Context) (err error) {
+	pollFromRequest := types.Poll{}
+	err = json.NewDecoder(c.Request().Body).Decode(&pollFromRequest)
+	if err != nil {
+		return
+	}
+
+	pollFromDb := pollDB.NewPoll()
+	err = pollDB.SelectPoll(&pollFromDb)
+	if err != nil {
+		return
+	}
+
+	pollFromDb.LastPolled = pollFromRequest.LastPolled
+	err = pollDB.UpdatePoll(&pollFromDb)
+	if err != nil {
+		return
+	}
+
+	logger.Info("set poll", zap.Any("poll", pollFromDb))
+	return
 }
 
 func setupRoutes(e *echo.Echo, buildInfoMessage string) (customRouteCount int) {
@@ -238,11 +296,11 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) (customRouteCount int) {
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Add, ParamCampaignName), addCampaign)
 	campaignGroup.PUT(fmt.Sprintf("%s/:%s", Update, ParamCampaignName), updateCampaign)
 
-	// Scoring related endpoints and group
-	// @TODO put this endpoint behind some auth, and update lift log scraper
-	//scoreGroup := adminGroup.Group(ScoreEvent)
-	scoreGroup := e.Group(ScoreEvent)
-	scoreGroup.POST(New, logNewScore)
+	// Poll related endpoints and group
+
+	pollGroup := adminGroup.Group(Poll)
+	pollGroup.PUT("/last", setPollDate)
+	pollGroup.DELETE("/stop", stopPolling)
 
 	e.Static("/", buildLocation)
 
@@ -438,88 +496,77 @@ func validScore(msg *types.ScoringMessage, now time.Time) (participantsToScore [
 	return
 }
 
-func scorePoints(msg *types.ScoringMessage, campaignName string) (points int) {
+func scorePoints(msg *types.ScoringMessage, campaignName string) (points float64) {
 	points = 0
-	scored := 0
+	scored := float64(0)
 
-	for bugType, count := range msg.BugCounts {
-		value := postgresDB.SelectPointValue(msg, campaignName, bugType)
-		points += count * value
-		scored += count
+	err := traverseBugCounts(msg, campaignName, &points, &scored, &msg.BugCounts)
+	if err != nil {
+		logger.Error("error traversing bugCounts", zap.Error(err), zap.Any("msg", msg))
 	}
 
 	// add 1 point for all non-classified fixed bugs
-	if scored < msg.TotalFixed {
-		points += msg.TotalFixed - scored
+	if scored < float64(msg.TotalFixed) {
+		points += float64(msg.TotalFixed) - scored
 	}
 
 	return
 }
 
-// was not seeing enough detail when newScore() returns error, so capturing such cases in the log.
-func logNewScore(c echo.Context) (err error) {
-	if err = newScore(c); err != nil {
-		logger.Error("error calling newScore", zap.Error(err))
+func traverseBugCounts(msg *types.ScoringMessage, campaignName string,
+	points, scored *float64, bugTypes *map[string]interface{}) (err error) {
+
+	for bugType, bugValue := range *bugTypes {
+		switch v := bugValue.(type) {
+		case float64:
+			value := postgresDB.SelectPointValue(msg, campaignName, bugType)
+			*points += v * value
+			*scored += v
+		case map[string]interface{}:
+			// oh joy, recursion.
+			err = traverseBugCounts(msg, campaignName, points, scored, &v)
+		default:
+			err = fmt.Errorf("bugType: %+v has unexpected bugValue type: %+v", bugType, v)
+			logger.Error("traverseBugCounts", zap.Error(err), zap.Any("msg", msg))
+		}
 	}
 	return
 }
 
-func newScore(c echo.Context) (err error) {
-	var alert scoringAlert
-	err = json.NewDecoder(c.Request().Body).Decode(&alert)
+func processScoringMessage(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (err error) {
+	// force triggerUser to lower case to match database values
+	msg.TriggerUser = strings.ToLower(msg.TriggerUser)
+
+	// if this particular entry is not valid, ignore it and continue processing
+	var activeParticipantsToScore []types.ParticipantStruct
+	activeParticipantsToScore, err = validScore(msg, now)
 	if err != nil {
+		logger.Debug("error validating ScoringMessage", zap.Error(err), zap.Any("msg", msg))
 		return
 	}
-
-	//logger.Debug("scoring event", zap.Any("scoringAlert", alert))
-
-	now := time.Now()
-
-	for _, rawMsg := range alert.RecentHits {
-		var msg types.ScoringMessage
-		err = json.Unmarshal([]byte(rawMsg), &msg)
-		if err != nil {
-			logger.Debug("error unmarshalling ScoringMessage",
-				zap.Error(err), zap.String("rawMsg", rawMsg))
-			return
-		}
-		// force triggerUser to lower case to match database values
-		msg.TriggerUser = strings.ToLower(msg.TriggerUser)
-
-		// if this particular entry is not valid, ignore it and continue processing
-		var activeParticipantsToScore []types.ParticipantStruct
-		activeParticipantsToScore, err = validScore(&msg, now)
-		if err != nil {
-			logger.Debug("error validating ScoringMessage", zap.Error(err), zap.Any("msg", msg))
-			return
-		}
-		if len(activeParticipantsToScore) == 0 {
-			continue
-		}
-		for _, participantToScore := range activeParticipantsToScore {
-
-			newPoints := scorePoints(&msg, participantToScore.CampaignName)
-
-			oldPoints := postgresDB.SelectPriorScore(&participantToScore, &msg)
-
-			err = postgresDB.InsertScoringEvent(&participantToScore, &msg, newPoints)
-			if err != nil {
-				return
-			}
-
-			err = postgresDB.UpdateParticipantScore(&participantToScore, newPoints-oldPoints)
-			if err != nil {
-				return
-			}
-
-			logger.Debug("score updated",
-				zap.Int("newPoints", newPoints), zap.Int("oldPoints", oldPoints), zap.Any("ScoringMessage", msg))
-		}
+	if len(activeParticipantsToScore) == 0 {
+		return
 	}
+	for _, participantToScore := range activeParticipantsToScore {
 
-	logger.Debug("scoringAlert completed", zap.Any("alert", alert))
+		newPoints := scorePoints(msg, participantToScore.CampaignName)
 
-	return c.NoContent(http.StatusAccepted)
+		oldPoints := scoreDb.SelectPriorScore(&participantToScore, msg)
+
+		err = scoreDb.InsertScoringEvent(&participantToScore, msg, newPoints)
+		if err != nil {
+			return
+		}
+
+		err = scoreDb.UpdateParticipantScore(&participantToScore, newPoints-oldPoints)
+		if err != nil {
+			return
+		}
+
+		logger.Debug("score updated",
+			zap.Float64("newPoints", newPoints), zap.Float64("oldPoints", oldPoints), zap.Any("ScoringMessage", msg))
+	}
+	return
 }
 
 func getParticipantDetail(c echo.Context) (err error) {

@@ -55,14 +55,17 @@ func TestMigrateDBErrorMigrateUp(t *testing.T) {
 	mock.ExpectQuery(`SELECT CURRENT_SCHEMA()`).
 		WillReturnRows(sqlmock.NewRows([]string{"col1"}).FromCSVString("theDatabaseSchema"))
 
-	//args = []driver.Value{"1014225327"}
-	args := []driver.Value{"1014225327"}
+	// this value may change when version of migrate is upgraded
+	args := []driver.Value{"1560208929"}
 	mock.ExpectExec(convertSqlToDbMockExpect(`SELECT pg_advisory_lock($1)`)).
 		WithArgs(args...).
 		//WithArgs(sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
-	mock.ExpectExec(convertSqlToDbMockExpect(`CREATE TABLE IF NOT EXISTS "schema_migrations" (version bigint not null primary key, dirty boolean not null)`)).
+	mock.ExpectQuery(convertSqlToDbMockExpect(`SELECT COUNT(1) FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2 LIMIT 1`)).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	mock.ExpectExec(convertSqlToDbMockExpect(`CREATE TABLE IF NOT EXISTS "theDatabaseSchema"."schema_migrations" (version bigint not null primary key, dirty boolean not null)`)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	mock.ExpectExec(convertSqlToDbMockExpect(`SELECT pg_advisory_unlock($1)`)).
@@ -538,7 +541,7 @@ func TestSelectPointValueScanError(t *testing.T) {
 	msg := &types.ScoringMessage{EventSource: TestEventSourceValid, RepoOwner: TestOrgValid, TriggerUser: loginName}
 
 	participantsToScore := db.SelectPointValue(msg, testCampaign.Name, testBugType)
-	assert.Equal(t, 1, participantsToScore)
+	assert.Equal(t, float64(1), participantsToScore)
 }
 
 func TestSelectPointValueRead(t *testing.T) {
@@ -552,7 +555,7 @@ func TestSelectPointValueRead(t *testing.T) {
 	msg := &types.ScoringMessage{EventSource: TestEventSourceValid, RepoOwner: TestOrgValid, TriggerUser: loginName}
 
 	participantsToScore := db.SelectPointValue(msg, testCampaign.Name, testBugType)
-	assert.Equal(t, 5, participantsToScore)
+	assert.Equal(t, float64(5), participantsToScore)
 }
 
 const testParticipantGuid = "testParticipantGuid"
@@ -563,7 +566,7 @@ func TestUpdateParticipantScoreError(t *testing.T) {
 
 	forcedError := fmt.Errorf("forced update score error")
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(0, testParticipantGuid).
+		WithArgs(float64(0), testParticipantGuid).
 		WillReturnError(forcedError)
 
 	err := db.UpdateParticipantScore(&types.ParticipantStruct{ID: testParticipantGuid}, 0)
@@ -575,7 +578,7 @@ func TestUpdateParticipantScoreZero(t *testing.T) {
 	defer closeDbFunc()
 
 	mock.ExpectQuery(convertSqlToDbMockExpect(sqlUpdateParticipantScore)).
-		WithArgs(0, testParticipantGuid).
+		WithArgs(float64(0), testParticipantGuid).
 		WillReturnRows(sqlmock.NewRows([]string{"score"}).AddRow(3))
 
 	assert.NoError(t, db.UpdateParticipantScore(&types.ParticipantStruct{ID: testParticipantGuid}, 0))
@@ -599,7 +602,7 @@ func TestSelectPriorScoreError(t *testing.T) {
 		WillReturnError(forcedError)
 
 	oldPoints := db.SelectPriorScore(testParticipant, msg)
-	assert.Equal(t, 0, oldPoints)
+	assert.Equal(t, float64(0), oldPoints)
 }
 
 func TestSelectPriorScore(t *testing.T) {
@@ -619,7 +622,7 @@ func TestSelectPriorScore(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"score"}).AddRow(-2))
 
 	oldPoints := db.SelectPriorScore(testParticipant, msg)
-	assert.Equal(t, -2, oldPoints)
+	assert.Equal(t, float64(-2), oldPoints)
 }
 
 func TestInsertScoringEventError(t *testing.T) {
@@ -634,7 +637,7 @@ func TestInsertScoringEventError(t *testing.T) {
 
 	msg := &types.ScoringMessage{RepoOwner: TestOrgValid, RepoName: "testRepoName", TriggerUser: loginName, PullRequest: -1}
 
-	const newPoints = 11
+	const newPoints = float64(11)
 
 	forcedError := fmt.Errorf("forced insert score error")
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
@@ -656,7 +659,7 @@ func TestInsertScoringEvent(t *testing.T) {
 
 	msg := &types.ScoringMessage{RepoOwner: TestOrgValid, RepoName: "testRepoName", TriggerUser: loginName, PullRequest: -1}
 
-	const newPoints = 11
+	const newPoints = float64(11)
 
 	mock.ExpectExec(convertSqlToDbMockExpect(sqlInsertScoringEvent)).
 		WithArgs(testParticipant.CampaignName, testParticipant.ScpName, msg.RepoOwner, msg.RepoName, msg.PullRequest, msg.TriggerUser, newPoints).
