@@ -1,6 +1,6 @@
 {
   "name": "bbash",
-  "version": "0.0.69",
+  "version": "0.0.70",
   "description": "[![sonatype-nexus-community](https://circleci.com/gh/sonatype-nexus-community/bbash.svg?style=shield)](https://circleci.com/gh/sonatype-nexus-community/bbash) # BBash",
   "main": "index.js",
   "scripts": {
