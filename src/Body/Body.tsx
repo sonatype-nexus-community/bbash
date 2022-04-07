@@ -16,6 +16,7 @@
 import React, {useState} from "react";
 import CampaignSelect, {Campaign} from "./CampaignSelect";
 import LeaderBoard from "./LeaderBoard";
+import Instructions from "./Instructions";
 
 const Body = () => {
 
@@ -27,6 +28,7 @@ const Body = () => {
             <h1>Welcome to the Bug Bash!</h1>
             <CampaignSelect setSelectedCampaign={setSelectedCampaign}/>
             <LeaderBoard selectedCampaign={selectedCampaign}/>
+            <Instructions/>
         </>
     }
 
