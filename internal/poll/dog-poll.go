@@ -292,6 +292,7 @@ type ddLog struct {
 // ChaseTail will loop every given interval, polling dataDog for new scoring data
 func ChaseTail(pollDb db.IDBPoll, scoreDb db.IScoreDB, seconds time.Duration, processScoringMessage func(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (pollErr error)) (quit chan bool, errChan chan error) {
 	logger = pollDb.GetLogger()
+	logger.Info("poll ticker starting", zap.Duration("chase tail seconds", seconds))
 	ticker := time.NewTicker(seconds * time.Second)
 	quit = make(chan bool)
 

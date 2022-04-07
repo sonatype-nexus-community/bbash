@@ -30,6 +30,7 @@ import (
 )
 
 type IScoreDB interface {
+	GetDb() (db *sql.DB)
 	SelectPriorScore(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage) (oldPoints float64)
 	InsertScoringEvent(participantToScore *types.ParticipantStruct, msg *types.ScoringMessage, newPoints float64) (err error)
 	UpdateParticipantScore(participant *types.ParticipantStruct, delta float64) (err error)
@@ -79,6 +80,10 @@ var _ IBBashDB = (*BBashDB)(nil)
 
 func New(db *sql.DB, logger *zap.Logger) *BBashDB {
 	return &BBashDB{db: db, logger: logger}
+}
+
+func (p *BBashDB) GetDb() (db *sql.DB) {
+	return p.db
 }
 
 func (p *BBashDB) MigrateDB(migrateSourceURL string) (err error) {

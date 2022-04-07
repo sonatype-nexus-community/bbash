@@ -17,6 +17,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/labstack/echo/v4"
@@ -65,6 +66,8 @@ var updateScoreLastDelta float64
 type MockBBashDB struct {
 	t                *testing.T
 	assertParameters bool
+
+	mockDb *sql.DB
 
 	migrateDbSourceURL string
 	migrateDbErr       error
@@ -183,6 +186,10 @@ type MockBBashDB struct {
 	selectPollErr error
 	updatePoll    types.Poll
 	updatePollErr error
+}
+
+func (m MockBBashDB) GetDb() (db *sql.DB) {
+	return m.mockDb
 }
 
 func (m MockBBashDB) MigrateDB(migrateSourceURL string) error {
@@ -533,9 +540,9 @@ func TestSetupRoutes(t *testing.T) {
 	//assert.Equal(t, 22, len(routes))
 	// Out main() method will only print "custom" routes, ignoring defaults added by echo. such defaults are still
 	// included in the "total" route count below
-	assert.Equal(t, 199, len(routes))
+	assert.Equal(t, 200, len(routes))
 
-	assert.Equal(t, 22, customRouteCount)
+	assert.Equal(t, 23, customRouteCount)
 }
 
 const timeLayout = "2006-01-02T15:04:05.000Z"
@@ -2201,5 +2208,123 @@ func TestProcessScoringMessage(t *testing.T) {
 		BugCounts: mapBugTypes,
 	}
 	err := processScoringMessage(mock, now, msg)
+	assert.NoError(t, err)
+}
+
+func TestBeginLogPolling(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	_, sqlDb, closeDbFunc := db.SetupMockDB(t)
+	defer closeDbFunc()
+	// side effect: set up the postgresDB var
+	scoreDB = sqlDb
+
+	quit, errChan, err := beginLogPolling()
+	defer func() {
+		//close(quit)
+		//close(errChan)
+	}()
+	assert.NoError(t, err)
+	assert.NotNil(t, quit)
+	assert.NotNil(t, errChan)
+}
+
+func closePollIfSet() {
+	if stopPoll != nil {
+		close(stopPoll)
+	}
+}
+func TestRestartPolling(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	_, sqlDb, closeDbFunc := db.SetupMockDB(t)
+	defer closeDbFunc()
+	// side effect: set up the postgresDB var
+	scoreDB = sqlDb
+
+	// fake stopPolling chan
+	closePollIfSet()
+	stopPoll = make(chan bool)
+
+	err := restartPolling(nil)
+	assert.NoError(t, err)
+	assert.NotNil(t, stopPoll)
+}
+
+func TestStopPolling(t *testing.T) {
+	// fake stopPolling chan
+	closePollIfSet()
+	stopPoll = make(chan bool)
+
+	assert.NoError(t, stopPolling(nil))
+	assert.Nil(t, stopPoll)
+	// allow time for poll channel to finish logging during shutdown
+	time.Sleep(1 * time.Second)
+}
+
+func TestSetPollDateEmptyBody(t *testing.T) {
+	e := echo.New()
+	req := httptest.NewRequest("", "/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	assert.EqualError(t, setPollDate(c), "EOF")
+}
+
+func setupMockContextPollDate(t *testing.T, poll types.Poll) echo.Context {
+	logger = zaptest.NewLogger(t)
+
+	e := echo.New()
+
+	bodyBytes, err := json.Marshal(poll)
+	assert.NoError(t, err)
+	req := httptest.NewRequest("", "/", strings.NewReader(string(bodyBytes)))
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	return c
+}
+
+func TestSetPollDateSelectError(t *testing.T) {
+	c := setupMockContextPollDate(t, types.Poll{})
+
+	mock, dbFake, closeDbFunc := db.SetupMockDB(t)
+	defer closeDbFunc()
+	// side effect: set up the postgresDB var
+	scoreDB = dbFake
+	pollDB = db.NewDBPoll(scoreDB.GetDb(), logger)
+
+	forcedError := fmt.Errorf("forced select poll error")
+	db.SetupMockPollSelectForcedError(mock, forcedError, "1")
+
+	assert.EqualError(t, setPollDate(c), forcedError.Error())
+}
+
+func TestSetPollDateUpdateError(t *testing.T) {
+	c := setupMockContextPollDate(t, types.Poll{})
+
+	mock, dbFake, closeDbFunc := db.SetupMockDB(t)
+	defer closeDbFunc()
+	// side effect: set up the postgresDB var
+	scoreDB = dbFake
+	pollDB = db.NewDBPoll(scoreDB.GetDb(), logger)
+
+	db.SetupMockPollSelectAndUpdate(mock, "1", now, 1)
+
+	err := setPollDate(c)
+	assert.True(t, strings.HasPrefix(err.Error(), "ExecQuery 'UPDATE poll"))
+}
+
+func TestSetPollDate(t *testing.T) {
+	c := setupMockContextPollDate(t, types.Poll{})
+
+	mock, dbFake, closeDbFunc := db.SetupMockDB(t)
+	defer closeDbFunc()
+	// side effect: set up the postgresDB var
+	scoreDB = dbFake
+	pollDB = db.NewDBPoll(scoreDB.GetDb(), logger)
+
+	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, "1", now, 1)
+
+	err := setPollDate(c)
 	assert.NoError(t, err)
 }

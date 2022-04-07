@@ -41,6 +41,7 @@ import (
 )
 
 var postgresDB db.IBBashDB
+var scoreDB db.IScoreDB
 var pollDB db.IDBPoll
 
 type creationResponse struct {
@@ -168,10 +169,11 @@ func main() {
 
 	setupRoutes(e, buildInfoMessage)
 
+	scoreDB = postgresDB
 	if os.Getenv("DISABLE_DATADOG_POLL") == "" {
 		// polling voodoo
 		var errChan chan error
-		stopPoll, errChan, err = beginLogPolling(pg, postgresDB, logger)
+		stopPoll, errChan, err = beginLogPolling()
 		defer func() {
 			close(stopPoll)
 			pollErr := <-errChan
@@ -182,10 +184,12 @@ func main() {
 	logger.Fatal("application end", zap.Error(e.Start(defaultServicePort)))
 }
 
-func beginLogPolling(pg *sql.DB, scoreDb db.IScoreDB, logger *zap.Logger) (quit chan bool, errChan chan error, err error) {
+func beginLogPolling() (quit chan bool, errChan chan error, err error) {
 	err = godotenv.Load(".env.dd")
 	if err != nil {
 		logger.Error(".env.dd load error", zap.Error(err))
+		// clear error from load .env.dd file
+		err = nil
 	}
 
 	var pollDogIntervalSeconds int
@@ -196,16 +200,28 @@ func beginLogPolling(pg *sql.DB, scoreDb db.IScoreDB, logger *zap.Logger) (quit 
 			zap.Int("pollDogIntervalSeconds", pollDogIntervalSeconds),
 			zap.Error(err),
 		)
+		// clear error from read env var
+		err = nil
 	}
 
-	pollDB = db.NewDBPoll(pg, logger)
-	quit, errChan = poll.ChaseTail(pollDB, scoreDb, time.Duration(pollDogIntervalSeconds), processScoringMessage)
+	pollDB = db.NewDBPoll(scoreDB.GetDb(), logger)
+	quit, errChan = poll.ChaseTail(pollDB, scoreDB, time.Duration(pollDogIntervalSeconds), processScoringMessage)
+	return
+}
+
+//goland:noinspection GoUnusedParameter
+func restartPolling(c echo.Context) (err error) {
+	if stopPoll != nil {
+		close(stopPoll)
+	}
+	stopPoll, _, err = beginLogPolling()
 	return
 }
 
 //goland:noinspection GoUnusedParameter
 func stopPolling(c echo.Context) (err error) {
 	close(stopPoll)
+	stopPoll = nil
 	return
 }
 
@@ -303,6 +319,7 @@ func setupRoutes(e *echo.Echo, buildInfoMessage string) (customRouteCount int) {
 	pollGroup := adminGroup.Group(Poll)
 	pollGroup.PUT("/last", setPollDate)
 	pollGroup.DELETE("/stop", stopPolling)
+	pollGroup.GET("/restart", restartPolling)
 
 	e.Static("/", buildLocation)
 

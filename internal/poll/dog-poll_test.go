@@ -21,6 +21,7 @@ package poll
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"github.com/DataDog/datadog-api-client-go/api/v2/datadog"
@@ -668,6 +669,11 @@ type MockScoreDB struct {
 	updateScoreParticipant *types.ParticipantStruct
 	updateScoreDelta       float64
 	updateScoreError       error
+}
+
+func (m MockScoreDB) GetDb() (db *sql.DB) {
+	//TODO implement me
+	panic("implement me")
 }
 
 func createMockScoreDb(t *testing.T) (scoreDb *MockScoreDB) {
