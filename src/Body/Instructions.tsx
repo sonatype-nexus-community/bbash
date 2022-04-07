@@ -24,7 +24,7 @@ const Instructions = () => {
                 <ol>
                     <li>Install Lift at <a href="https://lift.sonatype.com">lift.sonatype.com</a></li>
                     <li>Pick a Project</li>
-                    <li>Review the project their guidelines</li>
+                    <li>Review the project contributing guidelines</li>
                     <li>Find a Bug in the Bug List</li>
                     <li>Smash the Bug</li>
                     <li>Win Points</li>
