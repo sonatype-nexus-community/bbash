@@ -168,14 +168,16 @@ func main() {
 
 	setupRoutes(e, buildInfoMessage)
 
-	// polling voodoo
-	var errChan chan error
-	stopPoll, errChan, err = beginLogPolling(pg, postgresDB, logger)
-	defer func() {
-		close(stopPoll)
-		pollErr := <-errChan
-		logger.Error("defer poll error", zap.Error(pollErr))
-	}()
+	if os.Getenv("DISABLE_DATADOG_POLL") == "" {
+		// polling voodoo
+		var errChan chan error
+		stopPoll, errChan, err = beginLogPolling(pg, postgresDB, logger)
+		defer func() {
+			close(stopPoll)
+			pollErr := <-errChan
+			logger.Error("defer poll error", zap.Error(pollErr))
+		}()
+	}
 
 	logger.Fatal("application end", zap.Error(e.Start(defaultServicePort)))
 }

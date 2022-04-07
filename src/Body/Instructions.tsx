@@ -22,7 +22,7 @@ const Instructions = () => {
             <h3>How to Play</h3>
             <div>
                 <ol>
-                    <li>Install Lift at <a href="https://lift.sonatype.com">lift.sonatype.com</a></li>
+                    <li>Install Lift at <a href="https://lift.sonatype.com">lift.sonatype.com</a> (see also: <a href="https://help.sonatype.com/lift/getting-started">Lift - Getting Started</a>)</li>
                     <li>Pick a Project</li>
                     <li>Review the project contributing guidelines</li>
                     <li>Find a Bug in the Bug List</li>
