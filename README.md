@@ -26,7 +26,7 @@ Tooling to enable a Bug Bash
 
 To get started with this project you will need:
 
-- Golang (project started using Go 1.16.2, but likely anything above 1.14 is fine)
+- Golang (project started using Go 1.16.2, but likely anything above 1.14 is fine). Using 1.17.8 now.
 - Air
 
 To install air:
