@@ -157,6 +157,7 @@ With all the above configured, here's the deployment command in full:
 
 * [Echo](https://echo.labstack.com) web framework. [repo](https://github.com/labstack/echo)
 * [How To Run A Campaign](docs/howto-create-campaign.md)
+* Locally runnable [CI docs](.circleci/circleci-readme.md) 
 
 ## The Fine Print
 
