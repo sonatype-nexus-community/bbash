@@ -56,7 +56,7 @@ cp .env.example .env
 make run-air
 ```
 
-For some fun interactive debugging with [server.go](./server.go), you could spin up the local docker db image, and manually run
+For some fun interactive debugging of the golang app with [server.go](./server.go), you could spin up the local docker db image, and manually run
 the server in debug mode. See the [Makefile](./Makefile) for the latest and greatest commands to cherry-pick.
 ```shell
 $ docker run --name bug_bash_postgres -p 5432:5432 -e POSTGRES_PASSWORD=bug_bash -e POSTGRES_DB=db -d postgres
@@ -65,7 +65,7 @@ b6ac8769bab3b19b3e5818e726272bcee6957863b9a7af4261a0ae29ec5bc68e...
 Then run [server.go](./server.go) in debug mode in your favorite IDE, and enjoy break points activating when you connect to 
 endpoints. Wee!
 
-For frontend work (with a previously manually launched database), this command is helpful for development:
+For frontend work (with a previously manually launched database - see `docker run ...` above), this command is helpful for development:
 ```shell
 make run-air-alone
 ```
