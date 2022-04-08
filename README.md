@@ -154,7 +154,8 @@ With all the above configured, here's the deployment command in full:
 
 ### Helpful Links:
 
-[Echo](https://echo.labstack.com) web framework. [repo](https://github.com/labstack/echo)
+* [Echo](https://echo.labstack.com) web framework. [repo](https://github.com/labstack/echo)
+* [How To Run A Campaign](docs/howto-create-campaign.md)
 
 ## The Fine Print
 
