@@ -81,6 +81,13 @@ func setupMockDDogApiClient(mockUrl *url.URL) (closeApiClient func()) {
 	return
 }
 
+func TestGetDDApiClientReal(t *testing.T) {
+	contextReal, clientReal := dogApiClient.getDDApiClient()
+	assert.NotNil(t, contextReal)
+	assert.Equal(t, 3, len(clientReal.GetConfig().Servers))
+	assert.Equal(t, "https://{subdomain}.{site}", clientReal.GetConfig().Servers[0].URL)
+}
+
 func TestFetchLogPagesErrorMissingKey(t *testing.T) {
 	logger = zaptest.NewLogger(t)
 
@@ -751,7 +758,7 @@ func TestProcessLogsOne(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestChaseTailError(t *testing.T) {
+func TestChaseTailPollError(t *testing.T) {
 	logger = zaptest.NewLogger(t)
 
 	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
@@ -790,6 +797,68 @@ func TestChaseTailQuit(t *testing.T) {
 	quitChan, errChan := ChaseTail(dbPoll, createMockScoreDb(t), 1, processScoringMessage)
 	close(quitChan)
 	assert.Nil(t, <-errChan)
+}
+
+func TestChaseTailProcessLogsError(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	mock, dbPoll, closeDbFunc := db.SetupMockDBPoll(t)
+	defer closeDbFunc()
+
+	poll := dbPoll.NewPoll()
+	now := time.Now()
+	db.SetupMockPollSelectAndUpdateAnyUpdateTime(mock, poll.Id, now, 1)
+
+	logId := "myLogId"
+	eventSource := "myEventSource"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		w.WriteHeader(http.StatusOK)
+
+		apiResp := datadog.LogsListResponse{
+			Data: &[]datadog.Log{
+				{
+					Id: &logId,
+					Attributes: &datadog.LogAttributes{
+						Attributes: map[string]interface{}{
+							qryEnv: map[string]interface{}{
+								qryEnvExtraJsonFields: map[string]interface{}{
+									"eventSource": eventSource,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+		jsonObj, err := json.Marshal(apiResp)
+		assert.NoError(t, err)
+		_, err = w.Write(jsonObj)
+		assert.NoError(t, err)
+	}))
+	defer ts.Close()
+	urlTs, err := url.Parse(ts.URL)
+	assert.NoError(t, err)
+
+	closeApiClient := setupMockDDogApiClient(urlTs)
+	defer closeApiClient()
+
+	msgProcessed := false
+	forcedError := fmt.Errorf("forced process logs error")
+	processScoringMessage := func(scoreDb db.IScoreDB, now time.Time, msg *types.ScoringMessage) (err error) {
+		msgProcessed = true
+		scoreDb.SelectPriorScore(nil, nil)
+		assert.NoError(t, scoreDb.UpdateParticipantScore(nil, 0))
+		assert.Equal(t, eventSource, msg.EventSource)
+		err = forcedError
+		return
+	}
+
+	quitChan, _ := ChaseTail(dbPoll, createMockScoreDb(t), 1, processScoringMessage)
+
+	time.Sleep(2 * time.Second)
+	close(quitChan)
+	assert.True(t, msgProcessed)
 }
 
 func TestChaseTailOneLog(t *testing.T) {

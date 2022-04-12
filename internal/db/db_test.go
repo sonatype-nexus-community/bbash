@@ -1163,3 +1163,11 @@ func TestSelectBugs(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []types.BugStruct{bug}, bugs)
 }
+
+func TestGetDb(t *testing.T) {
+	_, dbFake, closeDbFunc := SetupMockDB(t)
+	defer closeDbFunc()
+
+	assert.NotNil(t, dbFake.GetDb())
+	assert.NotNil(t, dbFake.logger)
+}

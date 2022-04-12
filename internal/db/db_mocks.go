@@ -32,9 +32,7 @@ import (
 //	defer closeDbFunc()
 func SetupMockDB(t *testing.T) (mock sqlmock.Sqlmock, mockDbIf *BBashDB, closeDbFunc func()) {
 	db, mock, err := sqlmock.New()
-	if err != nil {
-		assert.NoError(t, err)
-	}
+	assert.NoError(t, err)
 	closeDbFunc = func() {
 		_ = db.Close()
 	}
