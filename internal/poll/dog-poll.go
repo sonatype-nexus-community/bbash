@@ -102,25 +102,29 @@ func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, 
 	// fudge factor, always poll a little older than last poll, to make sure no scores are missed
 	before = before.Add(time.Second * pollFudgeSeconds)
 
-	logger.Debug("poll range",
-		zap.String("before", before.Format(time.RFC3339)),
-		zap.String("now", now.Format(time.RFC3339)),
-	)
-
 	pageCursor := ""
 	isDone := false
+	var totalFetchDuration time.Duration
 	for err == nil && isDone == false {
 		var logPage []ddLog
-		isDone, pageCursor, logPage, err = fetchLogPage(before, now, &pageCursor)
+		var fetchDuration time.Duration
+		isDone, pageCursor, logPage, fetchDuration, err = fetchLogPage(before, now, &pageCursor)
 		if err != nil {
 			return
 		}
 
 		logs = append(logs, logPage...)
+		totalFetchDuration = totalFetchDuration + fetchDuration
 	}
 
 	logCount := len(logs)
-	logger.Debug("total polled", zap.Int("log count", logCount))
+	logger.Debug("total polled",
+		zap.Int("log count", logCount),
+		zap.String("before", before.Format(time.RFC3339)),
+		zap.String("now", now.Format(time.RFC3339)),
+		zap.Duration("totalFetchDuration", totalFetchDuration),
+		zap.Int("maxLogsPerPage", maxLogsPerPage),
+	)
 
 	// Update Poll completed time
 	poll.LastPolled = now
@@ -138,7 +142,7 @@ func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, 
 
 const maxLogsPerPage = 500
 
-func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, cursor string, logs []ddLog, err error) {
+func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, cursor string, logs []ddLog, fetchDuration time.Duration, err error) {
 	ctx, apiClient := dogApiClient.getDDApiClient()
 
 	var pageAttribs *datadog.LogsListRequestPage
@@ -182,11 +186,7 @@ func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, curso
 		logger.Error("datadog api http response", zap.String("r dump", string(dump)))
 		return
 	}
-	fetchDuration := time.Since(fetchStart)
-	logger.Debug("log page fetch time",
-		zap.Duration("fetchDuration", fetchDuration),
-		zap.Int("maxLogsPerPage", maxLogsPerPage),
-	)
+	fetchDuration = time.Since(fetchStart)
 
 	//links := resp.GetLinks()
 	//if links.GetNext() != "" {

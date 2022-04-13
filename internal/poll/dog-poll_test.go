@@ -106,7 +106,7 @@ func TestFetchLogPagesErrorMissingKey(t *testing.T) {
 	pageCursor := ""
 	var logPage []ddLog
 
-	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
+	isDone, cursor, logPage, _, err := fetchLogPage(now, now, &pageCursor)
 	assert.False(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -145,7 +145,7 @@ func TestFetchLogPagesMetaWarnings(t *testing.T) {
 	pageCursor := ""
 	var logPage []ddLog
 
-	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
+	isDone, cursor, logPage, _, err := fetchLogPage(now, now, &pageCursor)
 	assert.False(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -180,7 +180,7 @@ func TestFetchLogPagesMetaStatusTimeout(t *testing.T) {
 	pageCursor := ""
 	var logPage []ddLog
 
-	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
+	isDone, cursor, logPage, _, err := fetchLogPage(now, now, &pageCursor)
 	assert.False(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -215,10 +215,11 @@ func TestFetchLogPagesMetaStatusDone(t *testing.T) {
 	pageCursor := ""
 	var logPage []ddLog
 
-	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
+	isDone, cursor, logPage, fetchDuration, err := fetchLogPage(now, now, &pageCursor)
 	assert.True(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
+	assert.Less(t, fetchDuration.Milliseconds(), time.Duration(3))
 	assert.NoError(t, err)
 }
 
@@ -253,7 +254,7 @@ func TestFetchLogPagesMetaPageHasAfter(t *testing.T) {
 	pageCursor := ""
 	var logPage []ddLog
 
-	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
+	isDone, cursor, logPage, _, err := fetchLogPage(now, now, &pageCursor)
 	assert.False(t, isDone)
 	assert.Equal(t, after, cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -283,7 +284,7 @@ func TestFetchLogPagesMetaPageNoAfter(t *testing.T) {
 	pageCursor := ""
 	var logPage []ddLog
 
-	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
+	isDone, cursor, logPage, _, err := fetchLogPage(now, now, &pageCursor)
 	assert.True(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
@@ -321,7 +322,7 @@ func TestFetchLogPagesWithCursor(t *testing.T) {
 	now := time.Now()
 	var logPage []ddLog
 
-	isDone, cursor, logPage, err := fetchLogPage(now, now, &pageCursor)
+	isDone, cursor, logPage, _, err := fetchLogPage(now, now, &pageCursor)
 	assert.True(t, isDone)
 	assert.Equal(t, "", cursor)
 	assert.Equal(t, ([]ddLog)(nil), logPage)
