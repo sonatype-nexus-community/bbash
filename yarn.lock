@@ -2401,10 +2401,10 @@
     in-publish "^2.0.0"
     prop-types "^15.5.10"
 
-"@sonatype/react-shared-components@^9.11.4":
-  version "9.11.4"
-  resolved "https://registry.yarnpkg.com/@sonatype/react-shared-components/-/react-shared-components-9.11.4.tgz#696c68f8b871d64cf3b0fc2b6d22118f4be2ad95"
-  integrity sha512-IZB6qdeoOD3zgFr0b+QK1XMfTzaUROLShbB4aTcMroSZt3OJuyr5IaUFgsU6ehtCQZ1pLCMxAIOEEHjE/ApGgw==
+"@sonatype/react-shared-components@^10.0.0":
+  version "10.0.0"
+  resolved "https://registry.yarnpkg.com/@sonatype/react-shared-components/-/react-shared-components-10.0.0.tgz#a7c1b5fb936280d2e298ac6cc2145a58661a7f04"
+  integrity sha512-/gt9mJ4ny9Sr4l4ZRFLa/FKuGarfY4DAIL11QnLyx8XgDC3VlT02nWxWXgX1B/kOvCZaiTP0aZnsbXR2S9qvhg==
   dependencies:
     "@fortawesome/fontawesome-svg-core" "^1.2.32"
     "@fortawesome/free-regular-svg-icons" "^5.15.4"
