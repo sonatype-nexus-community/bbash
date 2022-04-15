@@ -84,7 +84,7 @@ const LeaderBoard = (props: CampaignSelectProps) => {
 
         return (
             <>
-                <NxButton variant="secondary" onClick={onClick}>Refresh Scores</NxButton>
+                <NxButton variant="primary" onClick={onClick}>Refresh Scores</NxButton>
 
                 <NxTable>
                     <NxTable.Head>
