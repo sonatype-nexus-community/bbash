@@ -1,0 +1,14 @@
+<svg
+    height="12px"
+    width="12px"
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 12 12"
+    transform="translate(0, 1)"
+>
+    <path
+    fill="none"
+    stroke="currentColor"
+    fillRule="evenodd"
+    d="M4 2l4 4-4 4"
+    ></path>
+</svg>
