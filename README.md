@@ -29,6 +29,7 @@ To get started with this project you will need:
 - Make (on macOS, you could use [brew](https://brew.sh) via `brew install make` should suffice).
 - Golang (project started using Go 1.16.2, but likely anything above 1.14 is fine). Using 1.17.8 now.
 - Docker (see: [Get Docker](https://docs.docker.com/get-docker/))
+- Npm ([Node and npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm)
 - Yarn: `npm install --global yarn` (see: [Installation](https://classic.yarnpkg.com/en/docs/install))
 - Air
 
