@@ -30,6 +30,15 @@ To get started with this project you will need:
 - Golang (see: [Download and Install](https://go.dev/doc/install). This project started using Go 1.16.2, but likely anything above 1.14 is fine). Using 1.17.8 now.
 - Docker (see: [Get Docker](https://docs.docker.com/get-docker/))
 - Npm (see: [Node and npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm))
+
+  On Ubuntu, you could use these commands to get the latest stable node version setup:
+
+      sudo apt install npm
+      sudo npm cache clean -f
+      sudo npm install -g n
+      sudo n stable
+
+  You may have to restart the terminal after running the above steps to see the latest node version. 
 - Yarn: `npm install --global yarn` (see: [Installation](https://classic.yarnpkg.com/en/docs/install))
 - Air
 
