@@ -39,7 +39,7 @@ To get started with this project you will need:
       sudo n stable
 
   You may have to restart the terminal after running the above steps to see the latest node version. 
-- Yarn: `npm install --global yarn` (see: [Installation](https://classic.yarnpkg.com/en/docs/install))
+- Yarn: `sudo npm install --global yarn` (see: [Installation](https://classic.yarnpkg.com/en/docs/install))
 - Air
 
     To install air:
