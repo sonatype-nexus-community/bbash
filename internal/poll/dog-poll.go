@@ -118,8 +118,8 @@ func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, 
 	}
 
 	logCount := len(logs)
-	logger.Debug("total polled",
-		zap.Int("log count", logCount),
+	logger.Debug("totalPolled",
+		zap.Int("logCount", logCount),
 		zap.String("before", before.Format(time.RFC3339)),
 		zap.String("now", now.Format(time.RFC3339)),
 		zap.Duration("totalFetchDuration", totalFetchDuration),
