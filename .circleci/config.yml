@@ -77,7 +77,7 @@ workflows:
   build_and_release:
     jobs:
       - build:
-          context: scan_ossi
+          context: scan_ossi, datadog_poll
 
   build_nightly:
     triggers:
@@ -88,4 +88,4 @@ workflows:
               only: main
     jobs:
       - build:
-          context: scan_ossi
+          context: scan_ossi, datadog_poll

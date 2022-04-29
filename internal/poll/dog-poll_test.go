@@ -34,6 +34,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +87,34 @@ func TestGetDDApiClientReal(t *testing.T) {
 	assert.NotNil(t, contextReal)
 	assert.Equal(t, 3, len(clientReal.GetConfig().Servers))
 	assert.Equal(t, "https://{subdomain}.{site}", clientReal.GetConfig().Servers[0].URL)
+}
+
+func TestGetDDApiClientRealHasSomeScoresInPastWeek(t *testing.T) {
+	// skip if not running nightly CI job
+	ddApiKey := os.Getenv("DD_CLIENT_API_KEY")
+	if "" == ddApiKey {
+		fmt.Println("skipping test: TestGetDDApiClientRealHasSomeScoresInPastWeek")
+		return
+	}
+
+	logger = zaptest.NewLogger(t)
+
+	pageCursor := ""
+	isDone := false
+	var logPage []ddLog
+	var err error
+
+	now := time.Now()
+	before := now.Add(time.Hour * -168) // one week in the past
+
+	isDone, pageCursor, logPage, _, err = fetchLogPage(before, now, &pageCursor)
+	foundInfo := fmt.Sprintf("found logCount: %d", len(logPage))
+	fmt.Println(foundInfo)
+
+	assert.NoError(t, err)
+	assert.True(t, len(logPage) > 0)
+	assert.True(t, isDone)
+	assert.Equal(t, "", pageCursor)
 }
 
 func TestFetchLogPagesErrorMissingKey(t *testing.T) {
