@@ -249,7 +249,7 @@ func setPollDate(c echo.Context) (err error) {
 }
 
 func setupRoutes(e *echo.Echo, buildInfoMessage string) (customRouteCount int) {
-	e.GET("/", func(c echo.Context) error {
+	e.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, fmt.Sprintf("I am ALIVE. %s", buildInfoMessage))
 	})
 
