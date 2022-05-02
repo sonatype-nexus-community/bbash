@@ -105,10 +105,11 @@ func TestGetDDApiClientRealHasSomeScoresInPastWeek(t *testing.T) {
 	var err error
 
 	now := time.Now()
-	before := now.Add(time.Hour * -168) // one week in the past
+	hoursDuration := time.Hour * -168 // one week in the past
+	before := now.Add(hoursDuration)
 
 	isDone, pageCursor, logPage, _, err = fetchLogPage(before, now, &pageCursor)
-	foundInfo := fmt.Sprintf("found logCount: %d", len(logPage))
+	foundInfo := fmt.Sprintf("found logCount: %d in the past: %v", len(logPage), hoursDuration)
 	fmt.Println(foundInfo)
 
 	assert.NoError(t, err)
