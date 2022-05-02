@@ -114,8 +114,8 @@ func TestGetDDApiClientRealHasSomeScoresInPastWeek(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.True(t, len(logPage) > 0)
-	assert.True(t, isDone)
-	assert.Equal(t, "", pageCursor)
+	assert.False(t, isDone)
+	assert.NotEmpty(t, pageCursor)
 }
 
 func TestFetchLogPagesErrorMissingKey(t *testing.T) {
