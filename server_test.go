@@ -24,7 +24,10 @@ import (
 	"github.com/sonatype-nexus-community/bbash/internal/db"
 	"github.com/sonatype-nexus-community/bbash/internal/types"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest"
+	"go.uber.org/zap/zaptest/observer"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -448,21 +451,113 @@ func newMockDb(t *testing.T) (mockDbIF *MockBBashDB) {
 	return
 }
 
-func TestZapLoggerFilterSkipsELB(t *testing.T) {
-	req := httptest.NewRequest("", "/", nil)
-	req.Header.Set("User-Agent", "bing ELB-HealthChecker yadda")
+func TestZapLoggerFilterAwsElbHandlerError(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	result := ZapLoggerFilterAwsElb(logger)
 
-	//handlerFunc := func(next echo.HandlerFunc) echo.HandlerFunc {
-	//	return func(c echo.Context) error {
-	//		return nil
-	//	}
-	//}
-	//r2 := result(handlerFunc)
-	//assert.Nil(t, result)
-	// @TODO figure out how to test these hoops
-	result(nil)
+	c, rec := setupMockContext()
+
+	forcedError := fmt.Errorf("forced handler error")
+	nextHandler := func(ctxNextHandler echo.Context) (err error) {
+		assert.Equal(t, c, ctxNextHandler)
+		return forcedError
+	}
+	handlerFunc := result(nextHandler)
+	assert.NotNil(t, handlerFunc)
+
+	err := handlerFunc(c)
+	assert.EqualError(t, err, forcedError.Error())
+
+	assert.Equal(t, "{\"message\":\"Internal Server Error\"}\n", rec.Body.String())
+}
+
+func TestZapLoggerFilterAwsElbSkipsELB(t *testing.T) {
+	req := httptest.NewRequest("", "/", nil)
+	req.Header.Set("User-Agent", "bing ELB-HealthChecker yadda")
+
+	c, rec := setupMockContextWithRequest(req)
+
+	core, recorded := observer.New(zapcore.DebugLevel)
+	logger := zap.New(core)
+	result := ZapLoggerFilterAwsElb(logger)
+
+	nextHandler := func(ctxNextHandler echo.Context) (err error) {
+		assert.Equal(t, c, ctxNextHandler)
+		return
+	}
+	handlerFunc := result(nextHandler)
+	assert.NotNil(t, handlerFunc)
+
+	err := handlerFunc(c)
+	assert.NoError(t, err)
+
+	assert.Empty(t, recorded.All())
+
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestZapLoggerFilterAwsElbLogSkipsInvalidHostname(t *testing.T) {
+	c, rec := setupMockContext()
+
+	core, recorded := observer.New(zapcore.DebugLevel)
+	logger := zap.New(core)
+	result := ZapLoggerFilterAwsElb(logger)
+
+	nextHandler := func(ctxNextHandler echo.Context) (err error) {
+		assert.Equal(t, c, ctxNextHandler)
+		return
+	}
+	handlerFunc := result(nextHandler)
+	assert.NotNil(t, handlerFunc)
+
+	origLogIncludeHostname, wasSet := os.LookupEnv(envLogFilterIncludeHostname)
+	defer func() {
+		if wasSet {
+			assert.NoError(t, os.Setenv(envLogFilterIncludeHostname, origLogIncludeHostname))
+		} else {
+			assert.NoError(t, os.Unsetenv(envLogFilterIncludeHostname))
+		}
+	}()
+	testHostname := "myTestHostname"
+	assert.NoError(t, os.Setenv(envLogFilterIncludeHostname, testHostname))
+
+	err := handlerFunc(c)
+	assert.NoError(t, err)
+
+	assert.Empty(t, recorded.All())
+
+	assert.Equal(t, "", rec.Body.String())
+}
+
+func TestZapLoggerFilterAwsElbLogStatusCode(t *testing.T) {
+	verifyZapLoggerFilterAwsElbLogErrorNumber(t, 500, "Server error")
+	verifyZapLoggerFilterAwsElbLogErrorNumber(t, 400, "Client error")
+	verifyZapLoggerFilterAwsElbLogErrorNumber(t, 300, "Redirection")
+	verifyZapLoggerFilterAwsElbLogErrorNumber(t, 0, "Success")
+}
+
+func verifyZapLoggerFilterAwsElbLogErrorNumber(t *testing.T, responseStatusCode int, expectedLogMessage string) {
+	c, rec := setupMockContext()
+
+	core, recorded := observer.New(zapcore.DebugLevel)
+	logger := zap.New(core)
+	result := ZapLoggerFilterAwsElb(logger)
+
+	nextHandler := func(ctxNextHandler echo.Context) (err error) {
+		assert.Equal(t, c, ctxNextHandler)
+		return
+	}
+	handlerFunc := result(nextHandler)
+	assert.NotNil(t, handlerFunc)
+
+	c.Response().Status = responseStatusCode
+	err := handlerFunc(c)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, recorded.Len())
+	assert.Equal(t, expectedLogMessage, recorded.All()[0].Message)
+
+	assert.Equal(t, "", rec.Body.String())
 }
 
 func TestMainDBPingError(t *testing.T) {
@@ -1470,17 +1565,24 @@ func TestValidScoreUnknownRepoOwner(t *testing.T) {
 }
 
 func setupMockContext() (c echo.Context, rec *httptest.ResponseRecorder) {
-	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+
+	return setupMockContextWithRequest(req)
+}
+
+func setupMockContextWithRequest(req *http.Request) (c echo.Context, rec *httptest.ResponseRecorder) {
 	rec = httptest.NewRecorder()
+
+	e := echo.New()
 	c = e.NewContext(req, rec)
 	return
 }
 
 func setupMockContextWithBody(method string, body string) (c echo.Context, rec *httptest.ResponseRecorder) {
-	e := echo.New()
 	req := httptest.NewRequest(method, "/", strings.NewReader(body))
 	rec = httptest.NewRecorder()
+
+	e := echo.New()
 	c = e.NewContext(req, rec)
 	return
 }

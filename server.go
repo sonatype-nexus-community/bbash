@@ -363,6 +363,7 @@ func ZapLoggerFilterAwsElb(log *zap.Logger) echo.MiddlewareFunc {
 			err := next(c)
 			if err != nil {
 				c.Error(err)
+				return err
 			}
 
 			req := c.Request()
