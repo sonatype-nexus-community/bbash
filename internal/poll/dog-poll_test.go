@@ -710,7 +710,7 @@ type MockScoreDB struct {
 }
 
 func (m MockScoreDB) GetDb() (db *sql.DB) {
-	//TODO implement me
+	// TODO implement me
 	panic("implement me")
 }
 
