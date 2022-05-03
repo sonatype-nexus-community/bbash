@@ -280,7 +280,7 @@ func (p *BBashDB) ValidOrganization(msg *types.ScoringMessage) (orgExists bool, 
 	row := p.db.QueryRow(sqlSelectOrganizationExists, msg.EventSource, msg.RepoOwner)
 	err = row.Scan(&orgExists)
 	if err != nil {
-		p.logger.Error("organization read error", zap.Any("msg", msg), zap.Error(err))
+		p.logger.Error("organization read error", zap.Any("scoringMsg", msg), zap.Error(err))
 		return
 	}
 	return
@@ -306,7 +306,7 @@ func (p *BBashDB) SelectParticipantsToScore(msg *types.ScoringMessage, now time.
 	var rows *sql.Rows
 	rows, err = p.db.Query(sqlSelectParticipantId, now, msg.EventSource, msg.TriggerUser)
 	if err != nil {
-		p.logger.Error("skip score-error reading participant", zap.Any("msg", msg), zap.Error(err))
+		p.logger.Error("skip score-error reading participant", zap.Any("scoringMsg", msg), zap.Error(err))
 		return
 	}
 	for rows.Next() {
@@ -318,7 +318,7 @@ func (p *BBashDB) SelectParticipantsToScore(msg *types.ScoringMessage, now time.
 			partier.TeamName = nullableTeamName.String
 		}
 		if err != nil {
-			p.logger.Error("skip score-error scanning participant", zap.Any("msg", msg), zap.Error(err))
+			p.logger.Error("skip score-error scanning participant", zap.Any("scoringMsg", msg), zap.Error(err))
 			return
 		}
 		participantsToScore = append(participantsToScore, partier)
@@ -337,7 +337,7 @@ func (p *BBashDB) SelectPointValue(msg *types.ScoringMessage, campaignName, bugT
 	if err := row.Scan(&pointValue); err != nil {
 		// ignore error from scan operation
 		p.logger.Debug("ignoring missing pointValue",
-			zap.String("bugType", bugType), zap.Error(err), zap.Any("msg", msg))
+			zap.String("bugType", bugType), zap.Error(err), zap.Any("scoringMsg", msg))
 	}
 	return
 }

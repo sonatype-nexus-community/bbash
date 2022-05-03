@@ -494,7 +494,7 @@ func validScore(msg *types.ScoringMessage, now time.Time) (participantsToScore [
 	// check if repo is in participating set
 	isValidOrg, err := postgresDB.ValidOrganization(msg)
 	if err != nil {
-		logger.Debug("skip score-error reading organization", zap.Any("msg", msg), zap.Error(err))
+		logger.Debug("skip score-error reading organization", zap.Any("scoringMsg", msg), zap.Error(err))
 		return
 	}
 	if !isValidOrg {
@@ -506,11 +506,11 @@ func validScore(msg *types.ScoringMessage, now time.Time) (participantsToScore [
 	// Check if participant is registered for an active campaign
 	participantsToScore, err = postgresDB.SelectParticipantsToScore(msg, now)
 	if err != nil {
-		logger.Error("skip score-error reading participant", zap.Any("msg", msg), zap.Error(err))
+		logger.Error("skip score-error reading participant", zap.Any("scoringMsg", msg), zap.Error(err))
 		return
 	}
 	if len(participantsToScore) == 0 {
-		logger.Debug("skip score-missing participant", zap.Any("msg", msg), zap.Error(err))
+		logger.Debug("skip score-missing participant", zap.Any("scoringMsg", msg), zap.Error(err))
 		return
 	}
 	return
@@ -522,7 +522,7 @@ func scorePoints(msg *types.ScoringMessage, campaignName string) (points float64
 
 	err := traverseBugCounts(msg, campaignName, &points, &scored, &msg.BugCounts)
 	if err != nil {
-		logger.Error("error traversing bugCounts", zap.Error(err), zap.Any("msg", msg))
+		logger.Error("error traversing bugCounts", zap.Error(err), zap.Any("scoringMsg", msg))
 	}
 
 	// add 1 point for all non-classified fixed bugs
@@ -547,7 +547,7 @@ func traverseBugCounts(msg *types.ScoringMessage, campaignName string,
 			err = traverseBugCounts(msg, campaignName, points, scored, &v)
 		default:
 			err = fmt.Errorf("bugType: %+v has unexpected bugValue type: %+v", bugType, v)
-			logger.Error("traverseBugCounts", zap.Error(err), zap.Any("msg", msg))
+			logger.Error("traverseBugCounts", zap.Error(err), zap.Any("scoringMsg", msg))
 		}
 	}
 	return
@@ -561,7 +561,7 @@ func processScoringMessage(scoreDb db.IScoreDB, now time.Time, msg *types.Scorin
 	var activeParticipantsToScore []types.ParticipantStruct
 	activeParticipantsToScore, err = validScore(msg, now)
 	if err != nil {
-		logger.Debug("error validating ScoringMessage", zap.Error(err), zap.Any("msg", msg))
+		logger.Debug("error validating ScoringMessage", zap.Error(err), zap.Any("scoringMsg", msg))
 		return
 	}
 	if len(activeParticipantsToScore) == 0 {
