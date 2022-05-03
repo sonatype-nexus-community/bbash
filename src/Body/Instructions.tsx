@@ -22,11 +22,11 @@ const Instructions = () => {
             <h3>How to Play</h3>
             <div>
                 <ol>
-                    <li>Install Lift at <a href="https://lift.sonatype.com">lift.sonatype.com</a> (see also: <a href="https://help.sonatype.com/lift/getting-started">Lift - Getting Started</a>)</li>
-                    <li>Pick a Project</li>
-                    <li>Review the project contributing guidelines</li>
-                    <li>Find a Bug in the Bug List</li>
-                    <li>Smash the Bug</li>
+                    <li>Project Admin: (once) Install Lift at <a href="https://lift.sonatype.com">lift.sonatype.com</a> (see also: <a href="https://help.sonatype.com/lift/getting-started">Lift - Getting Started</a>).</li>
+                    <li>Bug Bash Participant: <a href="https://docs.google.com/forms/d/15HWMmI7OMxIamOD2c_rbAts1Jnry5_Tg7wgLRYJK0j4/edit?usp=sharing">Register here</a>.</li>
+                    <li>Review the project contributing guidelines ("How To Contribute" links in <a href="./BugLists.html">Bug Lists</a>).</li>
+                    <li>Find a Bug in the analysis produced by Lift. See <a href="./BugLists.html">Bug Lists</a>.</li>
+                    <li>Smash the Bug with a <a href="https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request">Pull Request</a>.</li>
                     <li>Win Points</li>
                 </ol>
             </div>
@@ -39,7 +39,7 @@ const Instructions = () => {
                     <br/>
                     Usually best done with a keyboard, but sometimes a hammer is the only thing to get the job done.</li>
                     <br/>
-                    <li><b>IMPORTANT! Create a Pull Request back to Upstream GitHub Repository</b>
+                    <li><b>IMPORTANT! Create a <a href="https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request">Pull Request</a> back to Upstream GitHub Repository</b>
                     <br/>
                     This is how you get your points, so don’t forget it!</li>
                 </ul>
