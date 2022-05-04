@@ -42,8 +42,8 @@ Here are some minimal steps to set up a new Bug Bash Campaign.
    configured for your GitHub repository.
 
    To verify things are working, have the GitHub user (`mygithubid` in this example) generate
-   a [Pull Request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request)
-   against a repository owned by the organization we added (`my-organization` in this example). Once the PR is created,
+   a [Pull Request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request) against
+   a repository owned by the organization we added (`my-organization` in this example). Once the PR is created,
    you should see Lift performing an analysis of the PR, similar to this:
    ![Lift Analysing](images/LiftBotRunningOnPR.png)
 
