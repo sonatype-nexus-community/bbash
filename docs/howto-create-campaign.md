@@ -34,15 +34,14 @@ Here are some minimal steps to set up a new Bug Bash Campaign.
 
        curl -u "theAdminUsername:theAdminPassword" -X PUT http://localhost:7777/admin/organization/add -d '{ "scpName": "GitHub", "organization": "my-organization"}'
 
-4. Add at least one participant (e.g. a GitHub user) who will be submitting bug fixes (PRs) during this campaign:
+3. Add at least one participant (e.g. a GitHub user) who will be submitting bug fixes (PRs) during this campaign:
 
        curl -u "theAdminUsername:theAdminPassword" -X PUT http://localhost:7777/admin/participant/add -d '{ "scpName": "GitHub", "campaignName": "myCampaignName", "loginName": "mygithubid"}'
 
    Before going much further, you should ensure [Sonatype Lift](https://help.sonatype.com/lift/getting-started) is
    configured for your GitHub repository.
 
-   To verify things are working, have the GitHub user (`mygithubid` in this example) generate
-   a [Pull Request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request) against a
+   To verify things are working, have the GitHub user (`mygithubid` in this example) generate a [Pull Request](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request) against a
    repository owned by the organization we added (`my-organization` in this example). Once the PR is created,
    you should see Lift performing an analysis of the PR, similar to this:
    ![Lift Analysing](images/LiftBotRunningOnPR.png)
