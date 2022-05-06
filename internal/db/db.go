@@ -463,7 +463,8 @@ const sqlSelectParticipantsByCampaign = `SELECT
 		LEFT JOIN team ON participant.fk_team = team.Id
 		INNER JOIN campaign ON participant.fk_campaign = campaign.Id
 		INNER JOIN source_control_provider ON participant.fk_scp = source_control_provider.Id
-		WHERE campaign.name = $1`
+		WHERE campaign.name = $1
+		ORDER BY score DESC`
 
 func (p *BBashDB) SelectParticipantsInCampaign(campaignName string) (participants []types.ParticipantStruct, err error) {
 	rows, err := p.db.Query(sqlSelectParticipantsByCampaign, campaignName)

@@ -905,6 +905,44 @@ func TestSelectParticipantsInCampaign(t *testing.T) {
 	}, participants)
 }
 
+func TestSelectParticipantsInCampaignSorted(t *testing.T) {
+	mock, db, closeDbFunc := SetupMockDB(t)
+	defer closeDbFunc()
+
+	mock.ExpectQuery(convertSqlToDbMockExpect(sqlSelectParticipantsByCampaign)).
+		WithArgs(campaignName).
+		WillReturnRows(sqlmock.NewRows([]string{"guid", "campaign", "scp", "login", "email", "display", "score", "team", "joinedAt"}).
+			AddRow(testParticipantGuid, campaignName, scpName, loginName, "email", "display", 1, "teamName", now).
+			AddRow(testParticipantGuid, campaignName, scpName, "name2", "email", "display", 0, "teamName", now))
+
+	participants, err := db.SelectParticipantsInCampaign(campaignName)
+	assert.NoError(t, err)
+	assert.Equal(t, []types.ParticipantStruct{
+		{
+			ID:           testParticipantGuid,
+			CampaignName: campaignName,
+			ScpName:      scpName,
+			LoginName:    loginName,
+			Email:        "email",
+			DisplayName:  "display",
+			Score:        1,
+			TeamName:     "teamName",
+			JoinedAt:     now,
+		},
+		{
+			ID:           testParticipantGuid,
+			CampaignName: campaignName,
+			ScpName:      scpName,
+			LoginName:    "name2",
+			Email:        "email",
+			DisplayName:  "display",
+			Score:        0,
+			TeamName:     "teamName",
+			JoinedAt:     now,
+		},
+	}, participants)
+}
+
 func TestUpdateParticipantError(t *testing.T) {
 	mock, db, closeDbFunc := SetupMockDB(t)
 	defer closeDbFunc()
