@@ -44,6 +44,14 @@ const Instructions = () => {
                     This is how you get your points, so don’t forget it!</li>
                 </ul>
             </div>
+            <h3>Project Administrator Notes</h3>
+            <div>
+                <ol>
+                    <li>Ignore certain <b>Bug Types</b> using an <code>ignoreRules</code> entry in a <code>.lift.toml</code> file located in the project root directory. See: <a href="https://help.sonatype.com/lift/configuration-reference">Lift Configuration Reference</a>
+                        <br/>Note: Ignoring a Bug Type will ignore ALL instances of that bug type.
+                    </li>
+                </ol>
+            </div>
         </>)
     }
 
