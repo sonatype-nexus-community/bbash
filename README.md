@@ -61,6 +61,7 @@ The app pages live at: http://localhost:7777/index.html
 
 Any code changes to golang files will cause a rebuild and restart, and will be accessible via the browser with a refresh!
 
+#### Local Development Setup
 For local development, a good first step is to copy the example `.env.example` file to `.env` and launch a local db
 and `air` like so:
 ```shell
@@ -68,6 +69,7 @@ cp .env.example .env
 make run-air
 ```
 
+#### Server Debugging
 For some fun interactive debugging of the golang app with [server.go](./server.go), you could spin up the local docker db image, and manually run
 the server in debug mode. See the [Makefile](./Makefile) for the latest and greatest commands to cherry-pick.
 ```shell
@@ -77,6 +79,7 @@ b6ac8769bab3b19b3e5818e726272bcee6957863b9a7af4261a0ae29ec5bc68e...
 Then run [server.go](./server.go) in debug mode in your favorite IDE, and enjoy break points activating when you connect to 
 endpoints. Wee!
 
+#### Frontend Development
 For frontend work (with a previously manually launched database - see `docker run ...` above), this command is helpful for development:
 ```shell
 make run-air-alone
