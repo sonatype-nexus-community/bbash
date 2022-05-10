@@ -85,6 +85,33 @@ For frontend work (with a previously manually launched database - see `docker ru
 make run-air-alone
 ```
 
+## Architecture
+
+"Two apps in one" - This project contains two apps:
+  1. A [golang](https://go.dev) application that provides REST endpoints for the UI and admin tasks, and polls [Lift](https://lift.sonatype.com/getting-started) for scoring events.
+  2. A [react](https://reactjs.org) application that provides a UI, and calls the REST endpoints served by the golang app. 
+
+#### Go
+
+  The go application specific files include:
+
+   * [server.go](./server.go)
+   * [internal](./internal/)
+   * [go.mod](./go.mod)
+    
+  The go application communicates with the postgres database. The go application also 
+  periodically polls the Lift logs for scoring events.
+
+#### React
+
+  The react application files include:
+
+  * [src](./src/)
+  * [public](./public/)
+  * [package.json](./package.json)
+  * [yarn.lock](./yarn.lock)
+   
+
 ## Deployment
 
 #### App environment configuration
