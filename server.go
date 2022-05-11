@@ -174,6 +174,11 @@ func main() {
 		// polling voodoo
 		var errChan chan error
 		stopPoll, errChan, err = beginLogPolling()
+		if err != nil {
+		    logger.Error("begin polling", zap.Error(err))
+		    panic(fmt.Errorf("failed to start polling. err: %+v", err))
+		}
+
 		defer func() {
 			close(stopPoll)
 			pollErr := <-errChan
