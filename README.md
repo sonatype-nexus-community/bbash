@@ -69,6 +69,9 @@ cp .env.example .env
 make run-air
 ```
 
+Note that Datadog polling, which is used to calculate scores, is disabled by default in `.env.example` to decrease noise during local development.
+To re-enable [remove this line](.env.example#L18).
+
 #### Server Debugging
 For some fun interactive debugging of the golang app with [server.go](./server.go), you could spin up the local docker db image, and manually run
 the server in debug mode. See the [Makefile](./Makefile) for the latest and greatest commands to cherry-pick.
