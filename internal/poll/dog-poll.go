@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -232,6 +233,8 @@ func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, curso
 	return
 }
 
+const jsonErrBadPullRequestID = "json: cannot unmarshal string into Go struct field ScoringMessage.pullRequestId of type int"
+
 func processResponseData(responseData []datadog.Log) (logs []ddLog, err error) {
 	for _, log := range responseData {
 		logStruct := ddLog{
@@ -264,7 +267,12 @@ func processResponseData(responseData []datadog.Log) (logs []ddLog, err error) {
 				extra.scoringMessage = types.ScoringMessage{}
 				err = json.Unmarshal(jsonMap, &extra.scoringMessage)
 				if err != nil {
-					logger.Error("error unmarshalling scoring message", zap.Any("valueMap", valueMap))
+					logger.Error("error unmarshalling scoring message", zap.Error(err), zap.Any("valueMap", valueMap))
+					// handle special case were bogus test data made it into production - non-numeric pull request id
+					if strings.Contains(err.Error(), jsonErrBadPullRequestID) {
+						logger.Error("skipping invalid score message", zap.Error(err), zap.Any("valueMap", valueMap))
+						continue
+					}
 					return
 				}
 			default:

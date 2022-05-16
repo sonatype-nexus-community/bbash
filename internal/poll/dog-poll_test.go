@@ -467,15 +467,7 @@ func TestProcessResponseDataScoringMessageUnexpectedMarshalError(t *testing.T) {
 	mapExtraFields := map[string]interface{}{
 		"fixed-bug-types": "notAMapLikeWeExpect",
 	}
-	envMap := map[string]interface{}{
-		qryEnvExtraJsonFields: mapExtraFields,
-	}
-	attribs := map[string]interface{}{
-		qryEnv: envMap,
-	}
-	logAttribs := datadog.LogAttributes{
-		Attributes: attribs,
-	}
+	logAttribs := createLogAttribs(mapExtraFields)
 	responseData := []datadog.Log{
 		{
 			Id:             &logId,
@@ -525,6 +517,52 @@ func TestProcessResponseDataScoringMessageFixedBugsWithOptMap(t *testing.T) {
 	assert.Equal(t, float64(1), logs[0].Fields.scoringMessage.BugCounts["G104"])
 	assert.Equal(t, float64(1), logs[0].Fields.scoringMessage.BugCounts["ShellCheck"])
 	assert.Equal(t, mapSemGrep, logs[0].Fields.scoringMessage.BugCounts["opt"])
+}
+
+func TestProcessResponseDataScoringMessageWithNonNumericPullRequestID(t *testing.T) {
+	// this map has invalid info (due to test data that made it to production logs)
+	mapExtraFieldsBad := map[string]interface{}{
+		"pullRequestId": "PullRequestId 4",
+	}
+	logAttribsBad := createLogAttribs(mapExtraFieldsBad)
+	logIdBad := "myLogIdBad"
+
+	mapExtraFieldsGood := map[string]interface{}{
+		"pullRequestId": 5,
+	}
+	logAttribsGood := createLogAttribs(mapExtraFieldsGood)
+	logIdGood := "myLogIdGood"
+
+	responseData := []datadog.Log{
+		{
+			Id:             &logIdBad,
+			Attributes:     &logAttribsBad,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+		{
+			Id:             &logIdGood,
+			Attributes:     &logAttribsGood,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+	}
+
+	logger = zaptest.NewLogger(t)
+
+	logs, err := processResponseData(responseData)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(logs))
+	assert.Equal(t, 0, logs[0].Fields.scoringMessage.PullRequest)
+
+	assert.Equal(t, 5, logs[1].Fields.scoringMessage.PullRequest)
+}
+
+func createLogAttribs(mapExtraFields map[string]interface{}) (logAttribs datadog.LogAttributes) {
+	envMap := map[string]interface{}{qryEnvExtraJsonFields: mapExtraFields}
+	attribs := map[string]interface{}{qryEnv: envMap}
+	logAttribs = datadog.LogAttributes{Attributes: attribs}
+	return
 }
 
 func TestProcessResponseDataScoringMessage(t *testing.T) {
