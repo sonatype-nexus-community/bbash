@@ -522,7 +522,11 @@ func TestProcessResponseDataScoringMessageFixedBugsWithOptMap(t *testing.T) {
 func TestProcessResponseDataScoringMessageWithNonNumericPullRequestID(t *testing.T) {
 	// this map has invalid info (due to test data that made it to production logs)
 	mapExtraFieldsBad := map[string]interface{}{
-		"pullRequestId": "PullRequestId 4",
+		"pullRequestId":   "PullRequestId 4",    // bad: non-numeric
+		"eventSource":     "\"github.com\"",     // bad: extra quotes
+		"repositoryName":  "\"lift-dev4-test\"", // bad: extra quotes
+		"repositoryOwner": "\"collinpeters\"",   // bad: extra quotes
+		"eventType":       "\"opened\"",         // bad: extra quotes
 	}
 	logAttribsBad := createLogAttribs(mapExtraFieldsBad)
 	logIdBad := "myLogIdBad"
@@ -553,8 +557,13 @@ func TestProcessResponseDataScoringMessageWithNonNumericPullRequestID(t *testing
 	logs, err := processResponseData(responseData)
 	assert.NoError(t, err)
 	assert.Equal(t, 2, len(logs))
-	assert.Equal(t, 0, logs[0].Fields.scoringMessage.PullRequest)
+	assert.Equal(t, logIdBad, logs[0].Id)
+	assert.Equal(t, 4, logs[0].Fields.scoringMessage.PullRequest)
+	assert.Equal(t, "github.com", logs[0].Fields.scoringMessage.EventSource)
+	assert.Equal(t, "lift-dev4-test", logs[0].Fields.scoringMessage.RepoName)
+	assert.Equal(t, "collinpeters", logs[0].Fields.scoringMessage.RepoOwner)
 
+	assert.Equal(t, logIdGood, logs[1].Id)
 	assert.Equal(t, 5, logs[1].Fields.scoringMessage.PullRequest)
 }
 

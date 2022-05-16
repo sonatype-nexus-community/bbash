@@ -30,6 +30,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -160,7 +161,7 @@ func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, curso
 
 	body := datadog.LogsListRequest{
 		Filter: &datadog.LogsQueryFilter{
-			Query: datadog.PtrString(fmt.Sprintf("@%s.%s.%s:>0", qryEnv, qryEnvExtraJsonFields, qryFldFixedBugs)),
+			Query: datadog.PtrString(fmt.Sprintf("@%s.%s.%s:>0 kube_namespace:lift-production-lift", qryEnv, qryEnvExtraJsonFields, qryFldFixedBugs)),
 			//Indexes: &[]string{
 			//	"main",
 			//},
@@ -234,6 +235,7 @@ func fetchLogPage(before, now time.Time, pageCursor *string) (isDone bool, curso
 }
 
 const jsonErrBadPullRequestID = "json: cannot unmarshal string into Go struct field ScoringMessage.pullRequestId of type int"
+const bogusPRidPrefix = "PullRequestId "
 
 func processResponseData(responseData []datadog.Log) (logs []ddLog, err error) {
 	for _, log := range responseData {
@@ -259,21 +261,37 @@ func processResponseData(responseData []datadog.Log) (logs []ddLog, err error) {
 				extra.envBaseTime = baseTime
 			case qryEnvExtraJsonFields:
 				valueMap := value.(map[string]interface{})
-				var jsonMap []byte
-				jsonMap, err = json.Marshal(valueMap)
-				if err != nil {
-					return
-				}
-				extra.scoringMessage = types.ScoringMessage{}
-				err = json.Unmarshal(jsonMap, &extra.scoringMessage)
+				err = parseExtraJsonFields(valueMap, &extra)
 				if err != nil {
 					logger.Error("error unmarshalling scoring message", zap.Error(err), zap.Any("valueMap", valueMap))
-					// handle special case were bogus test data made it into production - non-numeric pull request id
+					// handle special case were bogus test data made it into production on 5/16/2022 - non-numeric pull request id
+					// see: https://issues.sonatype.org/browse/LIFT-3230
 					if strings.Contains(err.Error(), jsonErrBadPullRequestID) {
-						logger.Error("skipping invalid score message", zap.Error(err), zap.Any("valueMap", valueMap))
-						continue
+						// try mangling/fixing the PR ID and other fields, and parse again
+						badPRId := valueMap["pullRequestId"].(string)
+						if strings.HasPrefix(badPRId, bogusPRidPrefix) {
+							goodPRId := badPRId[len(bogusPRidPrefix):]
+							var realPRid float64
+							realPRid, err = strconv.ParseFloat(goodPRId, 64)
+							if err != nil {
+								return
+							}
+							valueMap["pullRequestId"] = realPRid
+
+							// remove extra quotes
+							trimQuotes(valueMap, "eventSource")
+							trimQuotes(valueMap, "repositoryOwner")
+							trimQuotes(valueMap, "repositoryName")
+
+							err = parseExtraJsonFields(valueMap, &extra)
+							if err != nil {
+								logger.Error("skipping invalid score message", zap.Error(err), zap.Any("valueMapMangled", valueMap))
+								return
+							}
+						}
+					} else {
+						return
 					}
-					return
 				}
 			default:
 				err = fmt.Errorf("unexpected extra field key: %s", key)
@@ -285,6 +303,24 @@ func processResponseData(responseData []datadog.Log) (logs []ddLog, err error) {
 		logs = append(logs, logStruct)
 	}
 	return
+}
+
+func parseExtraJsonFields(valueMap map[string]interface{}, extra *extraFields) (err error) {
+	var jsonMap []byte
+	jsonMap, err = json.Marshal(valueMap)
+	if err != nil {
+		return
+	}
+	extra.scoringMessage = types.ScoringMessage{}
+	err = json.Unmarshal(jsonMap, &extra.scoringMessage)
+	if err != nil {
+		return
+	}
+	return
+}
+
+func trimQuotes(valueMap map[string]interface{}, fieldName string) {
+	valueMap[fieldName] = strings.Trim(valueMap[fieldName].(string), "\"")
 }
 
 type extraFields struct {
