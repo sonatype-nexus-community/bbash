@@ -48,3 +48,9 @@ Here are some minimal steps to set up a new Bug Bash Campaign.
 
 5. To view the current scores for your Bug Bash, open a browser to: http://localhost:7777/index.html
 
+# Miscellaneous Tidbits
+
+* You can update an existing Campaign (e.g. `myCampaignName`) with new "start" and "end" dates using the command below: 
+
+       curl -u "theAdminUsername:theAdminPassword" -X PUT http://localhost:7777/admin/campaign/update/myCampaignName -d '{ "startOn": "2022-04-15T12:00:00Z", "endOn": "2022-04-30T12:00:00Z"}'
+
