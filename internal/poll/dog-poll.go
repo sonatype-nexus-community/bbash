@@ -267,27 +267,9 @@ func processResponseData(responseData []datadog.Log) (logs []ddLog, err error) {
 					// handle special case were bogus test data made it into production on 5/16/2022 - non-numeric pull request id
 					// see: https://issues.sonatype.org/browse/LIFT-3230
 					if strings.Contains(err.Error(), jsonErrBadPullRequestID) {
-						// try mangling/fixing the PR ID and other fields, and parse again
-						badPRId := valueMap["pullRequestId"].(string)
-						if strings.HasPrefix(badPRId, bogusPRidPrefix) {
-							goodPRId := badPRId[len(bogusPRidPrefix):]
-							var realPRid float64
-							realPRid, err = strconv.ParseFloat(goodPRId, 64)
-							if err != nil {
-								return
-							}
-							valueMap["pullRequestId"] = realPRid
-
-							// remove extra quotes
-							trimQuotes(valueMap, "eventSource")
-							trimQuotes(valueMap, "repositoryOwner")
-							trimQuotes(valueMap, "repositoryName")
-
-							err = parseExtraJsonFields(valueMap, &extra)
-							if err != nil {
-								logger.Error("skipping invalid score message", zap.Error(err), zap.Any("valueMapMangled", valueMap))
-								return
-							}
+						err = applyDuctTapeToScoringMessage(valueMap, &extra)
+						if err != nil {
+							return
 						}
 					} else {
 						return
@@ -301,6 +283,37 @@ func processResponseData(responseData []datadog.Log) (logs []ddLog, err error) {
 		}
 
 		logs = append(logs, logStruct)
+	}
+	return
+}
+
+func applyDuctTapeToScoringMessage(valueMap map[string]interface{}, extra *extraFields) (err error) {
+	// try mangling/fixing the PR ID and other fields, and parse again
+	badPRId := valueMap["pullRequestId"].(string)
+	if strings.HasPrefix(badPRId, bogusPRidPrefix) {
+		goodPRId := badPRId[len(bogusPRidPrefix):]
+		var realPRid float64
+		realPRid, err = strconv.ParseFloat(goodPRId, 64)
+		if err != nil {
+			return
+		}
+		valueMap["pullRequestId"] = realPRid
+
+		// remove extra quotes
+		trimQuotes(valueMap, "eventSource")
+		trimQuotes(valueMap, "repositoryOwner")
+		trimQuotes(valueMap, "repositoryName")
+
+		err = parseExtraJsonFields(valueMap, extra)
+		if err != nil {
+			logger.Error("skipping invalid score message", zap.Error(err), zap.Any("valueMapMangled", valueMap))
+			return
+		}
+		logger.Debug("duct tape applied to scoring message", zap.Any("valueMapMangled", valueMap))
+	} else {
+		err = fmt.Errorf("unexpected prefix in PR id: %s", badPRId)
+		logger.Error("invalid PR id", zap.Error(err), zap.Any("valueMap", valueMap))
+		return
 	}
 	return
 }

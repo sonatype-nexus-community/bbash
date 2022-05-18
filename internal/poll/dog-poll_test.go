@@ -525,7 +525,7 @@ func TestProcessResponseDataScoringMessageWithNonNumericPullRequestID(t *testing
 		"pullRequestId":   "PullRequestId 4",    // bad: non-numeric
 		"eventSource":     "\"github.com\"",     // bad: extra quotes
 		"repositoryName":  "\"lift-dev4-test\"", // bad: extra quotes
-		"repositoryOwner": "\"collinpeters\"",   // bad: extra quotes
+		"repositoryOwner": "\"peters\"",         // bad: extra quotes
 		"eventType":       "\"opened\"",         // bad: extra quotes
 	}
 	logAttribsBad := createLogAttribs(mapExtraFieldsBad)
@@ -561,10 +561,50 @@ func TestProcessResponseDataScoringMessageWithNonNumericPullRequestID(t *testing
 	assert.Equal(t, 4, logs[0].Fields.scoringMessage.PullRequest)
 	assert.Equal(t, "github.com", logs[0].Fields.scoringMessage.EventSource)
 	assert.Equal(t, "lift-dev4-test", logs[0].Fields.scoringMessage.RepoName)
-	assert.Equal(t, "collinpeters", logs[0].Fields.scoringMessage.RepoOwner)
+	assert.Equal(t, "peters", logs[0].Fields.scoringMessage.RepoOwner)
 
 	assert.Equal(t, logIdGood, logs[1].Id)
 	assert.Equal(t, 5, logs[1].Fields.scoringMessage.PullRequest)
+}
+
+func TestProcessResponseDataScoringMessageWithBogusNonNumericPullRequestID(t *testing.T) {
+	// this map has invalid info (due to test data that made it to production logs)
+	mapExtraFieldsBad := map[string]interface{}{
+		"pullRequestId":   "PullRequestId BadNum", // bad: non-numeric
+		"eventSource":     "\"github.com\"",       // bad: extra quotes
+		"repositoryName":  "\"lift-dev4-test\"",   // bad: extra quotes
+		"repositoryOwner": "\"peters\"",           // bad: extra quotes
+		"eventType":       "\"opened\"",           // bad: extra quotes
+	}
+	logAttribsBad := createLogAttribs(mapExtraFieldsBad)
+	logIdBad := "myLogIdBad"
+
+	mapExtraFieldsGood := map[string]interface{}{
+		"pullRequestId": 5,
+	}
+	logAttribsGood := createLogAttribs(mapExtraFieldsGood)
+	logIdGood := "myLogIdGood"
+
+	responseData := []datadog.Log{
+		{
+			Id:             &logIdBad,
+			Attributes:     &logAttribsBad,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+		{
+			Id:             &logIdGood,
+			Attributes:     &logAttribsGood,
+			Type:           nil,
+			UnparsedObject: nil,
+		},
+	}
+
+	logger = zaptest.NewLogger(t)
+
+	logs, err := processResponseData(responseData)
+	assert.EqualError(t, err, "strconv.ParseFloat: parsing \"BadNum\": invalid syntax")
+	assert.Nil(t, logs)
 }
 
 func createLogAttribs(mapExtraFields map[string]interface{}) (logAttribs datadog.LogAttributes) {
@@ -1068,6 +1108,56 @@ func TestChaseTailOneLogWithOptMap(t *testing.T) {
 	time.Sleep(2 * time.Second)
 	close(quitChan)
 	assert.True(t, msgProcessed)
+}
+
+func TestApplyDuctTapeToScoringMessageWrongPRIdPrefix(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	valueMap := map[string]interface{}{
+		"pullRequestId": "nonNumeric",
+	}
+	extra := extraFields{}
+	err := applyDuctTapeToScoringMessage(valueMap, &extra)
+	assert.EqualError(t, err, "unexpected prefix in PR id: nonNumeric")
+}
+
+func TestApplyDuctTapeToScoringMessageFloatParseError(t *testing.T) {
+	valueMap := map[string]interface{}{
+		"pullRequestId": bogusPRidPrefix + "nonNumeric",
+	}
+	extra := extraFields{}
+	err := applyDuctTapeToScoringMessage(valueMap, &extra)
+	assert.EqualError(t, err, "strconv.ParseFloat: parsing \"nonNumeric\": invalid syntax")
+}
+
+func TestApplyDuctTapeToScoringMessageRetryError(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	valueMap := map[string]interface{}{
+		"pullRequestId":   bogusPRidPrefix + "5",
+		"eventSource":     "myEventSource",
+		"repositoryOwner": "myRepoOwner",
+		"repositoryName":  "myRepoName",
+		"fixed-bugs":      "forceErrorTotalFixedNonNumeric",
+	}
+	extra := extraFields{}
+	err := applyDuctTapeToScoringMessage(valueMap, &extra)
+	assert.EqualError(t, err, "json: cannot unmarshal string into Go struct field ScoringMessage.fixed-bugs of type int")
+}
+
+func TestParseExtraJsonFieldsMarshallError(t *testing.T) {
+	logger = zaptest.NewLogger(t)
+
+	var badMap map[string]interface{}
+	badMap = map[string]interface{}{
+		"selfReferencingMap": &badMap,
+	}
+	valueMap := map[string]interface{}{
+		"fixed-bug-types": badMap,
+	}
+	extra := extraFields{}
+	err := parseExtraJsonFields(valueMap, &extra)
+	assert.EqualError(t, err, "json: unsupported value: encountered a cycle via *map[string]interface {}")
 }
 
 //goland:noinspection GoUnusedFunction
