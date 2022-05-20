@@ -54,3 +54,7 @@ Here are some minimal steps to set up a new Bug Bash Campaign.
 
        curl -u "theAdminUsername:theAdminPassword" -X PUT http://localhost:7777/admin/campaign/update/myCampaignName -d '{ "startOn": "2022-04-15T12:00:00Z", "endOn": "2022-04-30T12:00:00Z"}'
 
+* List Active Campaigns using the command below. This includes only those campaigns with an end date that is after today.
+
+       curl http://localhost:7777/campaign/active
+
