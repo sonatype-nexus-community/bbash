@@ -143,7 +143,7 @@ You will need:
 - `aws-vault`
 - `docker`
 
-*Sonatype employees see https://docs.sonatype.com/display/DEVOPSKB/AWS%3A+Getting+Started+with+AWS+at+Sonatype for access request instructions and two factor authentication setup.
+* Sonatype employees see [here](https://docs.sonatype.com/display/DEVOPSKB/AWS%3A+Getting+Started+with+AWS+at+Sonatype) for access request instructions and two factor authentication setup.
 
 #### Terraform
 
@@ -175,7 +175,7 @@ Some pre-requisite/one-time setup steps:
 
         $ aws-vault add my-bbash-profile
         
-        *For sonatype employees: make sure to set up two factor auth: https://docs.sonatype.com/display/DEVOPSKB/aws-vault+Introduction 
+       For sonatype employees: make sure to set up two factor auth [(see link)](https://docs.sonatype.com/display/DEVOPSKB/aws-vault+Introduction)
 
   * (One-time) initialize terraform
 
@@ -208,9 +208,9 @@ With all the above configured, here's the deployment command in full:
 Please note that `make docker` will also increment the version number of this build and create a commit for this change.
 
 ### Viewing log files in AWS (for newer users)
-* For Sonatype employees make sure to Switch Roles to innovations-sandbox: https://docs.sonatype.com/display/SRE/AWS+Innovation+Sandbox. Under main menu select "Switch Roles". Enter account number (12 digits) and role (ie admin). Please note that if using a Mac you may need to be on Safari browser for this to work.
+* For Sonatype employees make sure to Switch Roles to [innovations-sandbox](https://docs.sonatype.com/display/SRE/AWS+Innovation+Sandbox). Under main menu select "Switch Roles". Enter account number (12 digits) and role (ie admin). Please note that if using a Mac you may need to be on Safari browser for this to work.
 
-In AWS console search CloudWatch.
+In AWS console search for "CloudWatch".
 
 From CloudWatch navigate to logs -> log groups -> bug-bash-cloudwatch-lergs.
 
