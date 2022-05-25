@@ -143,6 +143,8 @@ You will need:
 - `aws-vault`
 - `docker`
 
+* Sonatype employees see [here](https://docs.sonatype.com/display/DEVOPSKB/AWS%3A+Getting+Started+with+AWS+at+Sonatype) for access request instructions and two factor authentication setup.
+
 #### Terraform
 
 - `aws-vault exec <your_profile> terraform init`
@@ -165,10 +167,15 @@ Some pre-requisite/one-time setup steps:
   * install `aws-vault`
         
         $ brew install --cask aws-vault
+        
+  * create AWS profile for "<your_profile>" below
+       In AWS under Account -> "Security Credentials" -> “Access keys for CLI, SDK, & API access”
 
   * add aws-vault profile ("<your_profile>" in steps below) for use in pushing images
 
         $ aws-vault add my-bbash-profile
+        
+       For sonatype employees: make sure to set up two factor auth [(see link)](https://docs.sonatype.com/display/DEVOPSKB/aws-vault+Introduction)
 
   * (One-time) initialize terraform
 
@@ -197,6 +204,15 @@ After you have done this, you SHOULD have a running service, somewhere in AWS :)
 With all the above configured, here's the deployment command in full:
 
     make && make docker && ./docker.sh
+    
+Please note that `make docker` will also increment the version number of this build and create a commit for this change.
+
+### Viewing log files in AWS (for newer users)
+* For Sonatype employees make sure to Switch Roles to [innovations-sandbox](https://docs.sonatype.com/display/SRE/AWS+Innovation+Sandbox). Under main menu select "Switch Roles". Enter account number (12 digits) and role (ie admin). Please note that if using a Mac you may need to be on Safari browser for this to work.
+
+In AWS console search for "CloudWatch".
+
+From CloudWatch navigate to logs -> log groups -> bug-bash-cloudwatch-lergs.
 
 ### Helpful Links:
 
