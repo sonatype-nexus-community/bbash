@@ -16,6 +16,7 @@ version: 2.1
 
 orbs:
   nancy: sonatype-nexus-community/circleci-nancy-orb@0
+  slack: circleci/slack@4.4.4
 
 executors:
   go:
@@ -79,6 +80,7 @@ workflows:
       - build:
           context:
             - scan_ossi
+            - slack_community_oss_fun
 
   build_nightly:
     triggers:
@@ -92,3 +94,4 @@ workflows:
           context:
             - scan_ossi
             - datadog_poll
+            - slack_community_oss_fun
