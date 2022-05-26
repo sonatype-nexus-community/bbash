@@ -112,7 +112,7 @@ func TestGetSourceControlProviders(t *testing.T) {
 	scps, err := db.GetSourceControlProviders()
 	assert.NoError(t, err)
 	assert.Equal(t, []types.SourceControlProviderStruct{
-		{"someId", "someSCP", "someUrl"},
+		{ID: "someId", SCPName: "someSCP", Url: "someUrl"},
 	}, scps)
 }
 
