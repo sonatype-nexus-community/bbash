@@ -573,6 +573,8 @@ func processScoringMessage(scoreDb db.IScoreDB, now time.Time, msg *types.Scorin
 		return
 	}
 	for _, participantToScore := range activeParticipantsToScore {
+		// this oddity solves 'gosec: Implicit memory aliasing in for loop.'
+		participantToScore := participantToScore
 
 		newPoints := scorePoints(msg, participantToScore.CampaignName)
 
