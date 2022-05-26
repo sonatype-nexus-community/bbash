@@ -92,7 +92,7 @@ func TestGetDDApiClientReal(t *testing.T) {
 func TestGetDDApiClientRealHasSomeScoresInPastWeek(t *testing.T) {
 	// skip if not running nightly CI job
 	ddApiKey := os.Getenv("DD_CLIENT_API_KEY")
-	if "" == ddApiKey {
+	if ddApiKey == "" {
 		fmt.Println("skipping test: TestGetDDApiClientRealHasSomeScoresInPastWeek")
 		return
 	}
