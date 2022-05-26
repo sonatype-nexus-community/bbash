@@ -107,7 +107,7 @@ func pollTheDog(pollDB db.IDBPoll, priorPollTime, now time.Time) (logs []ddLog, 
 	pageCursor := ""
 	isDone := false
 	var totalFetchDuration time.Duration
-	for err == nil && isDone == false {
+	for err == nil && !isDone {
 		var logPage []ddLog
 		var fetchDuration time.Duration
 		isDone, pageCursor, logPage, fetchDuration, err = fetchLogPage(before, now, &pageCursor)

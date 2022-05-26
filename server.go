@@ -175,8 +175,8 @@ func main() {
 		var errChan chan error
 		stopPoll, errChan, err = beginLogPolling()
 		if err != nil {
-		    logger.Error("begin polling", zap.Error(err))
-		    panic(fmt.Errorf("failed to start polling. err: %+v", err))
+			logger.Error("begin polling", zap.Error(err))
+			panic(fmt.Errorf("failed to start polling. err: %+v", err))
 		}
 
 		defer func() {
@@ -573,6 +573,8 @@ func processScoringMessage(scoreDb db.IScoreDB, now time.Time, msg *types.Scorin
 		return
 	}
 	for _, participantToScore := range activeParticipantsToScore {
+		// this oddity solves 'gosec: Implicit memory aliasing in for loop.'
+		participantToScore := participantToScore
 
 		newPoints := scorePoints(msg, participantToScore.CampaignName)
 
@@ -833,6 +835,8 @@ func putBugs(c echo.Context) (err error) {
 
 	var inserted []types.BugStruct
 	for _, bug := range bugs {
+		// this oddity solves 'gosec: Implicit memory aliasing in for loop.'
+		bug := bug
 		if err = validateBug(&bug); err != nil {
 			return
 		}

@@ -65,7 +65,7 @@ COPY --from=build /src/build /build
 COPY --from=build /src/bbash /
 COPY *.env /
 COPY *.env.dd /
-ADD internal/db/migrations /internal/db/migrations
+COPY internal/db/migrations /internal/db/migrations
 
 USER bbashuser:bbashuser
 
