@@ -7,7 +7,7 @@ require (
 	github.com/DataDog/datadog-api-client-go v1.12.0
 	github.com/golang-migrate/migrate/v4 v4.15.1
 	github.com/joho/godotenv v1.4.0
-	github.com/labstack/echo/v4 v4.7.2
+	github.com/labstack/echo/v4 v4.9.0
 	github.com/stretchr/testify v1.7.1
 	go.uber.org/zap v1.21.0
 )
