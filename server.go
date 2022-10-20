@@ -117,6 +117,13 @@ func main() {
 	//e.Use(echozap.ZapLogger(logger))
 	e.Use(ZapLoggerFilterAwsElb(logger))
 
+	e.Use(middleware.SecureWithConfig(middleware.SecureConfig{
+		XSSProtection:      middleware.DefaultSecureConfig.XSSProtection,
+		ContentTypeNosniff: middleware.DefaultSecureConfig.ContentTypeNosniff,
+		XFrameOptions:      "DENY",
+		HSTSMaxAge:         31536000, //seconds = 1 year
+	}))
+
 	e.Debug = true
 
 	defer func() {
