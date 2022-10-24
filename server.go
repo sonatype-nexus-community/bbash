@@ -117,11 +117,21 @@ func main() {
 	//e.Use(echozap.ZapLogger(logger))
 	e.Use(ZapLoggerFilterAwsElb(logger))
 
+	csp := "default-src 'none'; " +
+		"script-src 'self'; " +
+		"connect-src 'self'; " +
+		"img-src 'self' data:; " +
+		"style-src 'self'; " +
+		"form-action 'self'; " +
+		"manifest-src 'self'; " +
+		"font-src 'self'; " +
+		"frame-ancestors 'none'; " +
+		"upgrade-insecure-requests;"
+
 	e.Use(middleware.SecureWithConfig(middleware.SecureConfig{
-		XSSProtection:      middleware.DefaultSecureConfig.XSSProtection,
-		ContentTypeNosniff: middleware.DefaultSecureConfig.ContentTypeNosniff,
-		XFrameOptions:      "DENY",
-		HSTSMaxAge:         31536000, //seconds = 1 year
+		ContentTypeNosniff:    middleware.DefaultSecureConfig.ContentTypeNosniff,
+		HSTSMaxAge:            31536000, //seconds = 1 year
+		ContentSecurityPolicy: csp,
 	}))
 
 	e.Debug = true
