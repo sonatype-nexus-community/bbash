@@ -106,7 +106,7 @@ func TestGetDDApiClientRealHasSomeScoresInPastWeek(t *testing.T) {
 
 	now := time.Now()
 	//hoursDuration := time.Hour * -168 // one week in the past
-	hoursDuration := time.Hour * -672 // 4 weeks in the past, while researching log scrape options
+	hoursDuration := time.Hour * -1344 // 8 weeks in the past, while researching log scrape options
 	before := now.Add(hoursDuration)
 
 	isDone, pageCursor, logPage, _, err = fetchLogPage(before, now, &pageCursor)
