@@ -21,9 +21,10 @@ orbs:
 executors:
   go:
     docker:
-      - image: circleci/golang:1.17-buster-node-browsers-legacy
+#      - image: circleci/golang:1.17-buster-node-browsers-legacy
 #      - image: cimg/go:1.17-node
-#      - image: cimg/go:1.17-browsers
+      - image: cimg/go:1.17-browsers
+#      - image: cimg/go:1.19-browsers
 
 commands:
   cmd-nancy:
@@ -51,7 +52,6 @@ jobs:
     environment:
       GO111MODULE: "on"
       TEST_RESULTS: /tmp/test-results
-    working_directory: /go/src/github.com/sonatype-nexus-community/bbash
     steps:
       - checkout
       - run: mkdir -p $TEST_RESULTS/gotest
