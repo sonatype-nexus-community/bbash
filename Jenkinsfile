@@ -28,7 +28,7 @@ dockerizedBuildPipeline(
       withCredentials([usernamePassword(credentialsId: 'jenkins-saas-service-acct',
         usernameVariable: 'IQ_USERNAME', passwordVariable: 'IQ_PASSWORD')]) {
         sh 'npx auditjs@latest iq -x -a bbash -s release -u $IQ_USERNAME -p $IQ_PASSWORD -h https://sonatype.sonatype.app/platform'
-        sh 'go list -json -deps | /tmp/tools/nancy iq --iq-application bbash --iq-stage release --iq-username $IQ_USERNAME --iq-token $IQ_PASSWORD --iq-server-url https://sonatype.sonatype.app/platform'
+        sh 'go list -json -deps | /tmp/tools/nancy iq --iq-application bbash-services --iq-stage release --iq-username $IQ_USERNAME --iq-token $IQ_PASSWORD --iq-server-url https://sonatype.sonatype.app/platform'
       }
     })
   },
